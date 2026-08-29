@@ -42,7 +42,8 @@ class UIDriver:
         try:
             await self._submit_prompt(page, prompt)
             text = await self._wait_for_answer(page)
-            return {"text": text, "conversation_id": conversation_id or ""}
+            cid = conversation_id or await self._current_conversation_id(page)
+            return {"text": text, "conversation_id": cid}
         finally:
             await page.close()
 
@@ -54,9 +55,24 @@ class UIDriver:
             src = await wait_for_image(page, timeout_s=timeout_s)
             ctx = await self.browser.context()
             path = await save_image(src, _images_dir(), ctx.request)
-            return {"path": str(path), "prompt": prompt}
+            conversation_id = await self._current_conversation_id(page)
+            return {
+                "path": str(path),
+                "prompt": prompt,
+                "conversation_id": conversation_id,
+            }
         finally:
             await page.close()
+
+    async def _current_conversation_id(self, page) -> str:
+        """Extract the conversation id from the URL (``/c/<id>``), else empty."""
+        try:
+            url = page.url
+            if "/c/" in url:
+                return url.split("/c/", 1)[1].split("/", 1)[0].split("?", 1)[0]
+        except Exception:
+            pass
+        return ""
 
     async def _submit_prompt(self, page, prompt: str) -> None:
         composer = page.locator(COMPOSER_SELECTOR).first

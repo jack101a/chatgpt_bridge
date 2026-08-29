@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from .browser import BrowserManager
+from .chat_pool import DEFAULT_MAX_CHATS, ChatPoolManager
 from .errors import AuthError, ShapeChangedError
 from .http_client import BackendClient
 from .session import SessionManager
@@ -18,13 +19,22 @@ class ChatGPT:
     when the HTTP shape drifts.
     """
 
-    def __init__(self, headless: bool = True, auto_relogin: bool = False) -> None:
+    def __init__(
+        self,
+        headless: bool = True,
+        auto_relogin: bool = False,
+        max_chats: int | None = None,
+    ) -> None:
         self.headless = headless
         self.auto_relogin = auto_relogin
         self.browser = BrowserManager(headless=headless)
         self.session = SessionManager(self.browser)
         self.http = BackendClient(self.session)
         self.ui = UIDriver(self.browser, self.session)
+        self.pool = ChatPoolManager(
+            self.session,
+            max_chats=max_chats if max_chats is not None else DEFAULT_MAX_CHATS,
+        )
         self._started = False
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -64,14 +74,25 @@ class ChatGPT:
         """
         await self._ensure_started()
         try:
-            return await self.http.ask(prompt, conversation_id=conversation_id)
+            result = await self.http.ask(prompt, conversation_id=conversation_id)
         except ShapeChangedError:
-            return await self.ui.ask(prompt, conversation_id=conversation_id)
+            result = await self.ui.ask(prompt, conversation_id=conversation_id)
+        await self._track(result.get("conversation_id"))
+        return result
 
     async def generate_image(self, prompt: str, timeout_s: int = 180) -> dict:
         """Generate an image via the UI and return ``{"path", "prompt"}``."""
         await self._ensure_started()
-        return await self.ui.generate_image(prompt, timeout_s=timeout_s)
+        result = await self.ui.generate_image(prompt, timeout_s=timeout_s)
+        await self._track(result.get("conversation_id"))
+        return result
+
+    async def _track(self, conversation_id: str | None) -> None:
+        """Record a bridge-created conversation and prune the oldest past the limit."""
+        if not conversation_id:
+            return
+        self.pool.record(conversation_id)
+        await self.pool.prune()
 
     def close(self) -> None:
         """Synchronously stop the browser."""

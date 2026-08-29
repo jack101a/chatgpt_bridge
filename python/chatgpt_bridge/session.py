@@ -135,6 +135,55 @@ class SessionManager:
         finally:
             await page.close()
 
+    async def delete_conversation(self, conversation_id: str) -> None:
+        """Soft-delete (hide) a conversation via the browser request context.
+
+        Uses ``PATCH /backend-api/conversation/{id}`` with ``is_visible: false``,
+        matching the web UI's "Delete chat" action. The browser context carries
+        the full cookie jar + Cloudflare clearance, so this succeeds where a
+        bare ``httpx`` call returns 403.
+        """
+        import json as _json
+
+        access_token = await self.get_access_token()
+        ctx = await self.browser.context()
+        page = await ctx.new_page()
+        try:
+            resp = await page.request.patch(
+                f"https://chatgpt.com/backend-api/conversation/{conversation_id}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {access_token}",
+                },
+                data=_json.dumps({"is_visible": False}),
+                timeout=30_000,
+            )
+            if resp.status not in (200, 204):
+                raise AuthError(
+                    f"delete conversation returned status {resp.status}"
+                )
+        finally:
+            await page.close()
+
+    async def list_conversations(self, limit: int = 20) -> list[dict]:
+        """List recent conversations (most-recently-updated first)."""
+        ctx = await self.browser.context()
+        page = await ctx.new_page()
+        try:
+            resp = await page.request.get(
+                "https://chatgpt.com/backend-api/conversations",
+                params={"offset": 0, "limit": limit, "order": "updated"},
+                timeout=30_000,
+            )
+            if resp.status != 200:
+                raise AuthError(
+                    f"list conversations returned status {resp.status}"
+                )
+            data = await resp.json()
+            return data.get("items") or data.get("conversations") or []
+        finally:
+            await page.close()
+
     @staticmethod
     async def _wait_for_enter() -> None:
         """Block until the user presses Enter on stdin (run in executor)."""
