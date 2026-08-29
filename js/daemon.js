@@ -46,10 +46,23 @@ async function fetchHealth(port, timeoutMs) {
   }
 }
 
+function resolvePython() {
+  // Allow explicit override (e.g. a venv python), else fall back to python3.
+  if (process.env.CHATGPT_BRIDGE_PYTHON) return process.env.CHATGPT_BRIDGE_PYTHON;
+  return "python3";
+}
+
 function spawnDaemon() {
   fs.mkdirSync(STATE_DIR, { recursive: true });
   const log = fs.openSync(DAEMON_LOG, "a");
-  const child = spawn("python", ["-m", "chatgpt_bridge.daemon"], {
+  const python = resolvePython();
+  // Headful Chromium needs a display; wrap in xvfb-run when DISPLAY is unset.
+  const hasDisplay = Boolean(process.env.DISPLAY);
+  const cmd = hasDisplay ? python : "xvfb-run";
+  const args = hasDisplay
+    ? ["-m", "chatgpt_bridge.daemon"]
+    : ["-a", python, "-m", "chatgpt_bridge.daemon"];
+  const child = spawn(cmd, args, {
     detached: true,
     stdio: ["ignore", log, log],
   });

@@ -14,6 +14,11 @@ from pydantic import BaseModel, Field
 from .core import ChatGPT
 from .errors import AuthError, BridgeTimeoutError, DaemonUnreachableError, ShapeChangedError
 
+try:
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+except Exception:  # pragma: no cover - playwright always present at runtime
+    PlaywrightTimeoutError = Exception
+
 STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
 DAEMON_JSON = STATE_DIR / "daemon.json"
 PORT = 8765
@@ -39,7 +44,11 @@ class ImageRequest(BaseModel):
 def _get_core() -> ChatGPT:
     global _core
     if _core is None:
-        _core = ChatGPT(headless=True)
+        # Headless Chromium is Cloudflare-blocked; default to headful.
+        # Set CHATGPT_BRIDGE_HEADLESS=1 to force headless (e.g. on a box
+        # where headless passes CF).
+        headless = os.environ.get("CHATGPT_BRIDGE_HEADLESS", "0") == "1"
+        _core = ChatGPT(headless=headless)
     return _core
 
 
@@ -62,7 +71,7 @@ async def ask(req: AskRequest) -> dict:
             return await _get_core().ask(
                 req.prompt, model=req.model, conversation_id=req.conversation_id
             )
-        except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError) as exc:
+        except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, PlaywrightTimeoutError) as exc:
             return _error_response(exc)
 
 
@@ -71,7 +80,7 @@ async def image(req: ImageRequest) -> dict:
     async with _lock:
         try:
             return await _get_core().generate_image(req.prompt, timeout_s=req.timeout_s)
-        except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError) as exc:
+        except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, PlaywrightTimeoutError) as exc:
             return _error_response(exc)
 
 
