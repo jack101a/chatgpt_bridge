@@ -43,22 +43,36 @@ class CookieFormatError(ValueError):
 
 
 def _normalize_json_cookie(raw: dict) -> dict:
-    """Normalize a single JSON cookie dict into Playwright shape."""
+    """Normalize a single JSON cookie dict into a Chromium-safe Playwright shape.
+
+    Rules applied so ``context.add_cookies`` does not reject the cookie:
+
+    * ``expires`` is coerced to ``int`` (Chromium rejects floats).
+    * ``sameSite: "None"`` requires ``secure: true``; if the cookie is not
+      secure, ``sameSite`` is downgraded to ``"Lax"``.
+    * Host-only cookies (Chrome exports ``hostOnly: true`` with a domain that
+      has no leading dot) are emitted in ``url`` form
+      ``https://<domain><path>`` with the ``domain`` field dropped, which is
+      the unambiguous way to set a host-only cookie in Playwright.
+    """
     name = raw.get("name")
     value = raw.get("value")
     if not name or value is None:
         raise CookieFormatError(f"cookie missing name/value: {raw!r}")
 
     domain = raw.get("domain") or _DEFAULT_DOMAIN
-    if not domain.startswith("."):
-        domain = "." + domain
+    path = raw.get("path") or _DEFAULT_PATH
+    host_only = bool(raw.get("hostOnly", False))
 
-    # expires <- "expires" else "expirationDate" else -1.
+    # expires <- "expires" else "expirationDate" else -1; always int.
     expires = raw.get("expires")
     if expires is None:
         expires = raw.get("expirationDate")
     if expires is None:
         expires = _DEFAULT_EXPIRES
+    expires = int(expires)
+
+    secure = bool(raw.get("secure", _DEFAULT_SECURE))
 
     # Normalize sameSite casing; unknown/missing -> "Lax".
     same_site = raw.get("sameSite")
@@ -67,16 +81,27 @@ def _normalize_json_cookie(raw: dict) -> dict:
     else:
         same_site = _SAMESITE_MAP.get(str(same_site).lower(), _DEFAULT_SAMESITE)
 
-    return {
+    # "None" requires secure; downgrade insecure "None" to "Lax".
+    if same_site == "None" and not secure:
+        same_site = "Lax"
+
+    common = {
         "name": name,
         "value": value,
-        "domain": domain,
-        "path": raw.get("path") or _DEFAULT_PATH,
+        "path": path,
         "expires": expires,
-        "secure": bool(raw.get("secure", _DEFAULT_SECURE)),
+        "secure": secure,
         "httpOnly": bool(raw.get("httpOnly", False)),
         "sameSite": same_site,
     }
+
+    if host_only:
+        # url-form host-only cookie; drop the domain field entirely.
+        return {**common, "url": f"https://{domain}{path}"}
+
+    if not domain.startswith("."):
+        domain = "." + domain
+    return {**common, "domain": domain}
 
 
 def _parse_json(text: str) -> list[dict]:

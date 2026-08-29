@@ -156,15 +156,17 @@ def _chrome_cookie(
     same_site: str = "lax",
     expiration_date: float | None = None,
     session: bool = False,
+    host_only: bool = False,
+    secure: bool = True,
 ) -> dict:
     c = {
         "domain": "chatgpt.com",
-        "hostOnly": False,
+        "hostOnly": host_only,
         "httpOnly": True,
         "name": name,
         "path": "/",
         "sameSite": same_site,
-        "secure": True,
+        "secure": secure,
         "session": session,
         "storeId": "0",
         "value": value,
@@ -270,3 +272,52 @@ def test_wrapper_object_cookies_valid_with_expiration_date(tmp_path):
 
     cookies = load_cookie_file(p)
     assert cookies_valid(cookies) is True
+
+
+# --- Chromium add_cookies-safe normalization ---
+
+
+def _load_single(raw_cookie: dict, tmp_path) -> dict:
+    raw = {"url": "https://chatgpt.com", "cookies": [raw_cookie]}
+    p = tmp_path / "cookies.txt"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    return load_cookie_file(p)[0]
+
+
+def test_host_only_cookie_uses_url_form_and_drops_domain(tmp_path):
+    c = _load_single(_chrome_cookie("a", "b", host_only=True), tmp_path)
+    assert "domain" not in c
+    assert c["url"] == "https://chatgpt.com/"
+    assert c["name"] == "a"
+    assert c["value"] == "b"
+
+
+def test_non_host_only_cookie_keeps_domain_form(tmp_path):
+    c = _load_single(_chrome_cookie("a", "b", host_only=False), tmp_path)
+    assert "url" not in c
+    assert c["domain"] == ".chatgpt.com"
+
+
+def test_float_expires_converted_to_int(tmp_path):
+    exp = float(int(time.time()) + 5000)
+    c = _load_single(_chrome_cookie("a", "b", expiration_date=exp), tmp_path)
+    assert isinstance(c["expires"], int)
+    assert c["expires"] == int(exp)
+
+
+def test_samesite_none_insecure_downgraded_to_lax(tmp_path):
+    c = _load_single(
+        _chrome_cookie("a", "b", same_site="no_restriction", secure=False),
+        tmp_path,
+    )
+    assert c["sameSite"] == "Lax"
+    assert c["secure"] is False
+
+
+def test_samesite_none_secure_kept_as_none(tmp_path):
+    c = _load_single(
+        _chrome_cookie("a", "b", same_site="no_restriction", secure=True),
+        tmp_path,
+    )
+    assert c["sameSite"] == "None"
+    assert c["secure"] is True
