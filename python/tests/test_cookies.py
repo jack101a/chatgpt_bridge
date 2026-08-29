@@ -145,3 +145,128 @@ def test_load_json_cookie_missing_value_raises(tmp_path):
     p.write_text('[{"name": "x"}]', encoding="utf-8")
     with pytest.raises(CookieFormatError):
         load_cookie_file(p)
+
+
+# --- Chrome-extension (Cookie-Editor style) wrapper object support ---
+
+
+def _chrome_cookie(
+    name: str,
+    value: str = "v",
+    same_site: str = "lax",
+    expiration_date: float | None = None,
+    session: bool = False,
+) -> dict:
+    c = {
+        "domain": "chatgpt.com",
+        "hostOnly": False,
+        "httpOnly": True,
+        "name": name,
+        "path": "/",
+        "sameSite": same_site,
+        "secure": True,
+        "session": session,
+        "storeId": "0",
+        "value": value,
+    }
+    if expiration_date is not None:
+        c["expirationDate"] = expiration_date
+    return c
+
+
+def test_load_wrapper_object_uses_cookies_list(tmp_path):
+    raw = {
+        "url": "https://chatgpt.com",
+        "cookies": [
+            _chrome_cookie(SESSION_COOKIE, "tok", expiration_date=float(int(time.time()) + 3600)),
+            _chrome_cookie("other", "x", same_site="no_restriction"),
+        ],
+    }
+    p = tmp_path / "cookies.txt"  # extension is .txt but content is JSON
+    p.write_text(json.dumps(raw), encoding="utf-8")
+
+    cookies = load_cookie_file(p)
+    assert len(cookies) == 2
+    assert cookies[0]["name"] == SESSION_COOKIE
+    assert cookies[0]["domain"] == ".chatgpt.com"
+    assert cookies[0]["expires"] > time.time()
+
+
+def test_content_sniff_detects_json_in_txt(tmp_path):
+    # Named .txt but JSON content -> must take the JSON path.
+    raw = {"url": "https://chatgpt.com", "cookies": [_chrome_cookie("a", "b")]}
+    p = tmp_path / "cookies.txt"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+
+    cookies = load_cookie_file(p)
+    assert cookies[0]["name"] == "a"
+    assert cookies[0]["value"] == "b"
+
+
+def test_expiration_date_converts_to_expires(tmp_path):
+    exp = float(int(time.time()) + 5000)
+    raw = {"url": "https://chatgpt.com", "cookies": [_chrome_cookie("a", "b", expiration_date=exp)]}
+    p = tmp_path / "cookies.txt"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+
+    cookies = load_cookie_file(p)
+    assert cookies[0]["expires"] == exp
+
+
+def test_expires_preferred_over_expiration_date(tmp_path):
+    exp = float(int(time.time()) + 5000)
+    raw = {
+        "url": "https://chatgpt.com",
+        "cookies": [
+            {**_chrome_cookie("a", "b", expiration_date=exp), "expires": 123}
+        ],
+    }
+    p = tmp_path / "cookies.txt"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+
+    cookies = load_cookie_file(p)
+    assert cookies[0]["expires"] == 123
+
+
+def test_samesite_mapping(tmp_path):
+    raw = {
+        "url": "https://chatgpt.com",
+        "cookies": [
+            _chrome_cookie("lax", "1", same_site="lax"),
+            _chrome_cookie("strict", "2", same_site="strict"),
+            _chrome_cookie("none", "3", same_site="no_restriction"),
+            _chrome_cookie("unspec", "4", same_site="unspecified"),
+            _chrome_cookie("missing", "5"),  # no sameSite key
+        ],
+    }
+    p = tmp_path / "cookies.txt"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+
+    cookies = load_cookie_file(p)
+    by_name = {c["name"]: c["sameSite"] for c in cookies}
+    assert by_name["lax"] == "Lax"
+    assert by_name["strict"] == "Strict"
+    assert by_name["none"] == "None"
+    assert by_name["unspec"] == "Lax"
+    assert by_name["missing"] == "Lax"
+
+
+def test_wrapper_object_without_cookies_raises(tmp_path):
+    p = tmp_path / "cookies.txt"
+    p.write_text('{"url": "https://chatgpt.com"}', encoding="utf-8")
+    with pytest.raises(CookieFormatError):
+        load_cookie_file(p)
+
+
+def test_wrapper_object_cookies_valid_with_expiration_date(tmp_path):
+    raw = {
+        "url": "https://chatgpt.com",
+        "cookies": [
+            _chrome_cookie(SESSION_COOKIE, "tok", expiration_date=float(int(time.time()) + 3600))
+        ],
+    }
+    p = tmp_path / "cookies.txt"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+
+    cookies = load_cookie_file(p)
+    assert cookies_valid(cookies) is True

@@ -1,11 +1,15 @@
 """Cookie file parsing and validation for chatgpt-bridge.
 
-Supports two on-disk formats:
+Supports three on-disk formats, detected by CONTENT (not file extension):
 
 * Netscape ``cookies.txt`` (tab-separated, ``#`` comments).
 * A JSON array of cookie objects ``[{name, value, domain, path, expires, ...}]``.
+* A Chrome-extension (Cookie-Editor style) wrapper object
+  ``{"url": ..., "cookies": [...]}`` where each cookie may use
+  ``expirationDate`` (float) and ``sameSite`` values like ``"lax"``,
+  ``"no_restriction"``, ``"strict"``, or ``"unspecified"``.
 
-Both are normalized into Playwright-style cookie dicts.
+All are normalized into Playwright-style cookie dicts.
 """
 
 from __future__ import annotations
@@ -24,6 +28,15 @@ _DEFAULT_EXPIRES = -1
 _DEFAULT_SECURE = True
 _DEFAULT_SAMESITE = "Lax"
 
+# Map Chrome-extension sameSite values onto Playwright's canonical casing.
+_SAMESITE_MAP = {
+    "lax": "Lax",
+    "strict": "Strict",
+    "no_restriction": "None",
+    "none": "None",
+    "unspecified": "Lax",
+}
+
 
 class CookieFormatError(ValueError):
     """Raised when a cookie file cannot be parsed."""
@@ -40,9 +53,19 @@ def _normalize_json_cookie(raw: dict) -> dict:
     if not domain.startswith("."):
         domain = "." + domain
 
-    expires = raw.get("expires", _DEFAULT_EXPIRES)
+    # expires <- "expires" else "expirationDate" else -1.
+    expires = raw.get("expires")
+    if expires is None:
+        expires = raw.get("expirationDate")
     if expires is None:
         expires = _DEFAULT_EXPIRES
+
+    # Normalize sameSite casing; unknown/missing -> "Lax".
+    same_site = raw.get("sameSite")
+    if same_site is None:
+        same_site = _DEFAULT_SAMESITE
+    else:
+        same_site = _SAMESITE_MAP.get(str(same_site).lower(), _DEFAULT_SAMESITE)
 
     return {
         "name": name,
@@ -52,7 +75,7 @@ def _normalize_json_cookie(raw: dict) -> dict:
         "expires": expires,
         "secure": bool(raw.get("secure", _DEFAULT_SECURE)),
         "httpOnly": bool(raw.get("httpOnly", False)),
-        "sameSite": raw.get("sameSite") or _DEFAULT_SAMESITE,
+        "sameSite": same_site,
     }
 
 
@@ -62,10 +85,18 @@ def _parse_json(text: str) -> list[dict]:
     except json.JSONDecodeError as exc:
         raise CookieFormatError(f"invalid JSON cookie file: {exc}") from exc
 
-    if not isinstance(data, list):
-        raise CookieFormatError("JSON cookie file must be an array of cookie objects")
+    if isinstance(data, list):
+        cookies = data
+    elif isinstance(data, dict) and isinstance(data.get("cookies"), list):
+        # Chrome-extension wrapper object {"url": ..., "cookies": [...]}.
+        cookies = data["cookies"]
+    else:
+        raise CookieFormatError(
+            "JSON cookie file must be an array of cookies or a "
+            '{"url": ..., "cookies": [...]} wrapper object'
+        )
 
-    return [_normalize_json_cookie(item) for item in data]
+    return [_normalize_json_cookie(item) for item in cookies]
 
 
 def _parse_netscape(text: str) -> list[dict]:
@@ -105,19 +136,17 @@ def _parse_netscape(text: str) -> list[dict]:
 
 
 def load_cookie_file(path: str | Path) -> list[dict]:
-    """Load cookies from a Netscape ``.txt`` or JSON ``.json`` file.
+    """Load cookies from a Netscape or JSON cookie file.
+
+    Format is detected by content: if the trimmed text starts with ``{`` or
+    ``[`` it is parsed as JSON, otherwise as Netscape ``cookies.txt``.
 
     Returns a list of Playwright-style cookie dicts.
     """
     p = Path(path)
     text = p.read_text(encoding="utf-8")
-    suffix = p.suffix.lower()
-    if suffix == ".json":
-        return _parse_json(text)
-    if suffix == ".txt":
-        return _parse_netscape(text)
-    # Fall back to sniffing: JSON arrays start with '['.
-    if text.lstrip().startswith("["):
+    stripped = text.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
         return _parse_json(text)
     return _parse_netscape(text)
 
