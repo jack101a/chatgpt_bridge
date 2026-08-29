@@ -15,7 +15,7 @@ COMPOSER_SELECTOR = (
     '[data-testid="composer-text-input"], div[contenteditable="true"]'
 )
 SEND_SELECTOR = '[data-testid="composer-send-button"]'
-TURN_SELECTOR = 'article[data-testid^="conversation-turn"]'
+TURN_SELECTOR = '[data-testid^="conversation-turn"]'
 ASSISTANT_SELECTOR = '[data-message-author-role="assistant"]'
 
 HOME_URL = "https://chatgpt.com/"
@@ -62,12 +62,10 @@ class UIDriver:
         composer = page.locator(COMPOSER_SELECTOR).first
         await composer.wait_for(state="visible", timeout=30_000)
         await composer.click()
-        await composer.fill(prompt)
-        send = page.locator(SEND_SELECTOR).first
-        if await send.count() > 0 and await send.is_visible():
-            await send.click()
-        else:
-            await composer.press("Enter")
+        # Type characters: fill() doesn't fire the input events the
+        # contenteditable ProseMirror composer needs.
+        await page.keyboard.type(prompt, delay=10)
+        await page.keyboard.press("Enter")
 
     async def _wait_for_answer(self, page, timeout_s: int = 120) -> str:
         """Poll assistant turns until the answer is stable across 2 polls."""

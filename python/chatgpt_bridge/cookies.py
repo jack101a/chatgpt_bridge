@@ -88,7 +88,6 @@ def _normalize_json_cookie(raw: dict) -> dict:
     common = {
         "name": name,
         "value": value,
-        "path": path,
         "expires": expires,
         "secure": secure,
         "httpOnly": bool(raw.get("httpOnly", False)),
@@ -96,12 +95,13 @@ def _normalize_json_cookie(raw: dict) -> dict:
     }
 
     if host_only:
-        # url-form host-only cookie; drop the domain field entirely.
+        # url-form host-only cookie; Playwright requires EITHER url OR
+        # domain+path, not both — so drop domain AND path here.
         return {**common, "url": f"https://{domain}{path}"}
 
     if not domain.startswith("."):
         domain = "." + domain
-    return {**common, "domain": domain}
+    return {**common, "domain": domain, "path": path}
 
 
 def _parse_json(text: str) -> list[dict]:

@@ -26,12 +26,21 @@ class ChatGPT:
         self.http = BackendClient(self.session)
         self.ui = UIDriver(self.browser, self.session)
         self._started = False
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def _get_loop(self) -> asyncio.AbstractEventLoop:
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+        return self._loop
 
     async def _ensure_started(self) -> None:
         if self._started:
             return
         await self.browser.start()
         await self.session.apply_pending_import()
+        if not await self.session.is_alive():
+            # Try cookie-file import before giving up or going interactive.
+            await self.session.try_cookie_login()
         if not await self.session.is_alive():
             if self.auto_relogin:
                 await self.session.login_flow()
@@ -67,12 +76,17 @@ class ChatGPT:
     def close(self) -> None:
         """Synchronously stop the browser."""
         if self._started:
-            asyncio.run(self.browser.stop())
+            loop = self._get_loop()
+            loop.run_until_complete(self.browser.stop())
             self._started = False
 
-    # Sync sugar.
+    # Sync sugar — all reuse one event loop (Playwright objects are loop-bound).
     def ask_sync(self, prompt: str, model: str | None = None, conversation_id: str | None = None) -> dict:
-        return asyncio.run(self.ask(prompt, model=model, conversation_id=conversation_id))
+        return self._get_loop().run_until_complete(
+            self.ask(prompt, model=model, conversation_id=conversation_id)
+        )
 
     def generate_image_sync(self, prompt: str, timeout_s: int = 180) -> dict:
-        return asyncio.run(self.generate_image(prompt, timeout_s=timeout_s))
+        return self._get_loop().run_until_complete(
+            self.generate_image(prompt, timeout_s=timeout_s)
+        )

@@ -84,30 +84,37 @@ class SessionManager:
         await ctx.add_cookies(self._pending_import)
         self._pending_import = None
 
-    async def login_flow(self) -> None:
+    async def try_cookie_login(self) -> bool:
+        """Try cookie-file import; return True iff session became alive."""
+        cookie_path = None
+        if COOKIE_JSON.exists():
+            cookie_path = COOKIE_JSON
+        elif COOKIE_TXT.exists():
+            cookie_path = COOKIE_TXT
+        if cookie_path is None:
+            return False
+        self.import_cookie_file(cookie_path)
+        await self.apply_pending_import()
+        return await self.is_alive()
+
+    async def login_flow(self, interactive: bool = True) -> None:
         """Establish a session using the documented priority.
 
         Priority: existing live profile -> cookie import -> interactive
-        headful relaunch (user logs in manually, profile persists).
+        headful relaunch (only when ``interactive`` is True; caller raises
+        on its own when the session is still missing afterwards).
         """
         # 1. Existing profile already alive?
         if await self.is_alive():
             return
 
         # 2. Cookie import if a cookie file is present.
-        cookie_path = None
-        if COOKIE_JSON.exists():
-            cookie_path = COOKIE_JSON
-        elif COOKIE_TXT.exists():
-            cookie_path = COOKIE_TXT
-        if cookie_path is not None:
-            self.import_cookie_file(cookie_path)
-            await self.apply_pending_import()
-            if await self.is_alive():
-                return
+        if await self.try_cookie_login():
+            return
 
         # 3. Interactive headful relaunch.
-        await self._interactive_login()
+        if interactive:
+            await self._interactive_login()
 
     async def _interactive_login(self) -> None:
         """Open a headful browser for the user to log in manually."""
