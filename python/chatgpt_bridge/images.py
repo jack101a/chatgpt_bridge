@@ -8,8 +8,15 @@ from pathlib import Path
 
 from .errors import BridgeTimeoutError
 
-# Selector for generated images in the conversation.
-IMAGE_SELECTOR = 'article img[src*="oaiusercontent"], article img[src^="data:"]'
+# Selector for generated images in the conversation. Generated images carry
+# alt="Generated image: ..." and a backend-api/estuary/content src (older
+# builds used oaiusercontent). Match by alt first, then by src pattern.
+IMAGE_SELECTOR = (
+    'img[alt^="Generated image"], '
+    'img[src*="backend-api/estuary/content"], '
+    'img[src*="oaiusercontent"], '
+    'img[src^="data:"]'
+)
 
 
 async def wait_for_image(page, timeout_s: int = 180) -> str:
