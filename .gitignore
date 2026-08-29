@@ -1,5 +1,40 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# user cookie exports (secrets)
+# --- Node / JS ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# --- Secrets: user cookie exports (never commit) ---
 chatgpt_cookies.txt
 cookies.txt
 cookies.json
+*.session-token
+
+# --- Local state / runtime artifacts ---
+.chatgpt-bridge/
+daemon.json
+daemon.log
+
+# --- Test result artifacts ---
+*_test_results.json
+full_test_results.json
+
+# --- Editor / OS ---
+.DS_Store
+*.swp
+.idea/
+.vscode/
