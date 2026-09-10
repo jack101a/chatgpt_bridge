@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import chatgpt_bridge.daemon as daemon
-from chatgpt_bridge.errors import AuthError, ShapeChangedError
+from chatgpt_bridge.errors import AuthError, GenerationDeniedError, ShapeChangedError
 
 
 class _FakeCore:
@@ -63,6 +63,20 @@ def test_ask_error_maps_to_502(monkeypatch):
     body = resp.json()
     assert body["error"]["type"] == "AuthError"
     assert "no session" in body["error"]["message"]
+
+
+def test_image_denied_maps_to_502(monkeypatch):
+    class _DeniedCore:
+        async def generate_image(self, prompt, timeout_s=180):
+            raise GenerationDeniedError("denied", kind="deterministic")
+
+    monkeypatch.setattr(daemon, "_get_core", lambda: _DeniedCore())
+    client = TestClient(daemon.app)
+    resp = client.post("/image", json={"prompt": "a fox"})
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body["error"]["type"] == "GenerationDeniedError"
+    assert "denied" in body["error"]["message"]
 
 
 def test_write_daemon_json(tmp_path, monkeypatch):

@@ -12,7 +12,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .core import ChatGPT
-from .errors import AuthError, BridgeTimeoutError, DaemonUnreachableError, ShapeChangedError
+from .errors import (
+    AuthError,
+    BridgeTimeoutError,
+    DaemonUnreachableError,
+    GenerationDeniedError,
+    ShapeChangedError,
+)
 
 try:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -39,6 +45,7 @@ class AskRequest(BaseModel):
 class ImageRequest(BaseModel):
     prompt: str
     timeout_s: int = Field(default=180, ge=1)
+    max_tries: int | None = None
 
 
 def _get_core() -> ChatGPT:
@@ -80,7 +87,7 @@ async def image(req: ImageRequest) -> dict:
     async with _lock:
         try:
             return await _get_core().generate_image(req.prompt, timeout_s=req.timeout_s)
-        except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, PlaywrightTimeoutError) as exc:
+        except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, GenerationDeniedError, PlaywrightTimeoutError) as exc:
             return _error_response(exc)
 
 

@@ -8,6 +8,7 @@ from .browser import BrowserManager
 from .chat_pool import DEFAULT_MAX_CHATS, ChatPoolManager
 from .errors import AuthError, ShapeChangedError
 from .http_client import BackendClient
+from .retry import RetryConfig
 from .session import SessionManager
 from .ui_driver import UIDriver
 
@@ -24,9 +25,11 @@ class ChatGPT:
         headless: bool = True,
         auto_relogin: bool = False,
         max_chats: int | None = None,
+        max_retries: int = 3,
     ) -> None:
         self.headless = headless
         self.auto_relogin = auto_relogin
+        self.max_retries = max_retries
         self.browser = BrowserManager(headless=headless)
         self.session = SessionManager(self.browser)
         self.http = BackendClient(self.session)
@@ -83,7 +86,11 @@ class ChatGPT:
     async def generate_image(self, prompt: str, timeout_s: int = 180) -> dict:
         """Generate an image via the UI and return ``{"path", "prompt"}``."""
         await self._ensure_started()
-        result = await self.ui.generate_image(prompt, timeout_s=timeout_s)
+        result = await self.ui.generate_image(
+            prompt,
+            timeout_s=timeout_s,
+            retry=RetryConfig(max_tries=self.max_retries),
+        )
         await self._track(result.get("conversation_id"))
         return result
 
