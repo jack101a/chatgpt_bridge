@@ -146,6 +146,41 @@ on `127.0.0.1:8765`:
 - `POST /ask` → `{"prompt": "..."}` → `{"text", "conversation_id"}`
 - `POST /image` → `{"prompt": "...", "timeout_s": 180}` → `{"path", "prompt"}`
 
+| `TELEGRAM_BOT_TOKEN` | Required for the Telegram bot | — |
+| `TELEGRAM_ALLOWED_USER_IDS` | Comma-separated Telegram user IDs allowed to use the bot (empty = deny everyone) | — |
+
+## Telegram bot
+
+A standalone bot that exposes the whole bridge over Telegram (long polling;
+no public URL or new dependencies needed).
+
+Setup:
+1. Message [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token.
+2. Get your numeric user ID from [@userinfobot](https://t.me/userinfobot).
+3. Start the bot:
+
+```bash
+cd python
+TELEGRAM_BOT_TOKEN=123:abc TELEGRAM_ALLOWED_USER_IDS=123456789 \
+    .venv/bin/python -m chatgpt_bridge.bot
+```
+
+> **Do not run the bot and the HTTP daemon at the same time** — both use the
+> same Chromium profile.
+
+Commands:
+
+| Input | Action |
+|---|---|
+| any text | chat — replies with ChatGPT's answer (long answers are split) |
+| `/image <prompt>` | generate an image, sent back as a photo |
+| `/status` | session alive / browser / pool size |
+| `/chats` | list tracked chats in the pool |
+| `/clear` | soft-delete all tracked chats |
+| `/help` | usage |
+
+Users not on the whitelist are silently ignored.
+
 ## Requirements
 
 - Python ≥ 3.10
