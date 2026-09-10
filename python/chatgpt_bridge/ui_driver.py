@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 
 from .browser import BrowserManager
-from .errors import BridgeTimeoutError, ShapeChangedError
-from .images import save_image, wait_for_image
+from .errors import BridgeTimeoutError, GenerationDeniedError, ShapeChangedError
+from .images import IMAGE_SELECTOR, save_image
+from .retry import RetryConfig, classify_response, parse_rate_limit_wait
 from .session import SessionManager
 
 # Robust selectors, data-testid first.
@@ -17,6 +19,11 @@ COMPOSER_SELECTOR = (
 SEND_SELECTOR = '[data-testid="composer-send-button"]'
 TURN_SELECTOR = '[data-testid^="conversation-turn"]'
 ASSISTANT_SELECTOR = '[data-message-author-role="assistant"]'
+
+# "Try again" button (transient dialog) and the Switch-model popover trigger.
+TRY_AGAIN_RE = re.compile(r"try again|retry|regenerate", re.IGNORECASE)
+SWITCH_MODEL_SELECTOR = 'button[aria-label="Switch model"]'
+LOADING_SELECTOR = '[data-testid="image-gen-loading-state"]'
 
 HOME_URL = "https://chatgpt.com/"
 
@@ -47,22 +54,165 @@ class UIDriver:
         finally:
             await page.close()
 
-    async def generate_image(self, prompt: str, timeout_s: int = 180) -> dict:
-        """Submit a prompt and wait for a generated image."""
-        page = await self._page()
+    async def generate_image(
+        self,
+        prompt: str,
+        timeout_s: int = 180,
+        retry: RetryConfig | None = None,
+    ) -> dict:
+        """Submit a prompt and wait for a generated image, retrying on denial.
+
+        ``retry=None`` uses the default :class:`RetryConfig` (3 tries). Pass
+        ``RetryConfig(max_tries=1)`` to disable retrying. The prompt is always
+        sent verbatim. Raises :class:`GenerationDeniedError` on deterministic
+        denial or exhausted retries, :class:`BridgeTimeoutError` if no image
+        ever appears.
+        """
+        cfg = retry or RetryConfig()
+        last_kind = "no_image"
+        last_text = ""
+        tries = 0
+        while tries < cfg.max_tries:
+            tries += 1
+            if tries > 1:
+                await asyncio.sleep(cfg.delay_for(tries))
+            page = await self._page()
+            try:
+                await self._submit_prompt(page, prompt)
+                outcome = await self._wait_for_outcome(page, timeout_s)
+                if outcome["kind"] == "image":
+                    ctx = await self.browser.context()
+                    path = await save_image(outcome["src"], _images_dir(), ctx.request)
+                    cid = await self._current_conversation_id(page)
+                    return {
+                        "path": str(path),
+                        "prompt": prompt,
+                        "conversation_id": cid,
+                    }
+                if outcome["kind"] == "retrying":
+                    # A "Try again" button was clicked; regeneration is in
+                    # progress. Do not consume a try — keep waiting.
+                    tries -= 1
+                    continue
+                last_kind = outcome["kind"]
+                last_text = outcome.get("text", "")
+                if last_kind == "deterministic":
+                    raise GenerationDeniedError(
+                        last_text[:200] or "deterministic denial",
+                        kind="deterministic",
+                    )
+                if last_kind == "rate_limit":
+                    wait_s = parse_rate_limit_wait(last_text)
+                    if wait_s:
+                        await asyncio.sleep(wait_s)
+            finally:
+                await page.close()
+        raise GenerationDeniedError(
+            f"image denied after {cfg.max_tries} tries (last: {last_kind})",
+            kind=last_kind,
+        )
+
+    async def _wait_for_outcome(self, page, timeout_s: int) -> dict:
+        """Poll until an image, a settled denial, or a retry button appears.
+
+        Returns one of:
+          {"kind": "image", "src": str}
+          {"kind": "retrying"}
+          {"kind": <classify_response kind>, "text": str}
+        """
+        deadline = time.monotonic() + timeout_s
+        last_text = ""
+        stable_polls = 0
+        while time.monotonic() < deadline:
+            # 1. Image appeared?
+            src = await self._find_image_src(page)
+            if src:
+                return {"kind": "image", "src": src}
+
+            # 2. "Try again" button visible (transient) — click immediately.
+            if await self._click_try_again(page):
+                return {"kind": "retrying"}
+
+            # 3. Still generating? Reset settle counter and keep waiting.
+            if await self._is_loading(page):
+                stable_polls = 0
+                last_text = ""
+                await asyncio.sleep(0.5)
+                continue
+
+            # 4. Settled assistant text?
+            text = await self._read_last_assistant(page)
+            if text and text == last_text:
+                stable_polls += 1
+                if stable_polls >= 4:
+                    kind = classify_response(text)
+                    if kind == "denial":
+                        # No retry button seen — try the Switch-model popover.
+                        if await self._switch_model_fallback(page):
+                            return {"kind": "retrying"}
+                    return {"kind": kind, "text": text}
+            elif text:
+                last_text = text
+                stable_polls = 0
+            await asyncio.sleep(0.5)
+
+        raise BridgeTimeoutError(
+            f"timed out after {timeout_s}s waiting for image outcome"
+        )
+
+    async def _find_image_src(self, page) -> str | None:
         try:
-            await self._submit_prompt(page, prompt)
-            src = await wait_for_image(page, timeout_s=timeout_s)
-            ctx = await self.browser.context()
-            path = await save_image(src, _images_dir(), ctx.request)
-            conversation_id = await self._current_conversation_id(page)
-            return {
-                "path": str(path),
-                "prompt": prompt,
-                "conversation_id": conversation_id,
-            }
-        finally:
-            await page.close()
+            locator = page.locator(IMAGE_SELECTOR).first
+            if await locator.count() == 0:
+                return None
+            return await locator.get_attribute("src") or None
+        except Exception:
+            return None
+
+    async def _is_loading(self, page) -> bool:
+        try:
+            return await page.locator(LOADING_SELECTOR).count() > 0
+        except Exception:
+            return False
+
+    async def _click_try_again(self, page) -> bool:
+        """Click a visible "Try again"/"Retry"/"Regenerate" button if present."""
+        try:
+            buttons = page.locator("button")
+            count = await buttons.count()
+            for i in range(count):
+                btn = buttons.nth(i)
+                if not await btn.is_visible():
+                    continue
+                text = (await btn.inner_text()) or ""
+                if TRY_AGAIN_RE.search(text):
+                    await btn.click()
+                    return True
+        except Exception:
+            pass
+        return False
+
+    async def _switch_model_fallback(self, page) -> bool:
+        """Open the Switch-model popover and click its "Try again" if present.
+
+        The popover (Radix UI) opens on pointerdown; dismiss any overlay with
+        Escape first, then click the trigger and poll fast for the retry button.
+        """
+        try:
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.15)
+            trigger = page.locator(SWITCH_MODEL_SELECTOR).last
+            if await trigger.count() == 0:
+                return False
+            await trigger.click()
+            fast_start = time.monotonic()
+            while time.monotonic() - fast_start < 2.0:
+                if await self._click_try_again(page):
+                    return True
+                await asyncio.sleep(0.1)
+        except Exception:
+            pass
+        return False
 
     async def _current_conversation_id(self, page) -> str:
         """Extract the conversation id from the URL (``/c/<id>``), else empty."""
