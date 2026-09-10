@@ -86,6 +86,22 @@ asyncio.run(main())
 | `headless` | `True` | Run Chromium headless. **Set `False`** — headless is Cloudflare-blocked on most datacenter IPs. |
 | `auto_relogin` | `False` | If `True`, open an interactive login window when no session is found. |
 | `max_chats` | `10` | Max conversations kept in the pool; the oldest is soft-deleted past this. |
+| `max_retries` | `3` | Image-generation retry attempts on policy denial (see below). Set `1` to disable. |
+
+### Image retry behavior
+
+Image generation automatically retries when ChatGPT refuses on policy grounds.
+The prompt is always sent **verbatim** (never rephrased or modified):
+
+- **Denial** → clicks the transient "Try again" button the moment it appears,
+  or falls back to the Switch-model popover; otherwise resends after a
+  randomized gap + backoff.
+- **Rate limit** → waits the parsed "try again in N minutes" before retrying.
+- **Deterministic (IP/copyright)** → fails immediately (retrying never helps).
+
+When retries are exhausted (or a deterministic denial occurs), the bridge
+raises `GenerationDeniedError` (Python) / returns a 502 with
+`"type": "GenerationDeniedError"` (daemon/JS). `timeout_s` applies per attempt.
 
 ## JavaScript usage
 
