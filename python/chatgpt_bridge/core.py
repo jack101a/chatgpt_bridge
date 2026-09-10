@@ -26,10 +26,12 @@ class ChatGPT:
         auto_relogin: bool = False,
         max_chats: int | None = None,
         max_retries: int = 3,
+        use_http: bool = True,
     ) -> None:
         self.headless = headless
         self.auto_relogin = auto_relogin
         self.max_retries = max_retries
+        self.use_http = use_http
         self.browser = BrowserManager(headless=headless)
         self.session = SessionManager(self.browser)
         self.http = BackendClient(self.session)
@@ -76,9 +78,12 @@ class ChatGPT:
         falls back to the UI driver.
         """
         await self._ensure_started()
-        try:
-            result = await self.http.ask(prompt, conversation_id=conversation_id)
-        except ShapeChangedError:
+        if self.use_http:
+            try:
+                result = await self.http.ask(prompt, conversation_id=conversation_id)
+            except ShapeChangedError:
+                result = await self.ui.ask(prompt, conversation_id=conversation_id)
+        else:
             result = await self.ui.ask(prompt, conversation_id=conversation_id)
         await self._track(result.get("conversation_id"))
         return result

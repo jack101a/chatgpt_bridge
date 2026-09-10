@@ -272,6 +272,7 @@ COMMANDS = [
     {"command": "status", "description": "Show session and bridge health"},
     {"command": "chats", "description": "List tracked conversations"},
     {"command": "clear", "description": "Delete all tracked conversations"},
+    {"command": "http", "description": "Toggle fast HTTP path on/off"},
     {"command": "menu", "description": "Show the main menu"},
     {"command": "help", "description": "Show help"},
 ]
@@ -340,6 +341,8 @@ class BridgeBot:
             await self._locked(chat_id, self._show_chats(chat_id))
         elif cmd == "/clear":
             await self._locked(chat_id, self._show_clear_confirm(chat_id))
+        elif cmd == "/http":
+            await self._locked(chat_id, self._cmd_http(chat_id, text))
         elif cmd in ("/start", "/menu", "/help"):
             await self._show_menu(chat_id)
         else:
@@ -440,12 +443,14 @@ class BridgeBot:
         alive = await self.gpt.session.is_alive()
         pool = self.gpt.pool
         session_line = "logged in" if alive else "<b>not logged in</b>"
+        http_line = "on" if getattr(self.gpt, "use_http", True) else "off"
         lines = [
             "<b>Status</b>",
             "",
             f"Session: {session_line}",
             f"Browser: {'running' if self.gpt._started else 'not started'}",
             f"Chats tracked: {len(pool._ids)}",
+            f"Fast HTTP path: {http_line}",
         ]
         if not alive:
             lines.append("")
@@ -460,6 +465,25 @@ class BridgeBot:
             await self.tg.edit_message_text(chat_id, edit, text, reply_markup=kb)
         else:
             await self.tg.send_message(chat_id, text, reply_markup=kb)
+
+    async def _cmd_http(self, chat_id: int, text: str) -> None:
+        """Toggle the fast HTTP path on/off (``/http on``, ``/http off``, ``/http``)."""
+        arg = text[len("/http"):].strip().lower()
+        current = getattr(self.gpt, "use_http", True)
+        if arg in ("on", "1", "true", "yes"):
+            self.gpt.use_http = True
+        elif arg in ("off", "0", "false", "no"):
+            self.gpt.use_http = False
+        else:
+            # No argument → toggle.
+            self.gpt.use_http = not current
+        state = "on" if self.gpt.use_http else "off"
+        await self.tg.send_message(
+            chat_id,
+            f"<b>Fast HTTP path: {state}</b>\n\n"
+            "<i>When off, text answers always go through the browser "
+            "(slower but reliable).</i>",
+        )
 
     async def _show_chats(self, chat_id: int, edit: int | None = None) -> None:
         pool = self.gpt.pool
@@ -588,7 +612,10 @@ class BridgeBot:
 
 async def run(config: BotConfig, gpt: ChatGPT | None = None) -> None:
     tg = TelegramAPI(config.token)
-    bot = BridgeBot(tg, config, gpt or ChatGPT(headless=False))
+    if gpt is None:
+        use_http = (os.environ.get("CHATGPT_BRIDGE_USE_HTTP") or "1").strip().lower()
+        gpt = ChatGPT(headless=False, use_http=use_http not in ("0", "false", "no", "off"))
+    bot = BridgeBot(tg, config, gpt)
     offset = 0
     log.info("bot polling started")
     try:

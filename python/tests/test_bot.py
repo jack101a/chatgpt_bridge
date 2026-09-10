@@ -67,6 +67,7 @@ class _FakeSession:
 class _FakeGPT:
     def __init__(self, ask_result=None, raise_exc=None):
         self._started = False
+        self.use_http = True
         self.pool = _FakePool(["c1", "c2"])
         self.session = _FakeSession()
         self._ask_result = ask_result or {"text": "hi back", "conversation_id": "c3"}
@@ -332,3 +333,38 @@ def test_long_answer_split_into_chunks():
 def test_generation_denied_error_requires_kind_positional():
     exc = GenerationDeniedError("x", "denial")
     assert exc.kind == "denial"
+
+
+# ---- http toggle ----
+
+def test_http_toggle_off():
+    gpt = _FakeGPT()
+    tg, bot = _bot(gpt=gpt)
+    _await(bot.handle_update(_update("/http off")))
+    assert gpt.use_http is False
+    msg = _msgs(tg)[0][2]
+    assert "off" in msg
+
+
+def test_http_toggle_on():
+    gpt = _FakeGPT()
+    gpt.use_http = False
+    tg, bot = _bot(gpt=gpt)
+    _await(bot.handle_update(_update("/http on")))
+    assert gpt.use_http is True
+
+
+def test_http_toggle_no_arg_flips():
+    gpt = _FakeGPT()
+    tg, bot = _bot(gpt=gpt)
+    _await(bot.handle_update(_update("/http")))
+    assert gpt.use_http is False
+
+
+def test_status_shows_http_mode():
+    gpt = _FakeGPT()
+    gpt.use_http = False
+    tg, bot = _bot(gpt=gpt)
+    _await(bot.handle_update(_update("/status")))
+    msg = _msgs(tg)[0][2]
+    assert "Fast HTTP path: off" in msg
