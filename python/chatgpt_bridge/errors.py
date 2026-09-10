@@ -20,3 +20,11 @@ class BridgeTimeoutError(TimeoutError):
 
 class DaemonUnreachableError(RuntimeError):
     """The local daemon could not be reached or spawned."""
+
+
+class GenerationDeniedError(RuntimeError):
+    """Image generation was denied or retries were exhausted."""
+
+    def __init__(self, message: str, kind: str = "unknown") -> None:
+        super().__init__(message)
+        self.kind = kind
