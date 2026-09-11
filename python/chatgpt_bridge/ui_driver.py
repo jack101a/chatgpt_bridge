@@ -166,7 +166,7 @@ class UIDriver:
             if await self._is_loading(page):
                 if not saw_loading:
                     saw_loading = True
-                    existing = await self._existing_image_alts(page)
+                    existing = await self._existing_image_ids(page)
                 stable_polls = 0
                 last_text = ""
                 await asyncio.sleep(0.5)
@@ -203,37 +203,40 @@ class UIDriver:
             f"timed out after {timeout_s}s waiting for image outcome"
         )
 
-    async def _existing_image_alts(self, page) -> set[str]:
-        """Return the set of image ``alt`` texts currently in the DOM.
+    async def _existing_image_ids(self, page) -> set[str]:
+        """Return the set of image ``id`` fields (``file_XXX``) in the DOM.
 
-        The ``alt`` (``"Generated image: <title>"``) is unique per generation,
-        unlike ``src`` which is shared by 3 duplicate ``<img>`` elements.
+        The estuary ``src`` carries a unique ``id=file_XXX`` per generation,
+        unlike ``alt`` which ChatGPT can reuse for similar prompts. We key on
+        the ``id`` because it is guaranteed unique per generated image.
         """
         try:
             locator = page.locator(IMAGE_SELECTOR)
             count = await locator.count()
-            alts: set[str] = set()
+            ids: set[str] = set()
             for i in range(count):
-                alt = await locator.nth(i).get_attribute("alt")
-                if alt:
-                    alts.add(alt)
-            return alts
+                src = await locator.nth(i).get_attribute("src") or ""
+                fid = _extract_file_id(src)
+                if fid:
+                    ids.add(fid)
+            return ids
         except Exception:
             return set()
 
     async def _find_new_image_src(self, page, existing: set[str]) -> str | None:
-        """Return the src of the most recent image whose ``alt`` is new.
+        """Return the src of the most recent image whose ``id`` is new.
 
-        Iterates from last to first; returns the first image whose ``alt`` is
-        not in ``existing`` (i.e. a newly generated image, not a prior one).
+        Iterates from last to first; returns the first image whose ``id``
+        (``file_XXX``) is not in ``existing`` (i.e. a newly generated image).
         """
         try:
             locator = page.locator(IMAGE_SELECTOR)
             count = await locator.count()
             for i in range(count - 1, -1, -1):
-                alt = await locator.nth(i).get_attribute("alt")
-                if alt and alt not in existing:
-                    return await locator.nth(i).get_attribute("src")
+                src = await locator.nth(i).get_attribute("src") or ""
+                fid = _extract_file_id(src)
+                if fid and fid not in existing:
+                    return src
             return None
         except Exception:
             return None
@@ -294,8 +297,28 @@ class UIDriver:
         return ""
 
     async def _submit_prompt(self, page, prompt: str) -> None:
+        # Wait for a VISIBLE composer. Using .first pins to the first match in
+        # DOM order, which on /c/{id} is a hidden contenteditable skeleton div;
+        # wait_for(state="visible") then hangs on that hidden element even
+        # though a different visible composer exists. wait_for_selector with
+        # state="visible" resolves the first element that actually becomes
+        # visible.
+        #
+        # The box's network is flaky (ERR_NETWORK_CHANGED): goto can return at
+        # domcontentloaded but a mid-load failure leaves the SPA un-hydrated so
+        # the composer never renders. Reload once and retry before giving up.
+        for attempt in range(2):
+            try:
+                await page.wait_for_selector(
+                    COMPOSER_SELECTOR, state="visible", timeout=90_000
+                )
+                break
+            except Exception:
+                if attempt == 0:
+                    await page.reload(wait_until="domcontentloaded", timeout=60_000)
+                    continue
+                raise
         composer = page.locator(COMPOSER_SELECTOR).first
-        await composer.wait_for(state="visible", timeout=90_000)
         await composer.click()
         # Type characters: fill() doesn't fire the input events the
         # contenteditable ProseMirror composer needs.
@@ -338,3 +361,9 @@ def _images_dir():
     from pathlib import Path
 
     return Path("~/.chatgpt-bridge/images").expanduser()
+
+
+def _extract_file_id(src: str) -> str:
+    """Extract the ``file_XXX`` id from an estuary content URL, else empty."""
+    m = re.search(r"id=(file_[^&]+)", src)
+    return m.group(1) if m else ""
