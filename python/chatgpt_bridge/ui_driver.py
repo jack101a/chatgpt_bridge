@@ -38,14 +38,29 @@ class UIDriver:
     async def _page(self, conversation_id: str | None = None):
         ctx = await self.browser.context()
         page = await ctx.new_page()
-        if conversation_id:
-            await page.goto(
-                f"https://chatgpt.com/c/{conversation_id}",
-                wait_until="domcontentloaded",
-            )
-        else:
-            await page.goto(HOME_URL, wait_until="domcontentloaded")
-        return page
+        url = (
+            f"https://chatgpt.com/c/{conversation_id}"
+            if conversation_id
+            else HOME_URL
+        )
+        # Navigate with retries: the box's network is flaky (ERR_NETWORK_CHANGED)
+        # and /c/{id} loads are slower than the home page. Retry transient
+        # failures up to 3 times with a short backoff.
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                await page.goto(
+                    url,
+                    wait_until="domcontentloaded",
+                    timeout=60_000,
+                )
+                return page
+            except Exception as exc:  # noqa: BLE001 — retry any nav failure
+                last_exc = exc
+                if attempt < 2:
+                    await asyncio.sleep(2 * (attempt + 1))
+        await page.close()
+        raise last_exc  # type: ignore[misc]
 
     async def ask(
         self, prompt: str, conversation_id: str | None = None
@@ -174,7 +189,9 @@ class UIDriver:
 
     async def _find_image_src(self, page) -> str | None:
         try:
-            locator = page.locator(IMAGE_SELECTOR).first
+            # Use .last: with conversation continuity, multiple images live in
+            # the same chat, and we want the most recently generated one.
+            locator = page.locator(IMAGE_SELECTOR).last
             if await locator.count() == 0:
                 return None
             return await locator.get_attribute("src") or None
@@ -238,7 +255,7 @@ class UIDriver:
 
     async def _submit_prompt(self, page, prompt: str) -> None:
         composer = page.locator(COMPOSER_SELECTOR).first
-        await composer.wait_for(state="visible", timeout=30_000)
+        await composer.wait_for(state="visible", timeout=90_000)
         await composer.click()
         # Type characters: fill() doesn't fire the input events the
         # contenteditable ProseMirror composer needs.
