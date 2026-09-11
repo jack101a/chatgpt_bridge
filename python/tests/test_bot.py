@@ -73,6 +73,8 @@ class _FakeGPT:
         self._ask_result = ask_result or {"text": "hi back", "conversation_id": "c3"}
         self._raise = raise_exc
         self.asks: list[str] = []
+        self._current_conversation_id = None
+        self.new_chat_calls = 0
 
     async def ask(self, prompt):
         self.asks.append(prompt)
@@ -84,6 +86,10 @@ class _FakeGPT:
         if self._raise:
             raise self._raise
         return {"path": "/tmp/x.png", "prompt": prompt, "conversation_id": "c4"}
+
+    def new_chat(self):
+        self.new_chat_calls += 1
+        self._current_conversation_id = None
 
 
 ALLOWED = 42
@@ -368,3 +374,42 @@ def test_status_shows_http_mode():
     _await(bot.handle_update(_update("/status")))
     msg = _msgs(tg)[0][2]
     assert "Fast HTTP path: off" in msg
+
+
+# ---- new chat / conversation continuity ----
+
+def test_new_command_resets_conversation():
+    gpt = _FakeGPT()
+    gpt._current_conversation_id = "conv-abc"
+    tg, bot = _bot(gpt=gpt)
+    _await(bot.handle_update(_update("/new")))
+    assert gpt.new_chat_calls == 1
+    assert gpt._current_conversation_id is None
+    msg = _msgs(tg)[0][2]
+    assert "New chat" in msg
+
+
+def test_new_callback_resets_conversation():
+    gpt = _FakeGPT()
+    gpt._current_conversation_id = "conv-abc"
+    tg, bot = _bot(gpt=gpt)
+    _await(bot.handle_update(_callback("menu:new")))
+    assert gpt.new_chat_calls == 1
+    assert gpt._current_conversation_id is None
+
+
+def test_status_shows_current_chat():
+    gpt = _FakeGPT()
+    gpt._current_conversation_id = "conv-xyz"
+    tg, bot = _bot(gpt=gpt)
+    _await(bot.handle_update(_update("/status")))
+    msg = _msgs(tg)[0][2]
+    assert "conv-xyz" in msg
+
+
+def test_status_shows_no_current_chat():
+    gpt = _FakeGPT()
+    tg, bot = _bot(gpt=gpt)
+    _await(bot.handle_update(_update("/status")))
+    msg = _msgs(tg)[0][2]
+    assert "none (fresh chat)" in msg

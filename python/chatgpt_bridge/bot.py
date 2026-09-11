@@ -220,7 +220,7 @@ def _menu_keyboard() -> dict:
         "inline_keyboard": [
             [_btn("❓ Ask", "menu:ask"), _btn("🎨 Image", "menu:image")],
             [_btn("📊 Status", "menu:status"), _btn("💬 Chats", "menu:chats")],
-            [_btn("🗑 Clear all chats", "menu:clear")],
+            [_btn("🆕 New chat", "menu:new"), _btn("🗑 Clear all chats", "menu:clear")],
         ]
     }
 
@@ -269,6 +269,7 @@ MENU_TEXT = (
 COMMANDS = [
     {"command": "ask", "description": "Ask ChatGPT a question"},
     {"command": "image", "description": "Generate an image"},
+    {"command": "new", "description": "Start a fresh chat"},
     {"command": "status", "description": "Show session and bridge health"},
     {"command": "chats", "description": "List tracked conversations"},
     {"command": "clear", "description": "Delete all tracked conversations"},
@@ -343,6 +344,8 @@ class BridgeBot:
             await self._locked(chat_id, self._show_clear_confirm(chat_id))
         elif cmd == "/http":
             await self._locked(chat_id, self._cmd_http(chat_id, text))
+        elif cmd == "/new":
+            await self._locked(chat_id, self._cmd_new(chat_id))
         elif cmd in ("/start", "/menu", "/help"):
             await self._show_menu(chat_id)
         else:
@@ -377,6 +380,8 @@ class BridgeBot:
             await self._locked(chat_id, self._show_chats(chat_id, edit=message.get("message_id")))
         elif data == "menu:clear":
             await self._locked(chat_id, self._show_clear_confirm(chat_id, edit=message.get("message_id")))
+        elif data == "menu:new":
+            await self._locked(chat_id, self._cmd_new(chat_id, edit=message.get("message_id")))
         elif data == "clear:confirm":
             await self._locked(chat_id, self._do_clear(chat_id, edit=message.get("message_id")))
         elif data == "cb:cancel":
@@ -444,6 +449,8 @@ class BridgeBot:
         pool = self.gpt.pool
         session_line = "logged in" if alive else "<b>not logged in</b>"
         http_line = "on" if getattr(self.gpt, "use_http", True) else "off"
+        current = getattr(self.gpt, "_current_conversation_id", None)
+        current_line = f"<code>{esc(current)}</code>" if current else "none (fresh chat)"
         lines = [
             "<b>Status</b>",
             "",
@@ -451,6 +458,7 @@ class BridgeBot:
             f"Browser: {'running' if self.gpt._started else 'not started'}",
             f"Chats tracked: {len(pool._ids)}",
             f"Fast HTTP path: {http_line}",
+            f"Current chat: {current_line}",
         ]
         if not alive:
             lines.append("")
@@ -484,6 +492,18 @@ class BridgeBot:
             "<i>When off, text answers always go through the browser "
             "(slower but reliable).</i>",
         )
+
+    async def _cmd_new(self, chat_id: int, edit: int | None = None) -> None:
+        """Start a fresh chat: reset the current conversation."""
+        self.gpt.new_chat()
+        text = (
+            "<b>New chat started.</b>\n\n"
+            "The next prompt will begin a fresh conversation."
+        )
+        if edit is not None:
+            await self.tg.edit_message_text(chat_id, edit, text, reply_markup=_home_keyboard())
+        else:
+            await self.tg.send_message(chat_id, text, reply_markup=_home_keyboard())
 
     async def _show_chats(self, chat_id: int, edit: int | None = None) -> None:
         pool = self.gpt.pool

@@ -42,6 +42,9 @@ class ChatGPT:
         )
         self._started = False
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Current conversation for continuity: text and image prompts continue
+        # in the same chat until new_chat() is called.
+        self._current_conversation_id: str | None = None
 
     def _get_loop(self) -> asyncio.AbstractEventLoop:
         if self._loop is None or self._loop.is_closed():
@@ -74,30 +77,40 @@ class ChatGPT:
     ) -> dict:
         """Return ``{"text", "conversation_id"}``.
 
-        Tries the backend HTTP path first; on :class:`ShapeChangedError`
-        falls back to the UI driver.
+        Continues the current conversation (or ``conversation_id`` if given);
+        starts a fresh chat when neither exists. Tries the backend HTTP path
+        first; on :class:`ShapeChangedError` falls back to the UI driver.
         """
         await self._ensure_started()
+        cid = conversation_id or self._current_conversation_id
         if self.use_http:
             try:
-                result = await self.http.ask(prompt, conversation_id=conversation_id)
+                result = await self.http.ask(prompt, conversation_id=cid)
             except ShapeChangedError:
-                result = await self.ui.ask(prompt, conversation_id=conversation_id)
+                result = await self.ui.ask(prompt, conversation_id=cid)
         else:
-            result = await self.ui.ask(prompt, conversation_id=conversation_id)
+            result = await self.ui.ask(prompt, conversation_id=cid)
+        self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
         await self._track(result.get("conversation_id"))
         return result
 
     async def generate_image(self, prompt: str, timeout_s: int = 180) -> dict:
-        """Generate an image via the UI and return ``{"path", "prompt"}``."""
+        """Generate an image via the UI, continuing the current conversation."""
         await self._ensure_started()
+        cid = self._current_conversation_id
         result = await self.ui.generate_image(
             prompt,
             timeout_s=timeout_s,
             retry=RetryConfig(max_tries=self.max_retries),
+            conversation_id=cid,
         )
+        self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
         await self._track(result.get("conversation_id"))
         return result
+
+    def new_chat(self) -> None:
+        """Reset the current conversation so the next prompt starts fresh."""
+        self._current_conversation_id = None
 
     async def _track(self, conversation_id: str | None) -> None:
         """Record a bridge-created conversation and prune the oldest past the limit."""

@@ -35,17 +35,27 @@ class UIDriver:
         self.browser = browser
         self.session = session
 
-    async def _page(self):
+    async def _page(self, conversation_id: str | None = None):
         ctx = await self.browser.context()
         page = await ctx.new_page()
-        await page.goto(HOME_URL, wait_until="domcontentloaded")
+        if conversation_id:
+            await page.goto(
+                f"https://chatgpt.com/c/{conversation_id}",
+                wait_until="domcontentloaded",
+            )
+        else:
+            await page.goto(HOME_URL, wait_until="domcontentloaded")
         return page
 
     async def ask(
         self, prompt: str, conversation_id: str | None = None
     ) -> dict:
-        """Submit a prompt via the composer and return ``{"text", ...}``."""
-        page = await self._page()
+        """Submit a prompt via the composer and return ``{"text", ...}``.
+
+        When ``conversation_id`` is given, the prompt continues that existing
+        conversation; otherwise a fresh chat is started.
+        """
+        page = await self._page(conversation_id)
         try:
             await self._submit_prompt(page, prompt)
             text = await self._wait_for_answer(page)
@@ -59,14 +69,16 @@ class UIDriver:
         prompt: str,
         timeout_s: int = 180,
         retry: RetryConfig | None = None,
+        conversation_id: str | None = None,
     ) -> dict:
         """Submit a prompt and wait for a generated image, retrying on denial.
 
         ``retry=None`` uses the default :class:`RetryConfig` (3 tries). Pass
         ``RetryConfig(max_tries=1)`` to disable retrying. The prompt is always
-        sent verbatim. Raises :class:`GenerationDeniedError` on deterministic
-        denial or exhausted retries, :class:`BridgeTimeoutError` if no image
-        ever appears.
+        sent verbatim. When ``conversation_id`` is given, the prompt continues
+        that existing conversation; otherwise a fresh chat is started. Raises
+        :class:`GenerationDeniedError` on deterministic denial or exhausted
+        retries, :class:`BridgeTimeoutError` if no image ever appears.
         """
         cfg = retry or RetryConfig()
         last_kind = "no_image"
@@ -76,14 +88,14 @@ class UIDriver:
             tries += 1
             if tries > 1:
                 await asyncio.sleep(cfg.delay_for(tries))
-            page = await self._page()
+            page = await self._page(conversation_id)
             try:
                 await self._submit_prompt(page, prompt)
                 outcome = await self._wait_for_outcome(page, timeout_s)
                 if outcome["kind"] == "image":
                     ctx = await self.browser.context()
                     path = await save_image(outcome["src"], _images_dir(), ctx.request)
-                    cid = await self._current_conversation_id(page)
+                    cid = conversation_id or await self._current_conversation_id(page)
                     return {
                         "path": str(path),
                         "prompt": prompt,

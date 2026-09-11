@@ -95,7 +95,7 @@ def _driver(pages):
     it = iter(pages)
     last = pages[-1]
 
-    async def fake_page():
+    async def fake_page(conversation_id=None):
         return next(it, last)
 
     d._page = fake_page
