@@ -59,10 +59,14 @@ class _FakeKeyboard:
 class _FakePage:
     """Static fake page: a single DOM state, held indefinitely."""
 
-    def __init__(self, state: dict) -> None:
-        self._state = state
+    def __init__(self, state: dict, reveal_image_on_submit: bool = False) -> None:
+        self._state = dict(state)
+        self._reveal_image_on_submit = reveal_image_on_submit
         self.keyboard = _FakeKeyboard()
         self.url = "https://chatgpt.com/c/conv-1"
+
+    def reveal_image(self) -> None:
+        self._state["image"] = True
 
     def locator(self, selector: str):
         cur = self._state
@@ -101,6 +105,8 @@ def _driver(pages):
     d._page = fake_page
 
     async def fake_submit(page, prompt):
+        if getattr(page, "_reveal_image_on_submit", False):
+            page.reveal_image()
         return None
 
     d._submit_prompt = fake_submit
@@ -200,7 +206,10 @@ def test_generate_image_denial_then_success():
     d = _driver(
         [
             _FakePage({"text": "content policy violation"}),
-            _FakePage({"image": True, "src": "https://x/img.png"}),
+            _FakePage(
+                {"image": False, "src": "https://x/img.png"},
+                reveal_image_on_submit=True,
+            ),
         ]
     )
     d.browser = _Browser()

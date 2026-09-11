@@ -105,8 +105,12 @@ class UIDriver:
                 await asyncio.sleep(cfg.delay_for(tries))
             page = await self._page(conversation_id)
             try:
+                # Snapshot existing image srcs BEFORE submitting: with
+                # conversation continuity, prior images remain in the DOM and
+                # must not be mistaken for the newly generated one.
+                existing = await self._existing_image_srcs(page)
                 await self._submit_prompt(page, prompt)
-                outcome = await self._wait_for_outcome(page, timeout_s)
+                outcome = await self._wait_for_outcome(page, timeout_s, existing)
                 if outcome["kind"] == "image":
                     ctx = await self.browser.context()
                     path = await save_image(outcome["src"], _images_dir(), ctx.request)
@@ -139,20 +143,27 @@ class UIDriver:
             kind=last_kind,
         )
 
-    async def _wait_for_outcome(self, page, timeout_s: int) -> dict:
-        """Poll until an image, a settled denial, or a retry button appears.
+    async def _wait_for_outcome(
+        self, page, timeout_s: int, existing: set[str] | None = None
+    ) -> dict:
+        """Poll until a NEW image, a settled denial, or a retry button appears.
+
+        ``existing`` is the set of image srcs present before the prompt was
+        submitted; a returned image must NOT be in this set (so we don't grab
+        a prior turn's image under conversation continuity).
 
         Returns one of:
           {"kind": "image", "src": str}
           {"kind": "retrying"}
           {"kind": <classify_response kind>, "text": str}
         """
+        existing = existing or set()
         deadline = time.monotonic() + timeout_s
         last_text = ""
         stable_polls = 0
         while time.monotonic() < deadline:
-            # 1. Image appeared?
-            src = await self._find_image_src(page)
+            # 1. NEW image appeared?
+            src = await self._find_new_image_src(page, existing)
             if src:
                 return {"kind": "image", "src": src}
 
@@ -187,14 +198,30 @@ class UIDriver:
             f"timed out after {timeout_s}s waiting for image outcome"
         )
 
-    async def _find_image_src(self, page) -> str | None:
+    async def _existing_image_srcs(self, page) -> set[str]:
+        """Return the set of image srcs currently in the DOM."""
         try:
-            # Use .last: with conversation continuity, multiple images live in
-            # the same chat, and we want the most recently generated one.
-            locator = page.locator(IMAGE_SELECTOR).last
-            if await locator.count() == 0:
-                return None
-            return await locator.get_attribute("src") or None
+            locator = page.locator(IMAGE_SELECTOR)
+            count = await locator.count()
+            srcs: set[str] = set()
+            for i in range(count):
+                src = await locator.nth(i).get_attribute("src")
+                if src:
+                    srcs.add(src)
+            return srcs
+        except Exception:
+            return set()
+
+    async def _find_new_image_src(self, page, existing: set[str]) -> str | None:
+        """Return the most recent image src that is NOT in ``existing``."""
+        try:
+            locator = page.locator(IMAGE_SELECTOR)
+            count = await locator.count()
+            for i in range(count - 1, -1, -1):
+                src = await locator.nth(i).get_attribute("src")
+                if src and src not in existing:
+                    return src
+            return None
         except Exception:
             return None
 
