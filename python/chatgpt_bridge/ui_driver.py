@@ -105,12 +105,8 @@ class UIDriver:
                 await asyncio.sleep(cfg.delay_for(tries))
             page = await self._page(conversation_id)
             try:
-                # Snapshot existing image srcs BEFORE submitting: with
-                # conversation continuity, prior images remain in the DOM and
-                # must not be mistaken for the newly generated one.
-                existing = await self._existing_image_srcs(page)
                 await self._submit_prompt(page, prompt)
-                outcome = await self._wait_for_outcome(page, timeout_s, existing)
+                outcome = await self._wait_for_outcome(page, timeout_s)
                 if outcome["kind"] == "image":
                     ctx = await self.browser.context()
                     path = await save_image(outcome["src"], _images_dir(), ctx.request)
@@ -143,40 +139,49 @@ class UIDriver:
             kind=last_kind,
         )
 
-    async def _wait_for_outcome(
-        self, page, timeout_s: int, existing: set[str] | None = None
-    ) -> dict:
+    async def _wait_for_outcome(self, page, timeout_s: int) -> dict:
         """Poll until a NEW image, a settled denial, or a retry button appears.
 
-        ``existing`` is the set of image srcs present before the prompt was
-        submitted; a returned image must NOT be in this set (so we don't grab
-        a prior turn's image under conversation continuity).
+        Under conversation continuity, prior images remain in the DOM and are
+        lazy-loaded. Each generated image renders as 3 ``<img>`` elements
+        sharing one ``src``, but the ``alt`` text (``"Generated image: <title>"``)
+        is unique per generation and is the reliable discriminator. We snapshot
+        the set of existing ``alt`` texts before submit, then wait for the
+        loading state to appear+clear and a NEW ``alt`` to show up.
 
         Returns one of:
           {"kind": "image", "src": str}
           {"kind": "retrying"}
           {"kind": <classify_response kind>, "text": str}
         """
-        existing = existing or set()
         deadline = time.monotonic() + timeout_s
         last_text = ""
         stable_polls = 0
+        saw_loading = False
+        existing: set[str] = set()
+
         while time.monotonic() < deadline:
-            # 1. NEW image appeared?
-            src = await self._find_new_image_src(page, existing)
-            if src:
-                return {"kind": "image", "src": src}
-
-            # 2. "Try again" button visible (transient) — click immediately.
-            if await self._click_try_again(page):
-                return {"kind": "retrying"}
-
-            # 3. Still generating? Reset settle counter and keep waiting.
+            # 1. Generation in progress? Snapshot existing image alts the first
+            #    time we see the loading state (prior images are now rendered).
             if await self._is_loading(page):
+                if not saw_loading:
+                    saw_loading = True
+                    existing = await self._existing_image_alts(page)
                 stable_polls = 0
                 last_text = ""
                 await asyncio.sleep(0.5)
                 continue
+
+            # 2. NEW image appeared (only after we've seen loading)? The new
+            #    image may render a beat AFTER loading clears, so keep polling.
+            if saw_loading:
+                src = await self._find_new_image_src(page, existing)
+                if src:
+                    return {"kind": "image", "src": src}
+
+            # 3. "Try again" button visible (transient) — click immediately.
+            if await self._click_try_again(page):
+                return {"kind": "retrying"}
 
             # 4. Settled assistant text?
             text = await self._read_last_assistant(page)
@@ -198,29 +203,37 @@ class UIDriver:
             f"timed out after {timeout_s}s waiting for image outcome"
         )
 
-    async def _existing_image_srcs(self, page) -> set[str]:
-        """Return the set of image srcs currently in the DOM."""
+    async def _existing_image_alts(self, page) -> set[str]:
+        """Return the set of image ``alt`` texts currently in the DOM.
+
+        The ``alt`` (``"Generated image: <title>"``) is unique per generation,
+        unlike ``src`` which is shared by 3 duplicate ``<img>`` elements.
+        """
         try:
             locator = page.locator(IMAGE_SELECTOR)
             count = await locator.count()
-            srcs: set[str] = set()
+            alts: set[str] = set()
             for i in range(count):
-                src = await locator.nth(i).get_attribute("src")
-                if src:
-                    srcs.add(src)
-            return srcs
+                alt = await locator.nth(i).get_attribute("alt")
+                if alt:
+                    alts.add(alt)
+            return alts
         except Exception:
             return set()
 
     async def _find_new_image_src(self, page, existing: set[str]) -> str | None:
-        """Return the most recent image src that is NOT in ``existing``."""
+        """Return the src of the most recent image whose ``alt`` is new.
+
+        Iterates from last to first; returns the first image whose ``alt`` is
+        not in ``existing`` (i.e. a newly generated image, not a prior one).
+        """
         try:
             locator = page.locator(IMAGE_SELECTOR)
             count = await locator.count()
             for i in range(count - 1, -1, -1):
-                src = await locator.nth(i).get_attribute("src")
-                if src and src not in existing:
-                    return src
+                alt = await locator.nth(i).get_attribute("alt")
+                if alt and alt not in existing:
+                    return await locator.nth(i).get_attribute("src")
             return None
         except Exception:
             return None

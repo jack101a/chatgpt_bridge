@@ -12,9 +12,16 @@ from chatgpt_bridge.ui_driver import UIDriver
 
 
 class _FakeLocator:
-    def __init__(self, count: int = 0, src: str | None = None, text: str = "") -> None:
+    def __init__(
+        self,
+        count: int = 0,
+        src: str | None = None,
+        alt: str | None = None,
+        text: str = "",
+    ) -> None:
         self._count = count
         self._src = src
+        self._alt = alt
         self._text = text
         self.clicked = False
 
@@ -30,6 +37,8 @@ class _FakeLocator:
         return self._count
 
     async def get_attribute(self, name: str) -> str | None:
+        if name == "alt":
+            return self._alt
         return self._src
 
     async def inner_text(self) -> str:
@@ -82,10 +91,35 @@ class _FakePage:
         if "conversation-turn" in selector:
             return _FakeLocator(count=1, text=cur.get("text", ""))
         # IMAGE_SELECTOR (alt/src based)
-        return _FakeLocator(count=1 if cur.get("image") else 0, src=cur.get("src"))
+        return _FakeLocator(
+            count=1 if cur.get("image") else 0,
+            src=cur.get("src"),
+            alt=cur.get("alt"),
+        )
 
     async def close(self):
         pass
+
+
+class _SequencePage(_FakePage):
+    """Fake page that advances through a list of states on each locator() call.
+
+    Models the real flow: loading state appears first, then the image.
+    """
+
+    def __init__(self, states: list[dict]) -> None:
+        super().__init__(states[0])
+        self._states = states
+        self._idx = 0
+
+    def locator(self, selector: str):
+        # Advance to the next state on each poll cycle (each selector query).
+        # We advance only on the loading selector so the sequence is stable
+        # within a single poll iteration.
+        if "image-gen-loading" in selector:
+            self._idx = min(self._idx + 1, len(self._states) - 1)
+        self._state = self._states[self._idx]
+        return super().locator(selector)
 
 
 def _driver(pages):
@@ -122,7 +156,18 @@ def _outcome(state, timeout_s: float = 5.0) -> dict:
 
 
 def test_outcome_image():
-    out = _outcome({"image": True, "src": "https://x/img.png"})
+    # loading appears first, then the image (models real generation flow)
+    page = _SequencePage(
+        [
+            {"loading": True},
+            {"loading": True},
+            {"image": True, "src": "https://x/img.png", "alt": "Generated image: new"},
+        ]
+    )
+    d = UIDriver.__new__(UIDriver)
+    d.browser = None
+    d.session = None
+    out = asyncio.run(d._wait_for_outcome(page, timeout_s=5))
     assert out == {"kind": "image", "src": "https://x/img.png"}
 
 
@@ -206,9 +251,12 @@ def test_generate_image_denial_then_success():
     d = _driver(
         [
             _FakePage({"text": "content policy violation"}),
-            _FakePage(
-                {"image": False, "src": "https://x/img.png"},
-                reveal_image_on_submit=True,
+            _SequencePage(
+                [
+                    {"loading": True},
+                    {"loading": True},
+                    {"image": True, "src": "https://x/img.png", "alt": "Generated image: new"},
+                ]
             ),
         ]
     )
