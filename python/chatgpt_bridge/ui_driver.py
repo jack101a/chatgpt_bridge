@@ -297,11 +297,19 @@ class UIDriver:
         return False
 
     async def _current_conversation_id(self, page) -> str:
-        """Extract the conversation id from the URL (``/c/<id>``), else empty."""
+        """Extract the conversation id from the URL (``/c/<id>``), else empty.
+
+        ChatGPT's current UI prefixes the id with ``WEB:`` (e.g.
+        ``/c/WEB:3a1f6f0f-...``); the backend UUID is the part after the
+        prefix, so strip it.
+        """
         try:
             url = page.url
             if "/c/" in url:
-                return url.split("/c/", 1)[1].split("/", 1)[0].split("?", 1)[0]
+                cid = url.split("/c/", 1)[1].split("/", 1)[0].split("?", 1)[0]
+                if cid.startswith("WEB:"):
+                    cid = cid[len("WEB:"):]
+                return cid
         except Exception:
             pass
         return ""

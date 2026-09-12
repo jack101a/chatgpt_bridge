@@ -167,12 +167,20 @@ class SessionManager:
 
     async def list_conversations(self, limit: int = 20) -> list[dict]:
         """List recent conversations (most-recently-updated first)."""
+        access_token = await self.get_access_token()
         ctx = await self.browser.context()
         page = await ctx.new_page()
         try:
             resp = await page.request.get(
                 "https://chatgpt.com/backend-api/conversations",
-                params={"offset": 0, "limit": limit, "order": "updated"},
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={
+                    "offset": 0,
+                    "limit": limit,
+                    "order": "updated",
+                    "is_archived": "false",
+                    "is_starred": "false",
+                },
                 timeout=30_000,
             )
             if resp.status != 200:
