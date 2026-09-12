@@ -161,19 +161,23 @@ def test_outcome_image():
         [
             {"loading": True},
             {"loading": True},
-            {"image": True, "src": "https://x/img.png", "alt": "Generated image: new"},
+            {"image": True, "src": "https://x/estuary/content?id=file_abc123&sig=1", "alt": "Generated image: new"},
         ]
     )
     d = UIDriver.__new__(UIDriver)
     d.browser = None
     d.session = None
     out = asyncio.run(d._wait_for_outcome(page, timeout_s=5))
-    assert out == {"kind": "image", "src": "https://x/img.png"}
+    assert out == {"kind": "image", "src": "https://x/estuary/content?id=file_abc123&sig=1"}
 
 
 def test_outcome_try_again_clicked():
-    out = _outcome({"try_again": True})
-    assert out == {"kind": "retrying"}
+    # "Try again" is clicked in place (regenerate same message); the fake page
+    # never produces an image, so polling continues until timeout.
+    from chatgpt_bridge.errors import BridgeTimeoutError
+
+    with pytest.raises(BridgeTimeoutError):
+        _outcome({"try_again": True}, timeout_s=0.5)
 
 
 def test_outcome_deterministic():
@@ -182,7 +186,11 @@ def test_outcome_deterministic():
 
 
 def test_outcome_denial_switch_model_fallback():
-    # denial text, no try-again button, but switch-model popover reveals one
+    # denial text, no try-again button, but switch-model popover reveals one.
+    # The fallback clicks the trigger + "Try again" in place, then keeps polling
+    # (no image ever appears on the fake page → timeout).
+    from chatgpt_bridge.errors import BridgeTimeoutError
+
     page = _FakePage(
         {"text": "I can't create that image due to content policy.", "switch_model": True}
     )
@@ -219,8 +227,8 @@ def test_outcome_denial_switch_model_fallback():
             return _FakeLocator(count=0)
 
     page = _SwitchPage()
-    out = asyncio.run(d._wait_for_outcome(page, timeout_s=5))
-    assert out == {"kind": "retrying"}
+    with pytest.raises(BridgeTimeoutError):
+        asyncio.run(d._wait_for_outcome(page, timeout_s=5))
     assert "Escape" in page.keyboard.pressed
 
 
@@ -255,7 +263,7 @@ def test_generate_image_denial_then_success():
                 [
                     {"loading": True},
                     {"loading": True},
-                    {"image": True, "src": "https://x/img.png", "alt": "Generated image: new"},
+                    {"image": True, "src": "https://x/estuary/content?id=file_abc123&sig=1", "alt": "Generated image: new"},
                 ]
             ),
         ]

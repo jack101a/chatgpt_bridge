@@ -99,28 +99,27 @@ class UIDriver:
         last_kind = "no_image"
         last_text = ""
         tries = 0
+        cid = conversation_id
         while tries < cfg.max_tries:
             tries += 1
             if tries > 1:
                 await asyncio.sleep(cfg.delay_for(tries))
-            page = await self._page(conversation_id)
+            page = await self._page(cid)
             try:
                 await self._submit_prompt(page, prompt)
+                # Capture the conversation id after the first submit so every
+                # retry stays in the SAME chat (never spawns a new chat).
+                if not cid:
+                    cid = await self._current_conversation_id(page)
                 outcome = await self._wait_for_outcome(page, timeout_s)
                 if outcome["kind"] == "image":
                     ctx = await self.browser.context()
                     path = await save_image(outcome["src"], _images_dir(), ctx.request)
-                    cid = conversation_id or await self._current_conversation_id(page)
                     return {
                         "path": str(path),
                         "prompt": prompt,
                         "conversation_id": cid,
                     }
-                if outcome["kind"] == "retrying":
-                    # A "Try again" button was clicked; regeneration is in
-                    # progress. Do not consume a try — keep waiting.
-                    tries -= 1
-                    continue
                 last_kind = outcome["kind"]
                 last_text = outcome.get("text", "")
                 if last_kind == "deterministic":
@@ -179,9 +178,16 @@ class UIDriver:
                 if src:
                     return {"kind": "image", "src": src}
 
-            # 3. "Try again" button visible (transient) — click immediately.
+            # 3. "Try again" button visible (transient) — click it to regenerate
+            #    the SAME message in place, then keep polling (no re-submit, no
+            #    new chat). Reset saw_loading so the next loading state is
+            #    detected and re-snapshotted.
             if await self._click_try_again(page):
-                return {"kind": "retrying"}
+                saw_loading = False
+                stable_polls = 0
+                last_text = ""
+                await asyncio.sleep(0.5)
+                continue
 
             # 4. Settled assistant text?
             text = await self._read_last_assistant(page)
@@ -192,7 +198,11 @@ class UIDriver:
                     if kind == "denial":
                         # No retry button seen — try the Switch-model popover.
                         if await self._switch_model_fallback(page):
-                            return {"kind": "retrying"}
+                            saw_loading = False
+                            stable_polls = 0
+                            last_text = ""
+                            await asyncio.sleep(0.5)
+                            continue
                     return {"kind": kind, "text": text}
             elif text:
                 last_text = text
