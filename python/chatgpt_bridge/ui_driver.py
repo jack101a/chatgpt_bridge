@@ -107,11 +107,13 @@ class UIDriver:
             page = await self._page(cid)
             try:
                 await self._submit_prompt(page, prompt)
-                # Capture the conversation id after the first submit so every
-                # retry stays in the SAME chat (never spawns a new chat).
+                outcome = await self._wait_for_outcome(page, timeout_s)
+                # Capture the conversation id AFTER the outcome settles: the
+                # SPA navigates to /c/{id} asynchronously after submit, so
+                # reading page.url right after _submit_prompt returns "" and
+                # the next retry would navigate HOME (spawning a new chat).
                 if not cid:
                     cid = await self._current_conversation_id(page)
-                outcome = await self._wait_for_outcome(page, timeout_s)
                 if outcome["kind"] == "image":
                     ctx = await self.browser.context()
                     path = await save_image(outcome["src"], _images_dir(), ctx.request)

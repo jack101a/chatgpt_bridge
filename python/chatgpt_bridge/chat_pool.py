@@ -15,8 +15,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .errors import ShapeChangedError
-
 # State directory lives in the user's home (shared with browser.py).
 STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
 POOL_FILE = STATE_DIR / "chat_pool.json"
@@ -50,9 +48,14 @@ class ChatPoolManager:
         try:
             data = json.loads(self.state_path.read_text())
             ids = data.get("ids", []) if isinstance(data, dict) else data
-            return [str(i) for i in ids]
+            return [self._normalize(str(i)) for i in ids]
         except (json.JSONDecodeError, OSError):
             return []
+
+    @staticmethod
+    def _normalize(conversation_id: str) -> str:
+        """Strip the client-side ``WEB:`` prefix (backend uses plain UUIDs)."""
+        return conversation_id[len("WEB:"):] if conversation_id.startswith("WEB:") else conversation_id
 
     def _save(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +65,7 @@ class ChatPoolManager:
         """Record a conversation created by the bridge (most recent last)."""
         if not conversation_id:
             return
+        conversation_id = self._normalize(conversation_id)
         # De-duplicate: move an existing id to the end (most recent).
         if conversation_id in self._ids:
             self._ids.remove(conversation_id)
@@ -87,8 +91,10 @@ class ChatPoolManager:
             try:
                 await self.session.delete_conversation(cid)
                 deleted.append(cid)
-            except ShapeChangedError:
+            except Exception:
                 # Best-effort: keep going; the id is already dropped from the
-                # pool so we won't retry it forever.
+                # pool so we won't retry it forever. A prune failure (e.g. a
+                # stale WEB:-prefixed id, or a not-yet-synced conversation
+                # returning 404) must never crash the main operation.
                 continue
         return deleted

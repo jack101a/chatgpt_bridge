@@ -35,15 +35,15 @@ def _make_pool(tmp_path, max_chats: int = 10, session=None):
     return pool, session
 
 
-def test_record_adds_id_in_order():
-    pool, _ = _make_pool(pytest.importorskip("pathlib").Path("/tmp/x"), max_chats=10)
+def test_record_adds_id_in_order(tmp_path):
+    pool, _ = _make_pool(tmp_path, max_chats=10)
     pool.record("conv-1")
     pool.record("conv-2")
     assert pool._ids == ["conv-1", "conv-2"]
 
 
-def test_record_deduplicates_existing_id():
-    pool, _ = _make_pool(pytest.importorskip("pathlib").Path("/tmp/x"), max_chats=10)
+def test_record_deduplicates_existing_id(tmp_path):
+    pool, _ = _make_pool(tmp_path, max_chats=10)
     pool.record("conv-1")
     pool.record("conv-2")
     pool.record("conv-1")
@@ -85,3 +85,32 @@ def test_prune_uses_backend_delete(tmp_path):
         pool.record(f"conv-{i}")
     asyncio.run(pool.prune())
     assert session.deleted == ["conv-0", "conv-1"]
+
+
+def test_record_strips_web_prefix(tmp_path):
+    pool, _ = _make_pool(tmp_path, max_chats=10)
+    pool.record("WEB:abc-123")
+    pool.record("def-456")
+    assert pool._ids == ["abc-123", "def-456"]
+
+
+def test_load_strips_web_prefix(tmp_path):
+    state = tmp_path / "chat_pool.json"
+    state.write_text(json.dumps({"ids": ["WEB:abc-123", "def-456"]}))
+    pool, _ = _make_pool(tmp_path, max_chats=10)
+    assert pool._ids == ["abc-123", "def-456"]
+
+
+def test_prune_swallows_delete_errors(tmp_path):
+    class _FailingSession(_FakeSession):
+        async def delete_conversation(self, conversation_id: str) -> None:
+            raise RuntimeError("404 not found")
+
+    session = _FailingSession()
+    pool, _ = _make_pool(tmp_path, max_chats=2, session=session)
+    for i in range(4):
+        pool.record(f"conv-{i}")
+    # must NOT raise; oldest two dropped from pool despite delete failure
+    deleted = asyncio.run(pool.prune())
+    assert deleted == []
+    assert pool._ids == ["conv-2", "conv-3"]
