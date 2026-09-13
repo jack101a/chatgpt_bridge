@@ -2,24 +2,25 @@ version: "3.8"
 
 services:
   chatgpt-bridge:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: chatgpt-bridge:latest
+    image: ghcr.io/jack101a/chatgpt_bridge:latest
     container_name: chatgpt-bridge
     restart: unless-stopped
     ports:
-      - "${PORT:-8465}:${PORT:-8465}"
+      - "${PORT:-8465}:8465"
     environment:
-      - PORT=${PORT:-8465}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Asia/Kolkata}
+      - PORT=8465
       - HOST=0.0.0.0
       - SCREEN_WIDTH=1280
       - SCREEN_HEIGHT=720
       - MAX_RETRIES=10
       - BROWSER_IDLE_TIMEOUT_S=300
-      # Optional: Telegram bot credentials (leave empty if using API only)
+      - CHATGPT_BRIDGE_STATE=/data
+      - MODE=${MODE:-bot}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS:-*}
     volumes:
-      - ./data:/data
+      - ${CONFIG_PATH:-/srv/ajaxhs/config}/chatgpt-bridge:/data
     shm_size: "1gb"

@@ -22,6 +22,7 @@ XVFB_PID=$!
 
 cleanup() {
     echo "Shutting down gracefully..."
+    kill $APP_PID 2>/dev/null || true
     kill $XVFB_PID 2>/dev/null || true
     exit 0
 }
@@ -35,12 +36,23 @@ else
     echo "Mount or copy your ChatGPT cookies into ${DATA_DIR}/cookies.json to authenticate."
 fi
 
-# Run dual-mode or pure API mode
-if [ -n "${TELEGRAM_BOT_TOKEN}" ]; then
-    echo "TELEGRAM_BOT_TOKEN detected. Starting dual mode (REST API + Telegram Bot)..."
+# Determine service to run
+if [ "$MODE" = "api" ] || [ "$MODE" = "daemon" ]; then
+    echo "Starting Universal REST API on port ${PORT}..."
+    python -m chatgpt_bridge.daemon &
+    APP_PID=$!
+elif [ "$MODE" = "bot" ]; then
+    echo "Starting Telegram Bot..."
     python -m chatgpt_bridge.bot &
-    python -m chatgpt_bridge.daemon
+    APP_PID=$!
+elif [ -n "${TELEGRAM_BOT_TOKEN}" ]; then
+    echo "TELEGRAM_BOT_TOKEN detected. Starting Telegram Bot..."
+    python -m chatgpt_bridge.bot &
+    APP_PID=$!
 else
     echo "Starting Universal REST API on port ${PORT}..."
-    python -m chatgpt_bridge.daemon
+    python -m chatgpt_bridge.daemon &
+    APP_PID=$!
 fi
+
+wait $APP_PID
