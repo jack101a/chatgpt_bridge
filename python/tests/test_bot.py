@@ -1115,3 +1115,39 @@ def test_cookie_data_never_sent_to_chatgpt_ask():
     assert len(gpt.asks) == 0
     msgs = _msgs(tg)
     assert any("Authentication Data Detected" in m[2] for m in msgs)
+
+
+def test_multichunk_cookie_buffering_stitches_rapid_splits(tmp_path):
+    from chatgpt_bridge.account import AccountManager
+    mgr = AccountManager(state_dir=tmp_path / "state")
+    acc = mgr.add_account("AccMulti")
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    bot._set_pending(ALLOWED, f"login_account:{acc.id}")
+
+    full_json = (
+        '[\n'
+        '  {"name": "foo", "value": "bar", "domain": ".chatgpt.com"},\n'
+        '  {"name": "__Secure-next-auth.session-token", "value": "secret_jwt_token_12345", "domain": ".chatgpt.com"}\n'
+        ']'
+    )
+    # Split into 3 arbitrary non-JSON chunks
+    chunk1 = full_json[:30]
+    chunk2 = full_json[30:70]
+    chunk3 = full_json[70:]
+
+    async def run_splits():
+        t1 = asyncio.create_task(bot.handle_update(_update(chunk1, user_id=ALLOWED)))
+        await asyncio.sleep(0.05)
+        t2 = asyncio.create_task(bot.handle_update(_update(chunk2, user_id=ALLOWED)))
+        await asyncio.sleep(0.05)
+        t3 = asyncio.create_task(bot.handle_update(_update(chunk3, user_id=ALLOWED)))
+        await asyncio.gather(t1, t2, t3)
+
+    _await(run_splits())
+
+    assert len(gpt.logged_in_accounts) == 1
+    assert gpt.logged_in_accounts[0] == acc.id
+    msgs = _msgs(tg)
+    assert any("ChatGPT Login Successful!" in m[2] for m in msgs)

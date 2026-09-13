@@ -673,15 +673,12 @@ class BridgeBot:
                 acc_id = pending[len("login_account:"):].strip()
                 # Maintain pending state so subsequent chunks or retries stay in login mode
                 self._set_pending(user_id, f"login_account:{acc_id}")
-                await self._locked(
-                    chat_id,
-                    self._handle_cookie_submission(chat_id, user_id, text, account_id_hint=acc_id),
-                )
+                await self._handle_cookie_submission(chat_id, user_id, text, account_id_hint=acc_id)
                 return
 
         # 4. Check if raw cookie text / JSON / token was pasted directly
         if looks_like_cookie_or_token(text):
-            await self._locked(chat_id, self._handle_cookie_submission(chat_id, user_id, text))
+            await self._handle_cookie_submission(chat_id, user_id, text)
             return
 
         # 5. Auto-detect mode and image intent
@@ -824,10 +821,7 @@ class BridgeBot:
             acc_id = data[len("acc:apply_cookies:"):].strip()
             cookie_text = self._pending_cookies.pop(user_id, "") if user_id else ""
             if cookie_text:
-                await self._locked(
-                    chat_id,
-                    self._handle_cookie_submission(chat_id, user_id, cookie_text, account_id_hint=acc_id),
-                )
+                await self._handle_cookie_submission(chat_id, user_id, cookie_text, account_id_hint=acc_id)
             else:
                 await self.tg.answer_callback_query(cb_id, "No pending cookies found", show_alert=True)
         elif data == "acc:add":
@@ -1257,11 +1251,8 @@ class BridgeBot:
             target_acc_id = pending[len("login_account:"):].strip()
 
         if is_cookie_content(content_text) or file_name.endswith((".json", ".txt")):
-            await self._locked(
-                chat_id,
-                self._handle_cookie_submission(
-                    chat_id, user_id, content_text, account_id_hint=target_acc_id
-                ),
+            await self._handle_cookie_submission(
+                chat_id, user_id, content_text, account_id_hint=target_acc_id
             )
         else:
             await self.tg.send_message(
@@ -1337,7 +1328,7 @@ class BridgeBot:
                     ts = asyncio.get_running_loop().time()
                     self._cookie_buffer_time[user_id] = ts
                     await asyncio.sleep(1.2)
-                    if self._cookie_buffer_time.get(user_id, 0) > ts:
+                    if self._cookie_buffer_time.get(user_id) != ts:
                         return
                     final_buf = self._cookie_buffer.pop(user_id, candidate_direct)
                     self._cookie_buffer_time.pop(user_id, None)
@@ -1359,7 +1350,7 @@ class BridgeBot:
                         ts = asyncio.get_running_loop().time()
                         self._cookie_buffer_time[user_id] = ts
                         await asyncio.sleep(1.2)
-                        if self._cookie_buffer_time.get(user_id, 0) > ts:
+                        if self._cookie_buffer_time.get(user_id) != ts:
                             return
                         raw_to_parse = self._cookie_buffer.pop(user_id, cookie_text)
                         self._cookie_buffer_time.pop(user_id, None)
@@ -1368,14 +1359,15 @@ class BridgeBot:
                     ts = asyncio.get_running_loop().time()
                     self._cookie_buffer_time[user_id] = ts
                     await asyncio.sleep(1.2)
-                    if self._cookie_buffer_time.get(user_id, 0) > ts:
+                    if self._cookie_buffer_time.get(user_id) != ts:
                         return
                     raw_to_parse = self._cookie_buffer.pop(user_id, cookie_text)
                     self._cookie_buffer_time.pop(user_id, None)
 
         await self.tg.send_chat_action(chat_id, "typing")
         try:
-            res = await self.gpt.login_account(target_acc.id, raw_to_parse)
+            async with self._lock:
+                res = await self.gpt.login_account(target_acc.id, raw_to_parse)
             email = res.get("email") or target_acc.email
             name = res.get("name") or target_acc.name or target_acc.alias
             self._clear_pending(user_id)
