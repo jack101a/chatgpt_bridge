@@ -3,785 +3,1146 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#0a0a0a">
+<meta name="theme-color" content="#060608">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Bridge · Command Deck</title>
 
+<!-- Geist from Google (CDN — no build step) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
 tailwind.config = {
-  theme: {
-    extend: {
-      fontFamily: {
-        sans: ['Geist', 'system-ui', 'sans-serif'],
-        mono: ['Geist Mono', 'monospace'],
-      },
-      colors: {
-        // Design tokens
-        canvas:   '#0a0a0a',   // page background
-        surface:  '#111111',   // cards, panels
-        overlay:  '#1a1a1a',   // elevated surface
-        border:   '#222222',   // default hairline
-        muted:    '#2a2a2a',   // subtle dividers
-        // Text scale
-        tx1: '#f0f0f0',        // primary text
-        tx2: '#888888',        // secondary text
-        tx3: '#444444',        // placeholder / disabled
-        // Accent — electric blue (single accent, no purple defaults)
-        accent:  '#2563eb',
-        accentHi:'#3b82f6',
-        accentBg:'rgba(37,99,235,0.12)',
-        // Semantic
-        success: '#22c55e',
-        warn:    '#f59e0b',
-        danger:  '#ef4444',
-      },
-      borderRadius: {
-        DEFAULT: '10px',
-        sm: '6px',
-        lg: '14px',
-        xl: '20px',
-        full: '9999px',
-      },
-    }
-  }
+  theme: { extend: {
+    fontFamily: {
+      sans: ['Geist','system-ui','sans-serif'],
+      mono: ['Geist Mono','monospace'],
+    },
+  }}
 }
 </script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.x/dist/cdn.min.js"></script>
 
 <style>
-/* ── Reset & base ─────────────────────────────── */
-*,*::before,*::after{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{color-scheme:dark;scroll-behavior:smooth;height:100%}
-body{
-  background:#0a0a0a;color:#f0f0f0;
+/* ═══════════════════════════════════════════════════
+   DESIGN TOKENS
+   Apple-inspired 5-layer depth system
+═══════════════════════════════════════════════════ */
+:root {
+  /* Canvas — deepest layer, ambient lit */
+  --c0: #060608;
+  /* Surface — cards, panels */
+  --c1: rgba(255,255,255,0.04);
+  /* Glass — elevated modal/header surfaces */
+  --c2: rgba(255,255,255,0.07);
+  /* Overlay — hover states, drawers */
+  --c3: rgba(255,255,255,0.10);
+  /* Highlight — specular edge, inner glow */
+  --c4: rgba(255,255,255,0.14);
+  /* Borders at each level */
+  --b0: rgba(255,255,255,0.06);
+  --b1: rgba(255,255,255,0.10);
+  --b2: rgba(255,255,255,0.16);
+  /* Text scale */
+  --t1: rgba(255,255,255,0.92);   /* primary */
+  --t2: rgba(255,255,255,0.52);   /* secondary */
+  --t3: rgba(255,255,255,0.28);   /* tertiary / placeholder */
+  --t4: rgba(255,255,255,0.14);   /* disabled */
+  /* Accent — electric blue (single, intentional) */
+  --a:  #2563eb;
+  --ah: #3b82f6;   /* hover */
+  --ab: rgba(37,99,235,0.14);   /* bg tint */
+  --as: rgba(37,99,235,0.30);   /* shadow/glow */
+  /* Semantic */
+  --green:  #22c55e;
+  --amber:  #f59e0b;
+  --red:    #ef4444;
+  /* Blur values */
+  --blur-sm:  blur(12px);
+  --blur-md:  blur(20px);
+  --blur-lg:  blur(32px);
+  /* Radii */
+  --r-sm:  6px;
+  --r-md:  12px;
+  --r-lg:  18px;
+  --r-xl:  24px;
+  --r-pill:9999px;
+}
+
+/* ═══════════════════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════════════════ */
+*,*::before,*::after { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html { color-scheme:dark; height:100%; scroll-behavior:smooth; }
+body {
   font-family:'Geist','system-ui',sans-serif;
+  background:var(--c0);
+  color:var(--t1);
   -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
   overscroll-behavior:none;
   height:100%;
-}
-[x-cloak]{display:none!important}
-
-/* ── Scrollbar ───────────────────────────────── */
-::-webkit-scrollbar{width:4px;height:4px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:4px}
-::-webkit-scrollbar-thumb:hover{background:#333}
-
-/* ── Focus management ───────────────────────── */
-*:focus-visible{outline:2px solid #2563eb;outline-offset:2px;border-radius:4px}
-input,textarea,select{outline:none}
-input:focus,textarea:focus,select:focus{
-  border-color:#2563eb !important;
-  box-shadow:0 0 0 3px rgba(37,99,235,0.15) !important;
+  /* Ambient background — NOT flat black */
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(37,99,235,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(99,102,241,0.05) 0%, transparent 55%),
+    radial-gradient(ellipse 40% 60% at 50% 50%, rgba(0,0,0,0.4) 0%, transparent 70%);
+  background-attachment:fixed;
 }
 
-/* ── Layout shell ───────────────────────────── */
-#app{display:grid;height:100dvh;grid-template-rows:auto 1fr auto;grid-template-columns:1fr}
-@media(min-width:768px){
-  #app{grid-template-rows:auto 1fr}
-  #bottom-nav{display:none !important}
+[x-cloak] { display:none !important; }
+
+/* ═══════════════════════════════════════════════════
+   SCROLLBAR
+═══════════════════════════════════════════════════ */
+::-webkit-scrollbar { width:4px; height:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--b1); border-radius:4px; }
+::-webkit-scrollbar-thumb:hover { background:var(--b2); }
+
+/* ═══════════════════════════════════════════════════
+   APPLE MATERIAL SYSTEM
+   Each class = one depth level with proper glass stack
+═══════════════════════════════════════════════════ */
+
+/* Level 1 — Surface (cards, panels) */
+.mat-1 {
+  background:var(--c1);
+  border:1px solid var(--b0);
+  backdrop-filter:var(--blur-sm);
+  -webkit-backdrop-filter:var(--blur-sm);
+  /* specular top edge — the Apple touch */
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    0 1px 2px rgba(0,0,0,0.3);
 }
 
-/* ── Sidebar (desktop) ──────────────────────── */
-#chat-layout{display:flex;height:100%;overflow:hidden}
-#sidebar{
-  width:260px;min-width:260px;
+/* Level 2 — Glass (header, sidebar, elevated) */
+.mat-2 {
+  background:var(--c2);
+  border:1px solid var(--b1);
+  backdrop-filter:var(--blur-md);
+  -webkit-backdrop-filter:var(--blur-md);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.12),
+    inset 0 -1px 0 rgba(0,0,0,0.15),
+    0 4px 24px rgba(0,0,0,0.4);
+}
+
+/* Level 3 — Modal glass (lightbox panels, drawers) */
+.mat-3 {
+  background:rgba(12,12,16,0.85);
+  border:1px solid var(--b2);
+  backdrop-filter:var(--blur-lg);
+  -webkit-backdrop-filter:var(--blur-lg);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    inset 0 -1px 0 rgba(0,0,0,0.2),
+    0 24px 80px rgba(0,0,0,0.6),
+    0 0 0 1px rgba(255,255,255,0.04);
+}
+
+/* Level 4 — Overlay (hover, input focus bg) */
+.mat-4 {
+  background:var(--c3);
+  border:1px solid var(--b2);
+  backdrop-filter:var(--blur-sm);
+  -webkit-backdrop-filter:var(--blur-sm);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.14);
+}
+
+/* Hover lift for cards */
+.mat-lift {
+  transition: transform 0.22s cubic-bezier(.2,.8,.2,1),
+              box-shadow 0.22s cubic-bezier(.2,.8,.2,1),
+              border-color 0.18s ease;
+}
+.mat-lift:hover {
+  transform:translateY(-2px);
+  border-color:var(--b2) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    0 12px 40px rgba(0,0,0,0.5),
+    0 0 0 1px rgba(255,255,255,0.06);
+}
+
+/* ═══════════════════════════════════════════════════
+   LAYOUT GRID
+   Three-row CSS grid: header / content / bottom-nav
+═══════════════════════════════════════════════════ */
+#shell {
+  display:grid;
+  grid-template-rows:52px 1fr auto;
+  grid-template-columns:1fr;
+  height:100dvh;
+}
+@media(min-width:768px) {
+  #shell { grid-template-rows:52px 1fr; }
+  #mobile-nav { display:none !important; }
+}
+
+/* ═══════════════════════════════════════════════════
+   TOPBAR
+═══════════════════════════════════════════════════ */
+#topbar {
+  grid-row:1;
+  position:sticky;
+  top:0;
+  z-index:50;
+  height:52px;
+  display:flex;
+  align-items:center;
+  padding:0 16px;
+  gap:12px;
+  /* Apple-style sticky header glass */
+  background:rgba(6,6,8,0.75);
+  border-bottom:1px solid var(--b0);
+  backdrop-filter:var(--blur-md);
+  -webkit-backdrop-filter:var(--blur-md);
+  box-shadow:inset 0 -1px 0 var(--b0), 0 1px 0 rgba(0,0,0,0.4);
+  padding-top:env(safe-area-inset-top);
+}
+
+/* ═══════════════════════════════════════════════════
+   CHAT LAYOUT
+═══════════════════════════════════════════════════ */
+#chat-wrap {
+  display:flex;
+  height:100%;
+  overflow:hidden;
+}
+#chat-sidebar {
+  width:256px;
+  min-width:256px;
   display:none;
   flex-direction:column;
-  border-right:1px solid #222;
-  background:#111;
+  background:rgba(6,6,8,0.6);
+  border-right:1px solid var(--b0);
+  backdrop-filter:var(--blur-sm);
+  -webkit-backdrop-filter:var(--blur-sm);
 }
-@media(min-width:1024px){#sidebar{display:flex}}
+@media(min-width:1024px) { #chat-sidebar { display:flex; } }
 
-/* ── Masonry ────────────────────────────────── */
-.masonry{columns:1;column-gap:12px}
-@media(min-width:500px){.masonry{columns:2}}
-@media(min-width:900px){.masonry{columns:3}}
-@media(min-width:1280px){.masonry{columns:4}}
-.masonry>*{break-inside:avoid;margin-bottom:12px}
+/* ═══════════════════════════════════════════════════
+   MASONRY
+═══════════════════════════════════════════════════ */
+.masonry { columns:1; column-gap:10px; }
+@media(min-width:480px)  { .masonry { columns:2; } }
+@media(min-width:900px)  { .masonry { columns:3; } }
+@media(min-width:1280px) { .masonry { columns:4; } }
+.masonry > * { break-inside:avoid; margin-bottom:10px; }
 
-/* ── Animations ─────────────────────────────── */
-@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-@keyframes slideRight{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
-@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
-@keyframes spin{to{transform:rotate(360deg)}}
-@keyframes shimmer{to{background-position:-200% 0}}
-@keyframes bounce3{0%,80%,100%{transform:scale(0.4);opacity:.4}40%{transform:scale(1);opacity:1}}
+/* ═══════════════════════════════════════════════════
+   ANIMATIONS
+═══════════════════════════════════════════════════ */
+@keyframes fadeUp   { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+@keyframes fadeIn   { from{opacity:0} to{opacity:1} }
+@keyframes slideUp  { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:none} }
+@keyframes slideR   { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:none} }
+@keyframes spin     { to{transform:rotate(360deg)} }
+@keyframes shimmer  { to{background-position:-200% 0} }
+@keyframes pulse    { 0%,100%{opacity:1} 50%{opacity:.25} }
+@keyframes bounce3  { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
+@keyframes glow     { 0%,100%{box-shadow:0 0 12px var(--as)} 50%{box-shadow:0 0 24px var(--as),0 0 48px rgba(37,99,235,.15)} }
 
-.anim-fade-up{animation:fadeUp .24s cubic-bezier(.2,.8,.2,1) both}
-.anim-fade{animation:fadeIn .2s ease both}
-.anim-slide-right{animation:slideRight .26s cubic-bezier(.2,.8,.2,1) both}
-.anim-slide-up{animation:slideUp .28s cubic-bezier(.2,.8,.2,1) both}
+.a-fade-up  { animation:fadeUp  .28s cubic-bezier(.2,.8,.2,1) both; }
+.a-fade     { animation:fadeIn  .22s ease both; }
+.a-slide-up { animation:slideUp .32s cubic-bezier(.2,.8,.2,1) both; }
+.a-slide-r  { animation:slideR  .28s cubic-bezier(.2,.8,.2,1) both; }
 
-/* ── Skeleton shimmer ───────────────────────── */
-.shimmer{
-  background:linear-gradient(110deg,#1a1a1a 30%,#222 50%,#1a1a1a 70%);
+/* Stagger via CSS custom property */
+.stagger > * { animation:fadeUp .3s cubic-bezier(.2,.8,.2,1) both; }
+.stagger > *:nth-child(1) { animation-delay:.00s }
+.stagger > *:nth-child(2) { animation-delay:.05s }
+.stagger > *:nth-child(3) { animation-delay:.10s }
+.stagger > *:nth-child(4) { animation-delay:.15s }
+.stagger > *:nth-child(5) { animation-delay:.20s }
+.stagger > *:nth-child(6) { animation-delay:.25s }
+
+/* ═══════════════════════════════════════════════════
+   SKELETON SHIMMER
+═══════════════════════════════════════════════════ */
+.shimmer {
+  background:linear-gradient(110deg,rgba(255,255,255,.04) 30%,rgba(255,255,255,.08) 50%,rgba(255,255,255,.04) 70%);
   background-size:200% 100%;
   animation:shimmer 1.6s linear infinite;
 }
 
-/* ── Dot loader ─────────────────────────────── */
-.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#2563eb;animation:bounce3 1s ease-in-out infinite both}
-.dot:nth-child(2){animation-delay:.18s}
-.dot:nth-child(3){animation-delay:.36s}
+/* ═══════════════════════════════════════════════════
+   DOT LOADER (3 bouncing dots)
+═══════════════════════════════════════════════════ */
+.dot {
+  display:inline-block; width:5px; height:5px;
+  border-radius:50%; background:var(--ah);
+  animation:bounce3 .9s ease-in-out infinite both;
+}
+.dot:nth-child(2) { animation-delay:.18s; }
+.dot:nth-child(3) { animation-delay:.36s; }
 
-/* ── Card hover ─────────────────────────────── */
-.card-lift{transition:transform .2s ease,box-shadow .2s ease}
-.card-lift:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.6)}
+/* ═══════════════════════════════════════════════════
+   FOCUS — Apple-style blue glow
+═══════════════════════════════════════════════════ */
+*:focus-visible {
+  outline:2px solid var(--a);
+  outline-offset:2px;
+  border-radius:var(--r-sm);
+}
+input,textarea,select { outline:none; }
+input:focus,textarea:focus,select:focus {
+  border-color:var(--ah) !important;
+  box-shadow:0 0 0 3px var(--ab), inset 0 1px 0 rgba(255,255,255,.08) !important;
+}
 
-/* ── Button press ───────────────────────────── */
-.btn-press:active{transform:scale(0.97)}
+/* ═══════════════════════════════════════════════════
+   BUTTON SYSTEM
+═══════════════════════════════════════════════════ */
+/* Primary — blue fill */
+.btn-primary {
+  display:inline-flex; align-items:center; justify-content:center;
+  background:var(--a); color:#fff;
+  border:1px solid rgba(255,255,255,0.12);
+  border-radius:var(--r-md); font-weight:500; cursor:pointer;
+  transition:background .15s, transform .12s, box-shadow .15s, opacity .15s;
+  box-shadow:0 1px 3px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.15);
+  -webkit-user-select:none; user-select:none;
+}
+.btn-primary:hover  { background:var(--ah); box-shadow:0 4px 16px var(--as), inset 0 1px 0 rgba(255,255,255,.18); }
+.btn-primary:active { transform:scale(0.96); box-shadow:0 1px 4px rgba(0,0,0,.4); }
+.btn-primary:disabled { opacity:.35; cursor:not-allowed; transform:none; }
 
-/* ── Image card overlay ─────────────────────── */
-.img-card{position:relative;overflow:hidden;border-radius:10px}
-.img-card .hover-info{
-  position:absolute;inset:0;
-  background:linear-gradient(to top,rgba(0,0,0,.88) 0%,transparent 55%);
-  opacity:0;transition:opacity .18s ease;
-  display:flex;flex-direction:column;justify-content:flex-end;
+/* Ghost — transparent with border */
+.btn-ghost {
+  display:inline-flex; align-items:center; justify-content:center;
+  background:transparent; color:var(--t2);
+  border:1px solid var(--b1);
+  border-radius:var(--r-md); font-weight:500; cursor:pointer;
+  transition:background .15s, border-color .15s, color .15s, transform .12s;
+  backdrop-filter:var(--blur-sm);
+  -webkit-backdrop-filter:var(--blur-sm);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+  -webkit-user-select:none; user-select:none;
+}
+.btn-ghost:hover  { background:var(--c3); border-color:var(--b2); color:var(--t1); }
+.btn-ghost:active { transform:scale(0.96); }
+.btn-ghost:disabled { opacity:.35; cursor:not-allowed; }
+
+/* Icon button */
+.btn-icon {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:32px; height:32px; border-radius:var(--r-sm);
+  background:transparent; border:none; color:var(--t2); cursor:pointer;
+  transition:background .15s, color .15s, transform .12s;
+}
+.btn-icon:hover  { background:var(--c3); color:var(--t1); }
+.btn-icon:active { transform:scale(0.9); }
+
+/* ═══════════════════════════════════════════════════
+   INPUT SYSTEM
+═══════════════════════════════════════════════════ */
+.input {
+  background:var(--c1);
+  border:1px solid var(--b0);
+  border-radius:var(--r-md);
+  color:var(--t1);
+  font-family:'Geist',system-ui,sans-serif;
+  transition:border-color .15s, box-shadow .15s, background .15s;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04), inset 0 -1px 0 rgba(0,0,0,.15);
+}
+.input:hover  { border-color:var(--b1); }
+.input::placeholder { color:var(--t3); }
+select.input { cursor:pointer; }
+select.input option { background:#111118; }
+
+/* ═══════════════════════════════════════════════════
+   PROMPT BAR (Chat input)
+   — Apple Messages-inspired with integrated glass
+═══════════════════════════════════════════════════ */
+.prompt-wrap {
+  background:rgba(6,6,8,0.85);
+  border-top:1px solid var(--b0);
+  backdrop-filter:var(--blur-md);
+  -webkit-backdrop-filter:var(--blur-md);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+  padding:12px 16px;
+  padding-bottom:max(12px,env(safe-area-inset-bottom));
+}
+.prompt-field {
+  display:flex; align-items:flex-end; gap:10px;
+  background:var(--c2);
+  border:1px solid var(--b1);
+  border-radius:20px;
+  padding:10px 10px 10px 16px;
+  transition:border-color .18s, box-shadow .18s;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 2px 12px rgba(0,0,0,.3);
+}
+.prompt-field:focus-within {
+  border-color:rgba(37,99,235,.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.10),
+    0 0 0 3px rgba(37,99,235,.12),
+    0 4px 20px rgba(0,0,0,.35);
+}
+.prompt-field textarea {
+  flex:1; background:transparent; border:none; resize:none;
+  font-family:'Geist',system-ui,sans-serif;
+  font-size:15px; line-height:1.55;
+  color:var(--t1); min-height:24px; max-height:140px;
+  overflow-y:auto; outline:none; padding:0;
+}
+.prompt-field textarea::placeholder { color:var(--t3); }
+
+/* ═══════════════════════════════════════════════════
+   CHAT BUBBLES
+   — user: right-aligned, dark glass
+   — bot: left-aligned, surface glass
+═══════════════════════════════════════════════════ */
+.bubble-user {
+  background:var(--c3);
+  border:1px solid var(--b1);
+  border-radius:18px 18px 4px 18px;
+  padding:11px 16px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.10), 0 2px 8px rgba(0,0,0,.3);
+}
+.bubble-bot {
+  background:var(--c1);
+  border:1px solid var(--b0);
+  border-radius:4px 18px 18px 18px;
+  padding:13px 16px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06), 0 2px 8px rgba(0,0,0,.25);
+}
+
+/* ═══════════════════════════════════════════════════
+   STATUS INDICATORS
+═══════════════════════════════════════════════════ */
+.status-dot {
+  display:inline-block; width:6px; height:6px;
+  border-radius:50%; flex-shrink:0;
+}
+.status-live  { background:var(--green); animation:pulse 2s ease infinite; }
+.status-busy  { background:var(--amber); animation:pulse 1.2s ease infinite; }
+.status-off   { background:rgba(255,255,255,.2); }
+
+/* ═══════════════════════════════════════════════════
+   IMAGE CARD (Gallery)
+═══════════════════════════════════════════════════ */
+.img-card {
+  position:relative; border-radius:var(--r-md);
+  overflow:hidden;
+  border:1px solid var(--b0);
+  cursor:pointer;
+  transition:transform .22s cubic-bezier(.2,.8,.2,1),
+             box-shadow .22s cubic-bezier(.2,.8,.2,1),
+             border-color .18s;
+}
+.img-card:hover {
+  transform:translateY(-3px) scale(1.005);
+  border-color:var(--b2);
+  box-shadow:0 16px 48px rgba(0,0,0,.6), 0 0 0 1px var(--b1);
+}
+.img-card-overlay {
+  position:absolute; inset:0;
+  background:linear-gradient(to top, rgba(0,0,0,.85) 0%, rgba(0,0,0,.2) 45%, transparent 70%);
+  opacity:0; transition:opacity .2s ease;
+  display:flex; flex-direction:column; justify-content:flex-end;
   padding:12px;
 }
-.img-card:hover .hover-info{opacity:1}
+.img-card:hover .img-card-overlay { opacity:1; }
 
-/* ── Chat bubbles ───────────────────────────── */
-.bubble-user{
-  background:#1a1a1a;
-  border:1px solid #2a2a2a;
-  border-radius:14px 14px 4px 14px;
-  padding:12px 16px;
+/* ═══════════════════════════════════════════════════
+   TOGGLE (CSS only, no JS state)
+═══════════════════════════════════════════════════ */
+.toggle {
+  position:relative; width:42px; height:24px;
+  border-radius:var(--r-pill); cursor:pointer;
+  background:rgba(255,255,255,.12);
+  border:1px solid var(--b1);
+  transition:background .2s, border-color .2s;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 2px rgba(0,0,0,.2);
 }
-.bubble-bot{
-  background:#111;
-  border:1px solid #222;
-  border-radius:4px 14px 14px 14px;
-  padding:14px 16px;
+.toggle.on {
+  background:var(--a);
+  border-color:rgba(37,99,235,.5);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15), 0 0 10px rgba(37,99,235,.3);
 }
+.toggle::after {
+  content:''; position:absolute; top:3px; left:3px;
+  width:16px; height:16px; border-radius:50%;
+  background:rgba(255,255,255,.6);
+  transition:transform .2s cubic-bezier(.2,.8,.2,1), background .2s;
+  box-shadow:0 1px 3px rgba(0,0,0,.4);
+}
+.toggle.on::after { transform:translateX(18px); background:#fff; }
 
-/* ── Input bar ──────────────────────────────── */
-.prompt-bar{
-  background:#111;
-  border:1px solid #222;
-  border-radius:14px;
-  padding:12px 14px;
-  display:flex;align-items:flex-end;gap:10px;
-  transition:border-color .15s;
+/* ═══════════════════════════════════════════════════
+   SIDEBAR THREAD ITEM
+═══════════════════════════════════════════════════ */
+.thread-item {
+  display:flex; flex-direction:column; gap:2px;
+  padding:9px 12px; border-radius:var(--r-md);
+  cursor:pointer; transition:background .15s, border-color .15s;
+  border:1px solid transparent; text-align:left; width:100%;
 }
-.prompt-bar:focus-within{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
-.prompt-bar textarea{
-  flex:1;background:transparent;border:none;resize:none;
-  font-family:inherit;font-size:15px;line-height:1.5;
-  color:#f0f0f0;min-height:24px;max-height:140px;
-  overflow-y:auto;
+.thread-item:hover  { background:var(--c2); border-color:var(--b0); }
+.thread-item.active {
+  background:var(--c3);
+  border-color:var(--b1);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
 }
+.thread-item:active { transform:scale(0.98); }
 
-/* ── Toggle switch ──────────────────────────── */
-.toggle{
-  position:relative;width:40px;height:22px;
-  background:#2a2a2a;border-radius:99px;cursor:pointer;
-  transition:background .15s;
+/* ═══════════════════════════════════════════════════
+   MOBILE BOTTOM NAV
+═══════════════════════════════════════════════════ */
+#mobile-nav {
+  background:rgba(6,6,8,0.88);
+  border-top:1px solid var(--b0);
+  backdrop-filter:var(--blur-lg);
+  -webkit-backdrop-filter:var(--blur-lg);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+  display:flex; align-items:center; justify-content:space-around;
+  padding:4px 0;
+  padding-bottom:max(8px,env(safe-area-inset-bottom));
 }
-.toggle.on{background:#2563eb}
-.toggle::after{
-  content:'';position:absolute;top:3px;left:3px;
-  width:16px;height:16px;border-radius:50%;
-  background:#888;transition:transform .15s,background .15s;
+.nav-btn {
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:6px 20px; border-radius:var(--r-md); cursor:pointer;
+  transition:background .15s; color:var(--t3); min-width:64px;
+  border:none; background:transparent;
 }
-.toggle.on::after{transform:translateX(18px);background:#fff}
+.nav-btn:hover  { background:var(--c2); color:var(--t2); }
+.nav-btn.active { color:var(--t1); }
+.nav-btn .nav-icon {
+  width:22px; height:22px; position:relative;
+  display:flex; align-items:center; justify-content:center;
+}
+.nav-pip {
+  position:absolute; bottom:-2px; left:50%; transform:translateX(-50%);
+  width:4px; height:4px; border-radius:50%; background:var(--a);
+  opacity:0; transition:opacity .2s;
+}
+.nav-btn.active .nav-pip { opacity:1; }
+.nav-label { font-size:10px; font-weight:500; letter-spacing:.01em; }
 
-/* ── Status dot ─────────────────────────────── */
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.status-dot{display:inline-block;width:6px;height:6px;border-radius:50%;vertical-align:middle}
-.status-live{background:#22c55e;animation:pulse 2s ease infinite}
-.status-busy{background:#f59e0b;animation:pulse 1s ease infinite}
-.status-off{background:#333}
-
-/* ── Tab bar active ─────────────────────────── */
-.tab-active{color:#f0f0f0 !important;background:#1a1a1a}
-.tab-active .tab-icon path,.tab-active .tab-icon circle{stroke:#2563eb}
-
-/* ── Drawer ─────────────────────────────────── */
-.drawer{
-  position:fixed;inset:0;z-index:60;
-  display:flex;align-items:flex-end;
+/* ═══════════════════════════════════════════════════
+   DRAWER (Cookie import)
+   Bottom-sheet on mobile, side panel on desktop
+═══════════════════════════════════════════════════ */
+.drawer-backdrop {
+  position:fixed; inset:0; z-index:60;
+  background:rgba(0,0,0,.65);
+  backdrop-filter:blur(4px);
+  -webkit-backdrop-filter:blur(4px);
+  animation:fadeIn .2s ease both;
 }
-@media(min-width:640px){.drawer{align-items:center;justify-content:flex-end}}
-.drawer-panel{
-  width:100%;max-height:92dvh;overflow-y:auto;
-  background:#111;border:1px solid #222;
-  border-radius:20px 20px 0 0;
-  animation:slideUp .28s cubic-bezier(.2,.8,.2,1) both;
+.drawer-panel {
+  position:fixed; z-index:61;
+  bottom:0; left:0; right:0;
+  max-height:92dvh; overflow-y:auto;
+  border-radius:24px 24px 0 0;
+  animation:slideUp .3s cubic-bezier(.2,.8,.2,1) both;
 }
-@media(min-width:640px){
-  .drawer-panel{
-    width:420px;max-height:100dvh;
+@media(min-width:640px) {
+  .drawer-panel {
+    top:0; bottom:0; right:0; left:auto;
+    width:420px; max-height:100dvh;
     border-radius:0;
-    border-right:none;
-    animation:slideRight .28s cubic-bezier(.2,.8,.2,1) both;
+    border-left:1px solid var(--b1);
+    animation:slideR .3s cubic-bezier(.2,.8,.2,1) both;
   }
 }
 
-/* ── Lightbox ───────────────────────────────── */
-.lightbox-img{
-  max-height:60dvh;
-  width:100%;object-fit:contain;
-  border-radius:10px;
+/* ═══════════════════════════════════════════════════
+   LIGHTBOX
+═══════════════════════════════════════════════════ */
+.lightbox {
+  position:fixed; inset:0; z-index:70;
+  display:flex; flex-direction:column;
+  background:rgba(0,0,0,.92);
+  backdrop-filter:blur(24px);
+  -webkit-backdrop-filter:blur(24px);
+  animation:fadeIn .2s ease both;
 }
-@media(min-width:768px){
-  .lightbox-img{max-height:82dvh;width:auto;max-width:60vw}
+@media(min-width:768px) { .lightbox { flex-direction:row; } }
+.lb-img-area {
+  flex:1; display:flex; align-items:center; justify-content:center;
+  padding:24px; overflow:hidden;
+}
+.lb-img { max-width:100%; max-height:58dvh; border-radius:var(--r-lg); object-fit:contain; }
+@media(min-width:768px) { .lb-img { max-height:88dvh; } }
+.lb-panel {
+  width:100%;
+  max-height:42dvh; overflow-y:auto;
+}
+@media(min-width:768px) { .lb-panel { width:320px; max-height:100dvh; } }
+
+/* ═══════════════════════════════════════════════════
+   ACCOUNT CARD
+═══════════════════════════════════════════════════ */
+.account-active {
+  background:linear-gradient(135deg, rgba(37,99,235,.10) 0%, rgba(37,99,235,.04) 100%) !important;
+  border-color:rgba(37,99,235,.25) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.10),
+    0 0 24px rgba(37,99,235,.08),
+    0 2px 8px rgba(0,0,0,.3) !important;
 }
 
-/* ── Mobile header height ───────────────────── */
-.topbar{height:52px}
+/* ═══════════════════════════════════════════════════
+   SAFE AREAS
+═══════════════════════════════════════════════════ */
+.pt-safe { padding-top:env(safe-area-inset-top); }
+.pb-safe { padding-bottom:max(16px,env(safe-area-inset-bottom)); }
 
-/* ── Safe areas ─────────────────────────────── */
-.pb-safe{padding-bottom:max(16px,env(safe-area-inset-bottom))}
-.pt-safe{padding-top:env(safe-area-inset-top)}
+/* ═══════════════════════════════════════════════════
+   SCROLL PROGRESS INDICATOR (chat)
+   CSS-only using scroll-driven animation
+═══════════════════════════════════════════════════ */
+@supports (animation-timeline:scroll()) {
+  #thread-scroll::before {
+    content:''; position:fixed; top:52px; left:0; height:2px;
+    background:linear-gradient(90deg,var(--a),var(--ah));
+    animation:scaleX linear;
+    animation-timeline:scroll(self);
+    transform-origin:left;
+    z-index:10;
+    width:100%;
+    border-radius:0 2px 2px 0;
+    opacity:.7;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════════════ */
+.toast {
+  display:flex; align-items:flex-start; gap:10px;
+  padding:12px 16px; border-radius:var(--r-lg);
+  max-width:300px; animation:slideR .22s cubic-bezier(.2,.8,.2,1) both;
+  box-shadow:0 8px 32px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.1);
+  backdrop-filter:var(--blur-md); -webkit-backdrop-filter:var(--blur-md);
+}
+.toast-info    { background:rgba(20,20,28,.88); border:1px solid var(--b1); }
+.toast-success { background:rgba(10,30,20,.88);  border:1px solid rgba(34,197,94,.25); }
+.toast-error   { background:rgba(30,10,10,.88);  border:1px solid rgba(239,68,68,.25); }
+.toast-warn    { background:rgba(30,24,5,.88);   border:1px solid rgba(245,158,11,.25); }
+
+/* ═══════════════════════════════════════════════════
+   UTIL
+═══════════════════════════════════════════════════ */
+.truncate { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.clamp-2  { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
 </style>
 </head>
 
+<!-- ═══════════════════════════════════════════════════
+     ROOT
+═══════════════════════════════════════════════════ -->
 <body x-data="bridge()" x-init="init()" @keydown.escape.window="closeAll()">
-<div id="app">
+<div id="shell">
 
-<!-- ══════════════════════════════════
-     TOP BAR
-═══════════════════════════════════ -->
-<header class="topbar flex items-center px-4 gap-4 border-b border-[#1a1a1a] bg-[#0a0a0a] z-30 sticky top-0 pt-safe">
+<!-- ═══════════════════════════════════════════════
+     TOPBAR
+═══════════════════════════════════════════════════ -->
+<header id="topbar" class="pt-safe">
 
-  <!-- Logo mark -->
-  <div class="flex items-center gap-2.5 shrink-0">
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" class="shrink-0">
-      <rect width="24" height="24" rx="6" fill="#2563eb"/>
-      <path d="M7 12l3.5 3.5L17 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Logo -->
+  <div class="flex items-center gap-2 shrink-0 mr-2">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <rect width="26" height="26" rx="7" fill="url(#lg)"/>
+      <path d="M8 13l4 4 6-8" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <defs>
+        <linearGradient id="lg" x1="0" y1="0" x2="26" y2="26">
+          <stop offset="0%" stop-color="#3b82f6"/>
+          <stop offset="100%" stop-color="#1d4ed8"/>
+        </linearGradient>
+      </defs>
     </svg>
-    <span class="font-semibold text-[15px] text-tx1 tracking-tight">Bridge</span>
-    <span class="text-tx3 text-[13px] font-mono hidden sm:inline">/ deck</span>
+    <span style="font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--t1)">Bridge</span>
+    <span style="font-size:12px;color:var(--t3);font-family:'Geist Mono',monospace" class="hidden sm:inline">/ deck</span>
   </div>
 
-  <!-- Desktop nav tabs -->
-  <nav class="hidden md:flex items-center gap-1 ml-2" role="tablist">
+  <!-- Desktop nav -->
+  <nav class="hidden md:flex items-center gap-0.5 ml-1" role="tablist">
     <template x-for="t in tabs" :key="t.id">
-      <button @click="view=t.id" role="tab"
-        :aria-selected="view===t.id"
-        class="flex items-center gap-2 px-3 py-1.5 rounded text-[13px] font-medium transition-colors"
-        :class="view===t.id ? 'text-tx1 bg-overlay' : 'text-tx2 hover:text-tx1 hover:bg-[#151515]'">
-        <span x-text="t.icon" class="text-[14px]" aria-hidden="true"></span>
+      <button @click="view=t.id" role="tab" :aria-selected="view===t.id"
+        class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-150"
+        :style="view===t.id
+          ? 'background:var(--c3);color:var(--t1);border:1px solid var(--b1);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)'
+          : 'color:var(--t2);border:1px solid transparent'">
+        <span x-html="t.svg" class="w-4 h-4" aria-hidden="true"></span>
         <span x-text="t.label"></span>
       </button>
     </template>
   </nav>
 
   <!-- Right cluster -->
-  <div class="ml-auto flex items-center gap-3">
-    <!-- Live indicator -->
+  <div class="ml-auto flex items-center gap-2">
+    <!-- Live dot -->
     <div class="hidden sm:flex items-center gap-1.5">
-      <span class="status-dot" :class="wsLive ? 'status-live' : 'status-off'"></span>
-      <span class="text-tx2 text-[12px] font-mono" x-text="wsLive ? 'live' : 'offline'"></span>
+      <span class="status-dot" :class="wsLive?'status-live':'status-off'"></span>
+      <span style="font-size:11px;color:var(--t3);font-family:'Geist Mono',monospace" x-text="wsLive?'live':'offline'"></span>
     </div>
-    <!-- Active account + engine state -->
+    <!-- Account chip -->
     <button @click="view='accounts'"
-      class="flex items-center gap-2 px-3 py-1.5 rounded border border-[#222] bg-surface text-[12px] font-mono hover:border-[#333] transition-colors max-w-[150px]">
-      <span class="status-dot shrink-0" :class="telemetry.browser_busy ? 'status-busy' : 'status-live'"></span>
-      <span class="text-tx2 truncate" x-text="telemetry.active_account || '—'"></span>
+      class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg mat-1 hover:border-[var(--b1)] transition-colors"
+      style="font-size:12px;max-width:150px">
+      <span class="status-dot" :class="telemetry.browser_busy?'status-busy':'status-live'"></span>
+      <span class="truncate" style="color:var(--t2);font-family:'Geist Mono',monospace" x-text="telemetry.active_account||'—'"></span>
     </button>
-    <!-- Mobile sidebar toggle (chat view only) -->
-    <button x-show="view === 'chat'" @click="sidebarOpen = !sidebarOpen"
-      class="md:hidden p-2 rounded border border-[#222] bg-surface text-tx2 hover:text-tx1 transition-colors"
-      aria-label="Toggle conversations">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-      </svg>
+    <!-- Mobile sidebar toggle -->
+    <button x-show="view==='chat'" @click="sidebarOpen=!sidebarOpen"
+      class="btn-icon lg:hidden" aria-label="Conversations" x-cloak>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="14" y2="18"/></svg>
     </button>
   </div>
 </header>
 
-<!-- ══════════════════════════════════
-     MAIN CONTENT AREA
-═══════════════════════════════════ -->
-<main class="overflow-hidden relative" style="min-height:0">
+<!-- ═══════════════════════════════════════════════
+     MAIN
+═══════════════════════════════════════════════════ -->
+<main style="overflow:hidden;min-height:0;position:relative">
 
-  <!-- ── CHAT VIEW ──────────────────────────── -->
-  <div x-show="view === 'chat'" x-cloak id="chat-layout">
+<!-- ── CHAT ────────────────────────────────────── -->
+<div x-show="view==='chat'" x-cloak id="chat-wrap">
 
-    <!-- Mobile sidebar backdrop -->
-    <div x-show="sidebarOpen" x-cloak @click="sidebarOpen=false"
-      class="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden anim-fade"
-      aria-hidden="true"></div>
+  <!-- Mobile sidebar backdrop -->
+  <div x-show="sidebarOpen" x-cloak @click="sidebarOpen=false"
+    class="fixed inset-0 z-40 a-fade"
+    style="background:rgba(0,0,0,.6);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)"></div>
 
-    <!-- Conversation sidebar -->
-    <aside id="sidebar"
-      :class="sidebarOpen ? '!flex fixed inset-y-0 left-0 z-50 w-[280px] pt-[52px]' : ''"
-      aria-label="Conversations">
-      <div class="p-3 border-b border-[#1a1a1a] flex items-center justify-between">
-        <span class="text-tx3 text-[11px] uppercase tracking-widest font-mono">Threads</span>
-        <button @click="newChat()"
-          class="w-7 h-7 rounded flex items-center justify-center text-tx2 hover:text-tx1 hover:bg-overlay transition-colors btn-press"
-          aria-label="New conversation" title="New conversation">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-      </div>
-      <div class="flex-1 overflow-y-auto py-2 space-y-0.5 px-2">
-        <!-- New chat -->
-        <button @click="newChat()"
-          class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded text-[13px] transition-colors text-left btn-press"
-          :class="!activeChat ? 'bg-overlay text-tx1 font-medium' : 'text-tx2 hover:text-tx1 hover:bg-[#161616]'">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="shrink-0 opacity-60"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          <span>New generation</span>
-        </button>
-        <!-- Past threads -->
-        <template x-for="c in chats" :key="c.conversation_id">
-          <button @click="openChat(c)"
-            class="w-full flex flex-col gap-0.5 px-3 py-2.5 rounded text-left transition-colors btn-press anim-fade-up"
-            :class="activeChat?.conversation_id === c.conversation_id
-              ? 'bg-overlay text-tx1 font-medium'
-              : 'text-tx2 hover:text-tx1 hover:bg-[#161616]'">
-            <span class="text-[13px] truncate" x-text="truncate(c.last_prompt || 'Untitled thread', 34)"></span>
-            <span class="text-[11px] font-mono" :class="activeChat?.conversation_id === c.conversation_id ? 'text-tx3' : 'text-tx3'">
-              <span x-text="c.turns"></span> turns &middot; <span x-text="ago(c.last_active)"></span>
-            </span>
-          </button>
-        </template>
-        <div x-show="!chats.length" class="px-3 py-8 text-center text-tx3 text-[13px]">
-          No threads yet
+  <!-- Sidebar -->
+  <aside id="chat-sidebar" :class="sidebarOpen?'!flex fixed inset-y-0 left-0 z-50 w-[260px] pt-[52px]':''">
+    <div class="flex items-center justify-between px-3 py-2.5"
+      style="border-bottom:1px solid var(--b0)">
+      <span style="font-size:11px;color:var(--t3);font-family:'Geist Mono',monospace;text-transform:uppercase;letter-spacing:.1em">Threads</span>
+      <button @click="newChat()" class="btn-icon" style="width:26px;height:26px" aria-label="New">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+    <div class="flex-1 overflow-y-auto p-2 space-y-0.5">
+      <!-- New chat -->
+      <button @click="newChat()" class="thread-item w-full" :class="!activeChat&&'active'">
+        <div class="flex items-center gap-2">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--t3)"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          <span style="font-size:13px;font-weight:500;color:var(--t1)">New generation</span>
         </div>
-      </div>
-    </aside>
+      </button>
+      <!-- Threads -->
+      <template x-for="c in chats" :key="c.conversation_id">
+        <button @click="openChat(c)" class="thread-item a-fade-up"
+          :class="activeChat?.conversation_id===c.conversation_id&&'active'">
+          <span class="truncate" style="font-size:13px;color:var(--t1)" x-text="cut(c.last_prompt||'Untitled',34)"></span>
+          <span style="font-size:11px;color:var(--t3);font-family:'Geist Mono',monospace">
+            <span x-text="c.turns"></span> turns · <span x-text="ago(c.last_active)"></span>
+          </span>
+        </button>
+      </template>
+      <p x-show="!chats.length" style="font-size:13px;color:var(--t3);text-align:center;padding:24px 0">No threads yet</p>
+    </div>
+  </aside>
 
-    <!-- Chat main area -->
-    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+  <!-- Chat area -->
+  <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-      <!-- Thread scroll area -->
-      <div class="flex-1 overflow-y-auto scroll-smooth" id="thread" x-ref="thread">
-        <div class="max-w-2xl mx-auto px-4 py-6 space-y-6">
+    <!-- Scrollable thread -->
+    <div id="thread-scroll" class="flex-1 overflow-y-auto scroll-smooth" style="overscroll-behavior:contain" x-ref="thread">
+      <div class="max-w-[680px] mx-auto px-4 py-6 space-y-5">
 
-          <!-- Empty state -->
-          <div x-show="!chatMsgs.length && !generating"
-            class="flex flex-col items-center text-center pt-12 pb-4 anim-fade-up">
-            <div class="w-12 h-12 rounded-xl bg-[#1a1a1a] border border-[#222] flex items-center justify-center mb-4">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 9h6M9 13h4"/>
-              </svg>
-            </div>
-            <p class="text-tx1 font-semibold text-[17px] mb-1.5">Bridge</p>
-            <p class="text-tx2 text-[14px] leading-relaxed max-w-xs mb-7">
-              Describe an image to generate. Bridge routes through ChatGPT's DALL·E with auto-retry and account rotation.
-            </p>
-            <!-- Example chips -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-sm">
-              <template x-for="ex in examples" :key="ex">
-                <button @click="prefill(ex)"
-                  class="px-3.5 py-2.5 rounded-lg border border-[#222] bg-surface text-[12px] text-tx2 hover:text-tx1 hover:border-[#2563eb]/40 hover:bg-overlay text-left transition-colors btn-press anim-fade-up">
-                  <span x-text="ex"></span>
-                </button>
-              </template>
-            </div>
+        <!-- Empty state -->
+        <div x-show="!chatMsgs.length && !generating"
+          class="flex flex-col items-center text-center pt-14 pb-4 a-fade-up">
+          <!-- Logo glow mark -->
+          <div style="width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,rgba(37,99,235,.15),rgba(99,102,241,.08));border:1px solid rgba(37,99,235,.2);box-shadow:0 0 32px rgba(37,99,235,.12),inset 0 1px 0 rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;margin-bottom:20px">
+            <svg width="24" height="24" viewBox="0 0 26 26" fill="none">
+              <path d="M8 13l4 4 6-8" stroke="#3b82f6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
           </div>
+          <p style="font-size:18px;font-weight:600;color:var(--t1);margin-bottom:6px">Bridge</p>
+          <p style="font-size:14px;color:var(--t2);max-width:300px;line-height:1.6;margin-bottom:28px">
+            Describe an image to generate via ChatGPT's DALL·E with auto-retry and multi-account rotation.
+          </p>
+          <!-- Example chips — 2-col grid -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-[380px] stagger">
+            <template x-for="ex in examples" :key="ex">
+              <button @click="prefill(ex)"
+                class="px-3.5 py-3 rounded-xl text-left mat-1 mat-lift"
+                style="font-size:12px;color:var(--t2)">
+                <span style="color:var(--a);margin-right:6px;font-size:11px">✦</span>
+                <span x-text="ex"></span>
+              </button>
+            </template>
+          </div>
+        </div>
 
-          <!-- Messages -->
-          <template x-for="m in chatMsgs" :key="m.id">
-            <div class="space-y-3 anim-fade-up">
-              <!-- User prompt -->
-              <div class="flex justify-end">
-                <div class="bubble-user max-w-[80%]">
-                  <p class="text-[14px] text-tx1 leading-relaxed" x-text="m.prompt"></p>
-                </div>
+        <!-- Messages -->
+        <template x-for="m in chatMsgs" :key="m.id">
+          <div class="space-y-2.5 a-fade-up">
+            <!-- User bubble -->
+            <div class="flex justify-end">
+              <div class="bubble-user max-w-[75%]">
+                <p style="font-size:14px;color:var(--t1);line-height:1.55" x-text="m.prompt"></p>
               </div>
-              <!-- Bot response -->
-              <div class="flex justify-start">
-                <div class="bubble-bot max-w-[90%] sm:max-w-[76%] space-y-3">
-                  <!-- Generated image -->
+            </div>
+            <!-- Bot bubble -->
+            <div class="flex justify-start">
+              <div class="bubble-bot" style="max-width:min(90%,480px)">
+                <div class="space-y-3">
+                  <!-- Image -->
                   <template x-if="m.imageUrl">
-                    <div>
-                      <img :src="m.imageUrl" :alt="m.prompt"
-                        @click="openLightboxMsg(m)"
-                        loading="lazy"
-                        class="rounded-[10px] w-full max-w-[380px] cursor-zoom-in card-lift border border-[#222]"
-                        style="display:block">
-                    </div>
+                    <img :src="m.imageUrl" :alt="m.prompt" @click="openLbMsg(m)" loading="lazy"
+                      class="img-card" style="width:100%;max-width:400px;display:block;cursor:zoom-in;border-radius:12px">
                   </template>
-                  <!-- Meta strip -->
-                  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono text-tx3">
-                    <span x-show="m.account" class="text-[#3b82f6]" x-text="m.account"></span>
-                    <span x-show="m.dur" x-text="m.dur?.toFixed(1) + 's'"></span>
+                  <!-- Meta -->
+                  <div class="flex flex-wrap items-center gap-x-3 gap-y-1"
+                    style="font-size:11px;font-family:'Geist Mono',monospace;color:var(--t3)">
+                    <span x-show="m.account" style="color:var(--ah)" x-text="m.account"></span>
+                    <span x-show="m.dur" x-text="m.dur?.toFixed(1)+'s'"></span>
                     <span x-show="m.size" x-text="bytes(m.size)"></span>
-                    <span x-show="m.retries > 1" class="text-[#f59e0b]" x-text="m.retries + ' retries'"></span>
+                    <span x-show="m.retries>1" style="color:var(--amber)" x-text="m.retries+' retries'"></span>
                   </div>
                   <!-- Quick actions -->
-                  <div x-show="m.imageUrl" class="flex items-center gap-3 pt-0.5">
+                  <div x-show="m.imageUrl" class="flex items-center gap-3" style="padding-top:2px">
                     <button @click="toggleFav(m)"
-                      class="text-[12px] transition-colors"
-                      :class="m.fav ? 'text-[#f59e0b]' : 'text-tx3 hover:text-tx2'"
-                      :title="m.fav ? 'Remove favorite' : 'Add to favorites'">
-                      <span x-text="m.fav ? '★ Saved' : '☆ Save'"></span>
+                      style="font-size:12px;transition:color .15s"
+                      :style="m.fav?'color:var(--amber)':'color:var(--t3)'"
+                      @mouseover="!m.fav&&($event.target.style.color='var(--t2)')"
+                      @mouseleave="!m.fav&&($event.target.style.color='var(--t3)')">
+                      <span x-text="m.fav?'★ Saved':'☆ Save'"></span>
                     </button>
                     <button @click="continueFrom(m)"
-                      class="text-[12px] text-tx3 hover:text-tx2 transition-colors"
-                      title="Continue this conversation">↳ continue
-                    </button>
-                    <a :href="m.imageUrl" download
-                      class="text-[12px] text-tx3 hover:text-tx2 transition-colors ml-auto">⬇</a>
-                    <button @click="openLightboxMsg(m)"
-                      class="text-[12px] text-tx3 hover:text-tx2 transition-colors"
-                      title="Inspect">⤢</button>
+                      style="font-size:12px;color:var(--t3);transition:color .15s"
+                      @mouseover="$event.target.style.color='var(--t2)'"
+                      @mouseleave="$event.target.style.color='var(--t3)'">↳ continue</button>
+                    <a :href="m.imageUrl" download style="font-size:12px;color:var(--t3);margin-left:auto;text-decoration:none;transition:color .15s"
+                      @mouseover="$event.target.style.color='var(--t2)'"
+                      @mouseleave="$event.target.style.color='var(--t3)'">⬇</a>
+                    <button @click="openLbMsg(m)"
+                      style="font-size:12px;color:var(--t3);transition:color .15s"
+                      @mouseover="$event.target.style.color='var(--t2)'"
+                      @mouseleave="$event.target.style.color='var(--t3)'">⤢</button>
                   </div>
                 </div>
               </div>
             </div>
-          </template>
+          </div>
+        </template>
 
-          <!-- Generating indicator -->
-          <div x-show="generating" class="flex justify-start anim-fade-up">
-            <div class="bubble-bot space-y-2.5">
+        <!-- Generating -->
+        <div x-show="generating" class="flex justify-start a-fade-up">
+          <div class="bubble-bot" style="max-width:320px">
+            <div class="space-y-2">
               <div class="flex items-center gap-3">
                 <div class="flex gap-1.5"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
-                <span class="text-[12px] text-tx2 font-mono" x-text="progress.status || 'Generating…'"></span>
+                <span style="font-size:12px;color:var(--t2);font-family:'Geist Mono',monospace" x-text="progress.status||'Generating…'"></span>
               </div>
-              <div class="flex items-center gap-3 text-[11px] font-mono text-tx3">
-                <span>attempt <span class="text-tx2" x-text="progress.try || 1"></span>/<span x-text="settings.max_retries || 10"></span></span>
-                <span x-text="(progress.elapsed || 0) + 's'"></span>
-                <span>&middot; <span class="text-[#3b82f6]" x-text="telemetry.active_account || '?'"></span></span>
+              <div class="flex items-center gap-3" style="font-size:11px;font-family:'Geist Mono',monospace;color:var(--t3)">
+                <span>attempt <span style="color:var(--t2)" x-text="progress.try||1"></span>/<span x-text="settings.max_retries||10"></span></span>
+                <span x-text="(progress.elapsed||0)+'s'"></span>
+                <span style="color:var(--ah)" x-text="telemetry.active_account||'?'"></span>
               </div>
               <!-- Progress bar -->
-              <div class="h-[2px] w-40 rounded-full bg-[#1a1a1a] overflow-hidden">
-                <div class="h-full bg-[#2563eb] rounded-full transition-all duration-700"
-                  :style="`width:${progress.pct || 8}%`"></div>
+              <div style="height:2px;border-radius:2px;background:var(--c3);overflow:hidden;width:160px">
+                <div style="height:100%;border-radius:2px;background:linear-gradient(90deg,var(--a),var(--ah));transition:width .7s ease"
+                  :style="`width:${progress.pct||8}%`"></div>
               </div>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      <!-- Prompt input bar -->
-      <div class="border-t border-[#1a1a1a] bg-[#0a0a0a] px-4 py-3 pb-safe">
-        <div class="max-w-2xl mx-auto">
-          <!-- Continuation badge -->
-          <div x-show="prompt.conv" class="flex items-center gap-2 mb-2 px-0.5">
-            <span class="text-[11px] text-[#3b82f6] font-mono">↳ continuing</span>
-            <span class="text-[11px] text-tx3 font-mono truncate max-w-[180px]" x-text="prompt.conv?.slice(0,20) + '…'"></span>
-            <button @click="prompt.conv = ''" class="ml-auto text-[11px] text-tx3 hover:text-danger transition-colors">✕ new</button>
-          </div>
-          <!-- Input -->
-          <div class="prompt-bar">
-            <textarea
-              x-model="prompt.text"
-              x-ref="promptInput"
-              @input="growTextarea($event.target)"
-              @keydown.enter.exact.prevent="generate()"
-              @keydown.meta.enter.prevent="generate()"
-              placeholder="Describe what to generate…"
-              rows="1"
-              class="placeholder-tx3"
-              aria-label="Prompt"
-            ></textarea>
-            <button @click="generate()"
-              :disabled="generating || !prompt.text.trim()"
-              class="shrink-0 w-9 h-9 rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-30 disabled:cursor-not-allowed text-white flex items-center justify-center transition-colors btn-press"
-              aria-label="Generate">
-              <svg x-show="!generating" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor"/></svg>
-              <svg x-show="generating" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin .8s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round"/></svg>
-            </button>
-          </div>
-          <!-- Refinement layers toggle -->
-          <div class="mt-2">
-            <button @click="prompt.showLayers = !prompt.showLayers"
-              class="flex items-center gap-1.5 text-[11px] text-tx3 hover:text-tx2 transition-colors px-0.5 btn-press">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                :style="prompt.showLayers ? 'transform:rotate(90deg)' : ''" style="transition:transform .15s" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-              Prompt refinement layers
-            </button>
-            <div x-show="prompt.showLayers" x-cloak class="mt-2 space-y-2 anim-fade">
-              <textarea x-model="prompt.t1" rows="2" placeholder="Layer 1 — softening / style nudge (optional)"
-                class="w-full bg-surface border border-[#222] rounded-lg px-3 py-2 text-[12px] text-tx1 placeholder-tx3 font-mono resize-none"
-                @input="growTextarea($event.target)"></textarea>
-              <textarea x-model="prompt.t2" rows="2" placeholder="Layer 2 — deep refinement (optional)"
-                class="w-full bg-surface border border-[#222] rounded-lg px-3 py-2 text-[12px] text-tx1 placeholder-tx3 font-mono resize-none"
-                @input="growTextarea($event.target)"></textarea>
             </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- ── GALLERY VIEW ────────────────────────── -->
-  <div x-show="view === 'gallery'" x-cloak class="h-full overflow-y-auto" role="main">
-    <div class="max-w-[1400px] mx-auto px-4 py-5">
-
-      <!-- Toolbar -->
-      <div class="flex flex-wrap items-center gap-2 mb-5">
-        <div class="flex gap-1.5 flex-wrap">
-          <template x-for="f in [['all','All'],['today','Today'],['favorites','Saved']]" :key="f[0]">
-            <button @click="gFilter = f[0]; resetGallery(); loadGallery()"
-              class="px-3 py-1.5 rounded text-[12px] font-medium border transition-colors btn-press"
-              :class="gFilter === f[0]
-                ? 'bg-[#2563eb]/10 border-[#2563eb]/30 text-[#3b82f6]'
-                : 'bg-surface border-[#222] text-tx2 hover:text-tx1 hover:border-[#333]'"
-              x-text="f[1]"></button>
-          </template>
-        </div>
-        <!-- Conversation filter -->
-        <select x-model="gConvFilter" @change="resetGallery(); loadGallery()"
-          class="ml-auto bg-surface border border-[#222] rounded text-[12px] px-2.5 py-1.5 text-tx2 max-w-[180px] cursor-pointer hover:border-[#333] transition-colors">
-          <option value="">All threads</option>
-          <template x-for="c in chats" :key="c.conversation_id">
-            <option :value="c.conversation_id" x-text="truncate(c.last_prompt || c.conversation_id, 28)"></option>
-          </template>
-        </select>
-        <span class="text-[12px] font-mono text-tx3" x-text="galleryTotal + ' images'"></span>
-      </div>
-
-      <!-- Grid -->
-      <div class="masonry">
-        <template x-for="img in gallery" :key="img.id">
-          <div class="img-card card-lift border border-[#1a1a1a] cursor-pointer anim-fade-up"
-            @click="openLightbox(img)">
-            <img :src="img.url" :alt="img.prompt || 'Generation'" loading="lazy" class="w-full block" style="border-radius:10px">
-            <div class="hover-info">
-              <p class="text-[11px] text-white leading-snug line-clamp-2" x-text="img.prompt || 'Historical generation'"></p>
-              <div class="flex items-center gap-1.5 mt-1.5 text-[10px] font-mono text-white/60">
-                <span x-text="img.account_used || '—'"></span>
-                <span>&middot;</span>
-                <span x-text="ago(img.created_at)"></span>
-                <span x-show="img.favorite" class="ml-auto text-[#f59e0b]">★</span>
-              </div>
-            </div>
-            <div x-show="img.favorite" class="absolute top-2 right-2 text-[#f59e0b] text-xs leading-none" aria-hidden="true">★</div>
+    <!-- Prompt bar -->
+    <div class="prompt-wrap">
+      <div class="max-w-[680px] mx-auto">
+        <!-- Continuation badge -->
+        <div x-show="prompt.conv" x-cloak class="flex items-center gap-2 mb-2" style="padding:0 2px">
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:var(--r-pill);background:var(--ab);border:1px solid rgba(37,99,235,.2);font-size:11px;font-family:'Geist Mono',monospace">
+            <span style="color:var(--ah)">↳</span>
+            <span style="color:var(--t2)" class="truncate" x-text="prompt.conv?.slice(0,20)+'…'"></span>
+            <button @click="prompt.conv=''" style="color:var(--t3);margin-left:4px;transition:color .15s"
+              @mouseover="$event.target.style.color='var(--red)'"
+              @mouseleave="$event.target.style.color='var(--t3)'">✕</button>
           </div>
-        </template>
-
-        <!-- Skeletons -->
-        <template x-if="gLoading && !gallery.length">
-          <template x-for="h in [200,280,160,240,300,180,220,260]" :key="h">
-            <div class="shimmer rounded-[10px] border border-[#1a1a1a]" :style="`height:${h}px`"></div>
-          </template>
-        </template>
-      </div>
-
-      <!-- Empty state -->
-      <div x-show="!gallery.length && !gLoading" class="flex flex-col items-center py-20 text-center anim-fade">
-        <div class="w-12 h-12 rounded-xl bg-surface border border-[#222] flex items-center justify-center mb-4 text-tx3">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
         </div>
-        <p class="text-tx2 text-[14px] mb-3">No images yet.</p>
-        <button @click="view = 'chat'"
-          class="text-[13px] text-[#3b82f6] hover:text-[#60a5fa] transition-colors">Start generating →</button>
-      </div>
-
-      <!-- Load more -->
-      <div x-show="gNextCursor" class="flex justify-center py-8">
-        <button @click="loadGallery()" :disabled="gLoading"
-          class="px-5 py-2 rounded border border-[#222] bg-surface text-[13px] text-tx2 hover:text-tx1 hover:border-[#333] disabled:opacity-40 transition-colors btn-press">
-          Load more
-        </button>
+        <!-- Input field -->
+        <div class="prompt-field">
+          <textarea x-model="prompt.text" x-ref="promptInput"
+            @input="grow($event.target)"
+            @keydown.enter.exact.prevent="generate()"
+            @keydown.meta.enter.prevent="generate()"
+            placeholder="Describe what to generate…"
+            rows="1" aria-label="Prompt"></textarea>
+          <!-- Refinements toggle -->
+          <button @click="prompt.showLayers=!prompt.showLayers"
+            class="btn-icon shrink-0" style="width:28px;height:28px;border-radius:8px"
+            :style="prompt.showLayers?'background:var(--ab);color:var(--ah)':''"
+            title="Prompt refinement layers">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+          </button>
+          <!-- Send -->
+          <button @click="generate()" :disabled="generating||!prompt.text.trim()"
+            class="btn-primary shrink-0" style="width:36px;height:36px;border-radius:10px;padding:0">
+            <svg x-show="!generating" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor"/></svg>
+            <svg x-show="generating" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin .8s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <!-- Refinement layers -->
+        <div x-show="prompt.showLayers" x-cloak class="mt-2 space-y-2 a-fade">
+          <textarea x-model="prompt.t1" rows="2" placeholder="Layer 1 — softening / style nudge"
+            class="input w-full" style="padding:10px 12px;font-size:12px;font-family:'Geist Mono',monospace;resize:none"
+            @input="grow($event.target)"></textarea>
+          <textarea x-model="prompt.t2" rows="2" placeholder="Layer 2 — deep refinement"
+            class="input w-full" style="padding:10px 12px;font-size:12px;font-family:'Geist Mono',monospace;resize:none"
+            @input="grow($event.target)"></textarea>
+        </div>
       </div>
     </div>
   </div>
+</div>
 
-  <!-- ── THREADS VIEW ────────────────────────── -->
-  <div x-show="view === 'threads'" x-cloak class="h-full overflow-y-auto" role="main">
-    <div class="max-w-3xl mx-auto px-4 py-5">
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 class="text-[18px] font-semibold text-tx1">Threads</h1>
-          <p class="text-[13px] text-tx2 mt-0.5">Active ChatGPT conversations</p>
-        </div>
-        <button @click="purgeStale()"
-          class="flex items-center gap-2 px-3 py-1.5 rounded border border-[#222] bg-surface text-[12px] text-tx2 hover:text-danger hover:border-danger/30 transition-colors btn-press">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-          Purge stale (&gt;24h)
-        </button>
+<!-- ── GALLERY ──────────────────────────────────── -->
+<div x-show="view==='gallery'" x-cloak class="h-full overflow-y-auto">
+  <div style="max-width:1400px;margin:0 auto;padding:20px 16px">
+    <!-- Toolbar -->
+    <div class="flex flex-wrap items-center gap-2 mb-5">
+      <div class="flex gap-1.5 flex-wrap">
+        <template x-for="f in [['all','All'],['today','Today'],['favorites','Saved']]" :key="f[0]">
+          <button @click="gFilter=f[0];resetGallery();loadGallery()"
+            class="px-3 py-1.5 rounded-lg text-[12px] font-medium btn-ghost"
+            :class="gFilter===f[0]&&'!text-[var(--ah)] !border-[rgba(37,99,235,.3)] !bg-[var(--ab)]'"
+            x-text="f[1]"></button>
+        </template>
       </div>
-
-      <div class="space-y-2">
+      <select x-model="gConvFilter" @change="resetGallery();loadGallery()"
+        class="input ml-auto px-2.5 py-1.5 rounded-lg text-[12px]" style="max-width:180px">
+        <option value="">All threads</option>
         <template x-for="c in chats" :key="c.conversation_id">
-          <div class="bg-surface border border-[#1a1a1a] rounded-xl p-4 anim-fade-up">
-            <div class="flex flex-wrap gap-4 items-start">
-              <!-- Thumbnails -->
-              <div class="flex -space-x-2 shrink-0">
-                <template x-for="t in (c.thumbnails || []).slice(0, 3)" :key="t">
-                  <img :src="t" class="w-10 h-10 rounded-lg object-cover border-2 border-canvas" :alt="c.last_prompt">
-                </template>
-                <div x-show="!(c.thumbnails || []).length"
-                  class="w-10 h-10 rounded-lg bg-overlay border border-[#222] flex items-center justify-center text-tx3">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-                </div>
-              </div>
-              <!-- Info -->
-              <div class="flex-1 min-w-0">
-                <p class="text-[13px] font-mono text-[#3b82f6] truncate" x-text="c.conversation_id"></p>
-                <p class="text-[14px] text-tx1 mt-0.5 line-clamp-2 leading-snug"
-                  x-text="c.last_prompt || 'No prompt recorded'"></p>
-                <p class="text-[11px] font-mono text-tx3 mt-1">
-                  <span x-text="c.turns"></span> turns &middot; <span x-text="ago(c.last_active)"></span>
-                </p>
-              </div>
-              <!-- Actions -->
-              <div class="flex gap-2 shrink-0 flex-wrap">
-                <button @click="filterByConv(c)"
-                  class="px-3 py-1.5 rounded border border-[#222] bg-overlay text-[12px] text-tx2 hover:text-tx1 hover:border-[#333] transition-colors btn-press">
-                  View images
-                </button>
-                <button @click="continueConv(c)"
-                  class="px-3 py-1.5 rounded bg-[#2563eb]/10 border border-[#2563eb]/20 text-[12px] text-[#3b82f6] hover:bg-[#2563eb]/20 transition-colors btn-press">
-                  Continue →
-                </button>
-                <button @click="deleteConv(c)"
-                  class="px-3 py-1.5 rounded text-[12px] text-tx3 hover:text-danger transition-colors btn-press">
-                  Delete
-                </button>
-              </div>
+          <option :value="c.conversation_id" x-text="cut(c.last_prompt||c.conversation_id,28)"></option>
+        </template>
+      </select>
+      <span style="font-size:12px;color:var(--t3);font-family:'Geist Mono',monospace" x-text="galleryTotal+' images'"></span>
+    </div>
+    <!-- Masonry -->
+    <div class="masonry">
+      <template x-for="img in gallery" :key="img.id">
+        <div class="img-card a-fade-up" @click="openLb(img)">
+          <img :src="img.url" :alt="img.prompt||'Generation'" loading="lazy" style="width:100%;display:block">
+          <div class="img-card-overlay">
+            <p class="clamp-2" style="font-size:11px;color:rgba(255,255,255,.9);line-height:1.4" x-text="img.prompt||'Historical generation'"></p>
+            <div class="flex items-center gap-1.5 mt-1.5" style="font-size:10px;font-family:'Geist Mono',monospace;color:rgba(255,255,255,.55)">
+              <span x-text="img.account_used||'—'"></span><span>·</span>
+              <span x-text="ago(img.created_at)"></span>
+              <span x-show="img.favorite" style="margin-left:auto;color:var(--amber)">★</span>
             </div>
           </div>
+          <div x-show="img.favorite" style="position:absolute;top:8px;right:8px;font-size:12px;color:var(--amber)" aria-hidden="true">★</div>
+        </div>
+      </template>
+      <!-- Skeletons -->
+      <template x-if="gLoading && !gallery.length">
+        <template x-for="h in [200,280,160,240,300,180,220,260]" :key="h">
+          <div class="shimmer rounded-xl" :style="`height:${h}px;border:1px solid var(--b0)`"></div>
         </template>
-        <div x-show="!chats.length" class="text-center py-16 text-tx2 text-[14px]">
-          <p class="mb-3">No threads active.</p>
-          <button @click="view = 'chat'" class="text-[#3b82f6] hover:text-[#60a5fa] transition-colors">Start one →</button>
+      </template>
+    </div>
+    <!-- Empty -->
+    <div x-show="!gallery.length&&!gLoading" class="flex flex-col items-center py-24 text-center a-fade">
+      <div style="width:48px;height:48px;border-radius:14px;background:var(--c1);border:1px solid var(--b0);display:flex;align-items:center;justify-content:center;margin-bottom:16px;color:var(--t3)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      </div>
+      <p style="color:var(--t2);font-size:14px;margin-bottom:10px">No images yet.</p>
+      <button @click="view='chat'" style="font-size:13px;color:var(--ah);transition:color .15s"
+        @mouseover="$event.target.style.color='var(--t1)'"
+        @mouseleave="$event.target.style.color='var(--ah)'">Start generating →</button>
+    </div>
+    <!-- Load more -->
+    <div x-show="gNextCursor" style="text-align:center;padding:24px">
+      <button @click="loadGallery()" :disabled="gLoading" class="btn-ghost px-5 py-2 text-[13px]">Load more</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── THREADS ──────────────────────────────────── -->
+<div x-show="view==='threads'" x-cloak class="h-full overflow-y-auto">
+  <div style="max-width:720px;margin:0 auto;padding:20px 16px">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <div>
+        <h1 style="font-size:18px;font-weight:600;color:var(--t1)">Threads</h1>
+        <p style="font-size:13px;color:var(--t2);margin-top:2px">Active ChatGPT conversations</p>
+      </div>
+      <button @click="purgeStale()" class="btn-ghost px-3 py-1.5 text-[12px] flex items-center gap-2">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+        Purge stale (&gt;24h)
+      </button>
+    </div>
+    <div class="space-y-2 stagger">
+      <template x-for="c in chats" :key="c.conversation_id">
+        <div class="mat-1 rounded-xl p-4 mat-lift">
+          <div class="flex flex-wrap gap-4 items-start">
+            <!-- Thumbnails -->
+            <div class="flex -space-x-2 shrink-0">
+              <template x-for="t in (c.thumbnails||[]).slice(0,3)" :key="t">
+                <img :src="t" class="w-10 h-10 rounded-lg object-cover" style="border:2px solid var(--c0)">
+              </template>
+              <div x-show="!(c.thumbnails||[]).length"
+                style="width:40px;height:40px;border-radius:10px;background:var(--c2);border:1px solid var(--b0);display:flex;align-items:center;justify-content:center;color:var(--t3)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+              </div>
+            </div>
+            <!-- Info -->
+            <div class="flex-1 min-w-0">
+              <p class="truncate" style="font-size:12px;font-family:'Geist Mono',monospace;color:var(--ah)" x-text="c.conversation_id"></p>
+              <p class="clamp-2" style="font-size:14px;color:var(--t1);margin-top:2px;line-height:1.45" x-text="c.last_prompt||'No prompt recorded'"></p>
+              <p style="font-size:11px;font-family:'Geist Mono',monospace;color:var(--t3);margin-top:4px">
+                <span x-text="c.turns"></span> turns · <span x-text="ago(c.last_active)"></span>
+              </p>
+            </div>
+            <!-- Actions -->
+            <div class="flex flex-wrap gap-2 shrink-0">
+              <button @click="filterByConv(c)" class="btn-ghost px-3 py-1.5 text-[12px]">View images</button>
+              <button @click="continueConv(c)" class="px-3 py-1.5 rounded-lg text-[12px] font-medium"
+                style="background:var(--ab);border:1px solid rgba(37,99,235,.25);color:var(--ah);box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .15s"
+                @mouseover="$event.currentTarget.style.background='rgba(37,99,235,.2)'"
+                @mouseleave="$event.currentTarget.style.background='var(--ab)'">Continue →</button>
+              <button @click="deleteConv(c)" style="font-size:12px;color:var(--t3);padding:6px 10px;transition:color .15s;border-radius:8px;border:none;background:transparent;cursor:pointer"
+                @mouseover="$event.target.style.color='var(--red)'"
+                @mouseleave="$event.target.style.color='var(--t3)'">Delete</button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <div x-show="!chats.length" style="text-align:center;padding:64px 0;color:var(--t2);font-size:14px">
+        <p style="margin-bottom:12px">No threads yet.</p>
+        <button @click="view='chat'" style="color:var(--ah);font-size:13px;transition:color .15s">Start one →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── ACCOUNTS ─────────────────────────────────── -->
+<div x-show="view==='accounts'" x-cloak class="h-full overflow-y-auto">
+  <div style="max-width:960px;margin:0 auto;padding:20px 16px">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <div>
+        <h1 style="font-size:18px;font-weight:600;color:var(--t1)">Accounts</h1>
+        <p style="font-size:13px;color:var(--t2);margin-top:2px">Manage ChatGPT sessions</p>
+      </div>
+      <button @click="cookiesOpen=true" class="btn-primary px-4 py-2 gap-2 text-[13px]">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Import cookies
+      </button>
+    </div>
+
+    <!-- Cards -->
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8 stagger">
+      <template x-for="a in accounts" :key="a.id">
+        <div class="mat-1 rounded-xl p-4 mat-lift" :class="a.is_active&&'account-active'">
+          <!-- Header -->
+          <div class="flex items-start justify-between gap-2 mb-4">
+            <div class="min-w-0">
+              <p class="truncate" style="font-size:14px;font-weight:600;color:var(--t1)" x-text="a.alias||a.id"></p>
+              <p class="truncate" style="font-size:11px;font-family:'Geist Mono',monospace;color:var(--t3);margin-top:2px" x-text="a.email||''"></p>
+            </div>
+            <span style="font-size:11px;padding:3px 10px;border-radius:var(--r-pill);font-weight:500;white-space:nowrap;flex-shrink:0"
+              :style="acctPill(a).style" x-text="acctPill(a).label"></span>
+          </div>
+          <!-- Stats -->
+          <div class="grid grid-cols-3 gap-2 mb-4">
+            <template x-for="stat in [
+              {label:'gens',   val: a.total_generations||0,          color:'var(--t1)'},
+              {label:'strikes',val: a.consecutive_rate_limits||0,    color:(a.consecutive_rate_limits||0)>0?'var(--amber)':'var(--t1)'},
+              {label:'cooldown',val: cdLeft(a),                      color:cdLeft(a)!=='—'?'var(--red)':'var(--t1)'},
+            ]" :key="stat.label">
+              <div style="border-radius:10px;background:var(--c2);border:1px solid var(--b0);padding:10px 0;text-align:center;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)">
+                <p style="font-size:16px;font-weight:600;line-height:1" :style="`color:${stat.color}`" x-text="stat.val"></p>
+                <p style="font-size:10px;color:var(--t3);margin-top:4px" x-text="stat.label"></p>
+              </div>
+            </template>
+          </div>
+          <button @click="switchTo(a)" :disabled="a.is_active"
+            class="w-full py-2 rounded-lg text-[13px] font-medium transition-all"
+            :class="a.is_active?'':'btn-ghost'"
+            :style="a.is_active?'background:var(--ab);border:1px solid rgba(37,99,235,.2);color:var(--ah);cursor:default;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)':''"
+            x-text="a.is_active?'● Active':'Switch to this account'">
+          </button>
+        </div>
+      </template>
+      <div x-show="!accounts.length" style="grid-column:1/-1;text-align:center;padding:64px 0;color:var(--t2);font-size:14px">
+        No accounts configured. Import cookies to add one.
+      </div>
+    </div>
+
+    <!-- Engine settings -->
+    <div class="mat-1 rounded-xl p-5">
+      <p style="font-size:14px;font-weight:600;color:var(--t1);margin-bottom:20px">Engine settings</p>
+      <div class="flex flex-wrap items-center gap-6">
+        <!-- Auto-switch toggle -->
+        <div class="flex items-center gap-3">
+          <button @click="patchSettings({auto_switch:!settings.auto_switch})"
+            class="toggle" :class="settings.auto_switch?'on':''"
+            role="switch" :aria-checked="settings.auto_switch" aria-label="Auto account switching"></button>
+          <span style="font-size:13px;color:var(--t1)">Auto account switching</span>
+        </div>
+        <!-- Max retries -->
+        <label class="flex items-center gap-2.5" style="font-size:13px;color:var(--t1)">Max retries
+          <input type="number" min="1" max="30" :value="settings.max_retries||10"
+            @change="patchSettings({max_retries:+$event.target.value})"
+            class="input" style="width:60px;padding:6px 8px;text-align:center;font-family:'Geist Mono',monospace;font-size:13px">
+        </label>
+        <!-- Telemetry -->
+        <div class="ml-auto flex flex-wrap gap-5" style="font-size:12px;font-family:'Geist Mono',monospace;color:var(--t3)">
+          <span>uptime <span style="color:var(--t2)" x-text="dur(telemetry.uptime_s)"></span></span>
+          <span>images <span style="color:var(--t2)" x-text="telemetry.total_images||0"></span></span>
+          <span>engine <span :style="telemetry.browser_busy?'color:var(--amber)':'color:var(--green)'"
+            x-text="telemetry.browser_busy?'BUSY':'IDLE'"></span></span>
         </div>
       </div>
     </div>
   </div>
-
-  <!-- ── ACCOUNTS VIEW ───────────────────────── -->
-  <div x-show="view === 'accounts'" x-cloak class="h-full overflow-y-auto" role="main">
-    <div class="max-w-4xl mx-auto px-4 py-5">
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 class="text-[18px] font-semibold text-tx1">Accounts</h1>
-          <p class="text-[13px] text-tx2 mt-0.5">Manage ChatGPT sessions</p>
-        </div>
-        <button @click="cookiesOpen = true"
-          class="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-[13px] font-medium transition-colors btn-press">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Import cookies
-        </button>
-      </div>
-
-      <!-- Account cards -->
-      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
-        <template x-for="a in accounts" :key="a.id">
-          <div class="bg-surface border rounded-xl p-4 anim-fade-up transition-colors"
-            :class="a.is_active ? 'border-[#2563eb]/30 bg-[#2563eb]/5' : 'border-[#1a1a1a]'">
-            <!-- Header -->
-            <div class="flex items-start justify-between gap-2 mb-4">
-              <div class="min-w-0">
-                <p class="font-semibold text-[14px] text-tx1 truncate" x-text="a.alias || a.id"></p>
-                <p class="text-[11px] font-mono text-tx3 mt-0.5 truncate" x-text="a.email || ''"></p>
-              </div>
-              <span class="shrink-0 text-[11px] px-2 py-0.5 rounded-full font-medium"
-                :class="accountStatus(a).cls" x-text="accountStatus(a).label"></span>
-            </div>
-            <!-- Stats -->
-            <div class="grid grid-cols-3 gap-2 mb-4">
-              <div class="bg-overlay rounded-lg py-2.5 text-center">
-                <p class="text-[15px] font-semibold text-tx1" x-text="a.total_generations || 0"></p>
-                <p class="text-[10px] text-tx3 mt-0.5">gens</p>
-              </div>
-              <div class="bg-overlay rounded-lg py-2.5 text-center">
-                <p class="text-[15px] font-semibold"
-                  :class="(a.consecutive_rate_limits || 0) > 0 ? 'text-warn' : 'text-tx1'"
-                  x-text="a.consecutive_rate_limits || 0"></p>
-                <p class="text-[10px] text-tx3 mt-0.5">strikes</p>
-              </div>
-              <div class="bg-overlay rounded-lg py-2.5 text-center">
-                <p class="text-[15px] font-semibold"
-                  :class="cdLeft(a) !== '—' ? 'text-danger' : 'text-tx1'"
-                  x-text="cdLeft(a)"></p>
-                <p class="text-[10px] text-tx3 mt-0.5">cooldown</p>
-              </div>
-            </div>
-            <button @click="switchTo(a)" :disabled="a.is_active"
-              class="w-full py-2 rounded-lg text-[13px] font-medium transition-colors btn-press"
-              :class="a.is_active
-                ? 'bg-[#2563eb]/10 text-[#3b82f6] cursor-default'
-                : 'bg-overlay hover:bg-[#2563eb] hover:text-white text-tx2'"
-              x-text="a.is_active ? '● Active' : 'Switch to this account'">
-            </button>
-          </div>
-        </template>
-        <div x-show="!accounts.length" class="col-span-full text-center py-16 text-tx2 text-[14px]">
-          No accounts configured. Import cookies to add one.
-        </div>
-      </div>
-
-      <!-- Engine settings -->
-      <div class="bg-surface border border-[#1a1a1a] rounded-xl p-5">
-        <h2 class="text-[14px] font-semibold text-tx1 mb-5">Engine settings</h2>
-        <div class="flex flex-wrap items-center gap-6">
-          <!-- Auto-switch toggle -->
-          <label class="flex items-center gap-3 cursor-pointer" @click="patchSettings({auto_switch: !settings.auto_switch})">
-            <div class="toggle" :class="settings.auto_switch ? 'on' : ''" role="switch" :aria-checked="settings.auto_switch"></div>
-            <span class="text-[13px] text-tx1">Auto account switching</span>
-          </label>
-          <!-- Max retries -->
-          <label class="flex items-center gap-2.5 text-[13px] text-tx1">
-            Max retries
-            <input type="number" min="1" max="30" :value="settings.max_retries || 10"
-              @change="patchSettings({max_retries: +$event.target.value})"
-              class="w-14 bg-overlay border border-[#222] rounded px-2 py-1 text-center font-mono text-[13px] hover:border-[#333] transition-colors">
-          </label>
-          <!-- Telemetry -->
-          <div class="ml-auto flex flex-wrap gap-5 text-[12px] font-mono text-tx3">
-            <span>uptime <span class="text-tx2" x-text="dur(telemetry.uptime_s)"></span></span>
-            <span>images <span class="text-tx2" x-text="telemetry.total_images || 0"></span></span>
-            <span>engine <span :class="telemetry.browser_busy ? 'text-warn' : 'text-success'"
-                x-text="telemetry.browser_busy ? 'BUSY' : 'IDLE'"></span></span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+</div>
 
 </main>
 
-<!-- ══════════════════════════════════
+<!-- ═══════════════════════════════════════════════
      MOBILE BOTTOM NAV
-═══════════════════════════════════ -->
-<nav id="bottom-nav" class="border-t border-[#1a1a1a] bg-[#0a0a0a] flex items-center justify-around pb-safe pt-1" role="navigation" aria-label="Main navigation">
+═══════════════════════════════════════════════════ -->
+<nav id="mobile-nav" role="navigation" aria-label="Main navigation">
   <template x-for="t in tabs" :key="t.id">
-    <button @click="view = t.id" role="tab" :aria-selected="view === t.id"
-      class="flex flex-col items-center gap-1 py-2 px-5 min-w-[64px] transition-colors btn-press"
-      :class="view === t.id ? 'text-tx1' : 'text-tx3 hover:text-tx2'">
-      <span class="text-[20px] leading-none" x-text="t.icon" aria-hidden="true"></span>
-      <span class="text-[10px] font-medium" x-text="t.label"></span>
-      <div class="h-0.5 w-4 rounded-full transition-colors" :class="view === t.id ? 'bg-[#2563eb]' : 'bg-transparent'"></div>
+    <button @click="view=t.id" class="nav-btn" :class="view===t.id?'active':''" role="tab" :aria-selected="view===t.id">
+      <div class="nav-icon">
+        <span x-html="t.svg"></span>
+        <div class="nav-pip"></div>
+      </div>
+      <span class="nav-label" x-text="t.label"></span>
     </button>
   </template>
 </nav>
 
-</div><!-- /#app -->
+</div><!-- /#shell -->
 
-<!-- ══════════════════════════════════
+<!-- ═══════════════════════════════════════════════
      LIGHTBOX
-═══════════════════════════════════ -->
-<div x-show="lb" x-cloak
-  class="fixed inset-0 z-50 flex flex-col md:flex-row bg-black/95 backdrop-blur-sm anim-fade"
-  @click.self="lb = null"
-  @touchstart="lbTouchY = $event.touches[0].clientY"
-  @touchend="if ($event.changedTouches[0].clientY - lbTouchY > 80) lb = null">
+═══════════════════════════════════════════════════ -->
+<div x-show="lb" x-cloak class="lightbox"
+  @touchstart.passive="lbTy=$event.touches[0].clientY"
+  @touchend.passive="$event.changedTouches[0].clientY-lbTy>90&&(lb=null)">
 
-  <!-- Image area -->
-  <div class="flex-1 flex items-center justify-center p-4 min-h-0"
-    @click.self="lb = null">
-    <img :src="lb?.url" :alt="lb?.prompt || 'Generation'"
-      class="lightbox-img anim-fade-up border border-[#222]"
-      @wheel.prevent="lbZoom = Math.min(4, Math.max(.5, lbZoom - ($event.deltaY > 0 ? .15 : -.15)))"
-      :style="`transform: scale(${lbZoom})`"
-      @dblclick="lbZoom = 1">
+  <!-- Image -->
+  <div class="lb-img-area" @click.self="lb=null">
+    <img :src="lb?.url" :alt="lb?.prompt||''"
+      class="lb-img a-fade-up"
+      :style="`transform:scale(${lbZ})`"
+      @wheel.prevent="lbZ=Math.min(4,Math.max(.5,lbZ-($event.deltaY>0?.15:-.15)))"
+      @dblclick="lbZ=1">
   </div>
 
-  <!-- Inspector panel -->
-  <div class="shrink-0 w-full md:w-80 bg-[#111] border-t md:border-t-0 md:border-l border-[#1a1a1a] overflow-y-auto anim-slide-right"
-    style="max-height:45dvh" :style="window.innerWidth >= 768 ? 'max-height:100dvh' : ''">
-    <div class="p-4 space-y-4">
-      <!-- Top row -->
-      <div class="flex items-center justify-between">
-        <span class="text-[13px] font-semibold text-tx1">Inspector</span>
-        <button @click="lb = null" class="w-7 h-7 rounded flex items-center justify-center text-tx3 hover:text-tx1 hover:bg-overlay transition-colors" aria-label="Close">
+  <!-- Inspector -->
+  <div class="lb-panel mat-3 a-slide-r" style="overflow-y:auto">
+    <div style="padding:16px">
+      <div class="flex items-center justify-between" style="margin-bottom:16px">
+        <span style="font-size:14px;font-weight:600;color:var(--t1)">Inspector</span>
+        <button @click="lb=null" class="btn-icon" aria-label="Close">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -789,68 +1150,73 @@ input:focus,textarea:focus,select:focus{
         <div class="space-y-4">
           <!-- Prompt -->
           <div>
-            <p class="text-[10px] uppercase tracking-widest text-tx3 font-mono mb-1.5">Prompt</p>
-            <p class="text-[13px] text-tx1 bg-overlay rounded-lg p-3 leading-relaxed"
-              x-text="lb.prompt || 'Historical generation (no prompt recorded)'"></p>
+            <p style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--t3);font-family:'Geist Mono',monospace;margin-bottom:8px">Prompt</p>
+            <div class="mat-1 rounded-xl" style="padding:12px">
+              <p style="font-size:13px;color:var(--t1);line-height:1.55" x-text="lb.prompt||'Historical generation (no prompt recorded)'"></p>
+            </div>
           </div>
           <!-- Tweaks -->
           <template x-if="lb.tweaked_prompt">
             <div>
-              <p class="text-[10px] uppercase tracking-widest text-tx3 font-mono mb-1.5">Layer 1</p>
-              <p class="text-[12px] text-tx2 bg-overlay rounded-lg p-2.5 leading-relaxed font-mono" x-text="lb.tweaked_prompt"></p>
+              <p style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--t3);font-family:'Geist Mono',monospace;margin-bottom:8px">Layer 1</p>
+              <div class="mat-1 rounded-xl" style="padding:10px">
+                <p style="font-size:11px;color:var(--t2);font-family:'Geist Mono',monospace;line-height:1.5" x-text="lb.tweaked_prompt"></p>
+              </div>
             </div>
           </template>
           <template x-if="lb.tweaked_prompt_2">
             <div>
-              <p class="text-[10px] uppercase tracking-widest text-tx3 font-mono mb-1.5">Layer 2</p>
-              <p class="text-[12px] text-tx2 bg-overlay rounded-lg p-2.5 leading-relaxed font-mono" x-text="lb.tweaked_prompt_2"></p>
+              <p style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--t3);font-family:'Geist Mono',monospace;margin-bottom:8px">Layer 2</p>
+              <div class="mat-1 rounded-xl" style="padding:10px">
+                <p style="font-size:11px;color:var(--t2);font-family:'Geist Mono',monospace;line-height:1.5" x-text="lb.tweaked_prompt_2"></p>
+              </div>
             </div>
           </template>
           <!-- Meta grid -->
-          <div class="grid grid-cols-2 gap-2 text-[11px] font-mono">
-            <div class="bg-overlay rounded-lg p-2.5">
-              <p class="text-[9px] uppercase tracking-widest text-tx3 mb-1">Account</p>
-              <p class="text-[#3b82f6] truncate" x-text="lb.account_used || 'Unknown'"></p>
-            </div>
-            <div class="bg-overlay rounded-lg p-2.5">
-              <p class="text-[9px] uppercase tracking-widest text-tx3 mb-1">Duration</p>
-              <p x-text="lb.duration_s ? lb.duration_s.toFixed(1) + 's' : 'Unknown'"></p>
-            </div>
-            <div class="bg-overlay rounded-lg p-2.5">
-              <p class="text-[9px] uppercase tracking-widest text-tx3 mb-1">Size</p>
-              <p x-text="bytes(lb.size_bytes)"></p>
-            </div>
-            <div class="bg-overlay rounded-lg p-2.5">
-              <p class="text-[9px] uppercase tracking-widest text-tx3 mb-1">MD5</p>
-              <p class="truncate text-tx2" x-text="lb.md5 ? lb.md5.slice(0,10) + '…' : '—'"></p>
-            </div>
-            <div class="bg-overlay rounded-lg p-2.5 col-span-2">
-              <p class="text-[9px] uppercase tracking-widest text-tx3 mb-1">Thread</p>
-              <p class="truncate text-[#3b82f6]" x-text="lb.conversation_id || 'Not linked'"></p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-family:'Geist Mono',monospace">
+            <template x-for="m in [
+              {k:'Account',  v:lb.account_used||'Unknown',   mono:true, accent:true},
+              {k:'Duration', v:lb.duration_s?lb.duration_s.toFixed(1)+'s':'Unknown', mono:true},
+              {k:'Size',     v:bytes(lb.size_bytes), mono:true},
+              {k:'MD5',      v:lb.md5?lb.md5.slice(0,10)+'…':'—', mono:true},
+            ]" :key="m.k">
+              <div class="mat-1 rounded-xl" style="padding:10px">
+                <p style="font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--t3);margin-bottom:4px" x-text="m.k"></p>
+                <p class="truncate" :style="`font-size:11px;color:${m.accent?'var(--ah)':'var(--t2)'}`" x-text="m.v"></p>
+              </div>
+            </template>
+            <div class="mat-1 rounded-xl" style="padding:10px;grid-column:1/-1">
+              <p style="font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--t3);margin-bottom:4px;font-family:'Geist Mono',monospace">Thread</p>
+              <p class="truncate" style="font-size:11px;color:var(--ah);font-family:'Geist Mono',monospace" x-text="lb.conversation_id||'Not linked'"></p>
             </div>
           </div>
           <!-- Actions -->
-          <div class="grid grid-cols-2 gap-2">
-            <button @click="clipCopy(lb.prompt, 'Prompt copied')"
-              class="py-2 rounded-lg border border-[#222] bg-overlay text-[12px] text-tx2 hover:text-tx1 hover:border-[#333] transition-colors btn-press">Copy prompt</button>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <button @click="clipCopy(lb.prompt,'Prompt copied')" class="btn-ghost py-2.5 text-[12px]">Copy prompt</button>
             <button @click="toggleFavLb()"
-              class="py-2 rounded-lg border text-[12px] transition-colors btn-press"
-              :class="lb.favorite ? 'border-[#f59e0b]/30 bg-[#f59e0b]/10 text-[#f59e0b]' : 'border-[#222] bg-overlay text-tx2 hover:text-tx1'"
-              x-text="lb.favorite ? '★ Saved' : '☆ Save'"></button>
-            <button @click="continueFrom(lb); lb = null"
-              class="py-2 rounded-lg bg-[#2563eb]/10 border border-[#2563eb]/20 text-[12px] text-[#3b82f6] hover:bg-[#2563eb]/20 transition-colors btn-press">↳ Continue</button>
-            <a :href="lb?.url" download
-              class="py-2 rounded-lg border border-[#222] bg-overlay text-[12px] text-tx2 hover:text-tx1 text-center transition-colors btn-press">Download</a>
+              :class="lb.favorite?'':'btn-ghost'"
+              :style="lb.favorite?'padding:10px;border-radius:var(--r-md);background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.25);color:var(--amber);font-size:12px;cursor:pointer;transition:all .15s':''"
+              class="py-2.5 text-[12px]"
+              x-text="lb.favorite?'★ Saved':'☆ Save'"></button>
+            <button @click="continueFrom(lb);lb=null" class="py-2.5 rounded-lg text-[12px] font-medium"
+              style="background:var(--ab);border:1px solid rgba(37,99,235,.25);color:var(--ah);box-shadow:inset 0 1px 0 rgba(255,255,255,.06);cursor:pointer;transition:all .15s"
+              @mouseover="$event.currentTarget.style.background='rgba(37,99,235,.2)'"
+              @mouseleave="$event.currentTarget.style.background='var(--ab)'">↳ Continue</button>
+            <a :href="lb?.url" download class="btn-ghost py-2.5 text-[12px] text-center" style="text-decoration:none">Download</a>
             <button @click="deleteImg(lb)"
-              class="col-span-2 py-2 rounded-lg text-[12px] text-tx3 hover:text-danger hover:bg-danger/5 transition-colors btn-press">Delete permanently</button>
+              style="grid-column:1/-1;padding:10px;border-radius:var(--r-md);background:transparent;border:none;font-size:12px;color:var(--t3);cursor:pointer;transition:all .15s;font-family:'Geist',sans-serif"
+              @mouseover="$event.target.style.background='rgba(239,68,68,.08)';$event.target.style.color='var(--red)'"
+              @mouseleave="$event.target.style.background='transparent';$event.target.style.color='var(--t3)'">Delete permanently</button>
           </div>
           <!-- Zoom controls -->
-          <div class="flex items-center gap-2 pt-1">
-            <span class="text-[10px] text-tx3 font-mono">Zoom</span>
-            <button @click="lbZoom = Math.max(.5, lbZoom - .25)" class="w-6 h-6 flex items-center justify-center rounded bg-overlay text-tx2 hover:text-tx1 text-[13px] btn-press">−</button>
-            <span class="text-[11px] font-mono text-tx2 w-10 text-center" x-text="Math.round(lbZoom * 100) + '%'"></span>
-            <button @click="lbZoom = Math.min(4, lbZoom + .25)" class="w-6 h-6 flex items-center justify-center rounded bg-overlay text-tx2 hover:text-tx1 text-[13px] btn-press">+</button>
-            <button @click="lbZoom = 1" class="text-[11px] text-tx3 hover:text-tx2 transition-colors ml-1 btn-press">reset</button>
+          <div class="flex items-center gap-2">
+            <span style="font-size:10px;color:var(--t3);font-family:'Geist Mono',monospace">Zoom</span>
+            <button @click="lbZ=Math.max(.5,lbZ-.25)" class="btn-icon" style="width:24px;height:24px;font-size:14px">−</button>
+            <span style="font-size:11px;font-family:'Geist Mono',monospace;color:var(--t2);width:40px;text-align:center" x-text="Math.round(lbZ*100)+'%'"></span>
+            <button @click="lbZ=Math.min(4,lbZ+.25)" class="btn-icon" style="width:24px;height:24px;font-size:14px">+</button>
+            <button @click="lbZ=1" style="font-size:11px;color:var(--t3);background:none;border:none;cursor:pointer;transition:color .15s;font-family:'Geist',sans-serif;margin-left:4px"
+              @mouseover="$event.target.style.color='var(--t2)'"
+              @mouseleave="$event.target.style.color='var(--t3)'">reset</button>
           </div>
         </div>
       </template>
@@ -858,474 +1224,381 @@ input:focus,textarea:focus,select:focus{
   </div>
 </div>
 
-<!-- ══════════════════════════════════
-     COOKIE IMPORT DRAWER
-═══════════════════════════════════ -->
-<div x-show="cookiesOpen" x-cloak class="drawer" @click.self="cookiesOpen = false">
-  <div class="absolute inset-0 bg-black/60 backdrop-blur-sm anim-fade" @click="cookiesOpen = false"></div>
-  <div class="drawer-panel relative p-5 space-y-4 pb-safe">
-    <div class="flex items-center justify-between">
-      <h3 class="text-[15px] font-semibold text-tx1">Import cookies</h3>
-      <button @click="cookiesOpen = false"
-        class="w-7 h-7 rounded flex items-center justify-center text-tx3 hover:text-tx1 hover:bg-overlay transition-colors btn-press" aria-label="Close">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
+<!-- ═══════════════════════════════════════════════
+     COOKIE DRAWER
+═══════════════════════════════════════════════════ -->
+<div x-show="cookiesOpen" x-cloak>
+  <div class="drawer-backdrop" @click="cookiesOpen=false"></div>
+  <div class="drawer-panel mat-3 pb-safe">
+    <div style="padding:20px 20px 0">
+      <!-- Drag handle (mobile) -->
+      <div class="sm:hidden" style="width:36px;height:4px;border-radius:2px;background:var(--b2);margin:0 auto 16px"></div>
+      <div class="flex items-center justify-between" style="margin-bottom:16px">
+        <h3 style="font-size:15px;font-weight:600;color:var(--t1)">Import cookies</h3>
+        <button @click="cookiesOpen=false" class="btn-icon" aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
     </div>
-    <p class="text-[12px] text-tx2 leading-relaxed">Paste an exported <code class="text-tx1 bg-overlay px-1 rounded">cookies.json</code> to refresh a session. Existing sessions are unaffected.</p>
-    <select x-model="ckForm.account"
-      class="w-full bg-overlay border border-[#222] rounded-lg px-3 py-2.5 text-[13px] text-tx1 hover:border-[#333] transition-colors cursor-pointer">
-      <option value="">Select account…</option>
-      <template x-for="a in accounts" :key="a.id">
-        <option :value="a.alias || a.id" x-text="a.alias || a.id"></option>
-      </template>
-    </select>
-    <textarea x-model="ckForm.json" rows="10"
-      placeholder='[{"name":"__Secure-next-auth.session-token","value":"…"}]'
-      class="w-full bg-overlay border border-[#222] rounded-lg p-3 text-[11px] font-mono text-tx1 placeholder-tx3 resize-none"></textarea>
-    <button @click="importCookies()"
-      class="w-full py-2.5 rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-[13px] font-medium transition-colors btn-press">
-      Validate &amp; Import
-    </button>
+    <div style="padding:0 20px 20px;overflow-y:auto">
+      <p style="font-size:12px;color:var(--t2);line-height:1.6;margin-bottom:16px">
+        Paste an exported <code style="color:var(--t1);background:var(--c2);padding:2px 6px;border-radius:4px;font-family:'Geist Mono',monospace">cookies.json</code> to refresh a session.
+      </p>
+      <div class="space-y-3">
+        <select x-model="ckForm.account"
+          class="input w-full" style="padding:10px 14px;font-size:13px">
+          <option value="">Select account…</option>
+          <template x-for="a in accounts" :key="a.id">
+            <option :value="a.alias||a.id" x-text="a.alias||a.id"></option>
+          </template>
+        </select>
+        <textarea x-model="ckForm.json" rows="10"
+          placeholder='[{"name":"__Secure-next-auth.session-token","value":"…"}]'
+          class="input w-full" style="padding:12px 14px;font-size:11px;font-family:'Geist Mono',monospace;resize:none"></textarea>
+        <button @click="importCookies()" class="btn-primary w-full py-2.5 text-[13px]">Validate &amp; Import</button>
+        <p style="font-size:11px;color:var(--t3);line-height:1.5">Existing sessions are unaffected.</p>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- ══════════════════════════════════
+<!-- ═══════════════════════════════════════════════
      TOASTS
-═══════════════════════════════════ -->
-<div class="fixed z-[80] flex flex-col items-end gap-2 pointer-events-none"
-  style="bottom:max(1rem,calc(52px + env(safe-area-inset-bottom)));right:1rem">
+═══════════════════════════════════════════════════ -->
+<div style="position:fixed;z-index:80;bottom:max(16px,calc(52px + env(safe-area-inset-bottom)));right:16px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none">
   <template x-for="t in toasts" :key="t.id">
-    <div class="pointer-events-auto flex items-start gap-2.5 px-4 py-3 rounded-xl border max-w-[300px] anim-slide-up text-[13px]"
-      :class="{
-        'bg-[#111] border-[#222] text-tx1': t.kind === 'info',
-        'bg-success/10 border-success/25 text-success': t.kind === 'success',
-        'bg-danger/10 border-danger/25 text-danger': t.kind === 'error',
-        'bg-warn/10 border-warn/25 text-warn': t.kind === 'warn',
-      }">
-      <svg x-show="t.kind === 'success'" width="14" height="14" class="shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-      <svg x-show="t.kind === 'error'" width="14" height="14" class="shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      <svg x-show="t.kind === 'info'" width="14" height="14" class="shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-      <span x-text="t.msg" class="leading-snug"></span>
+    <div class="toast pointer-events-auto"
+      :class="`toast-${t.kind}`">
+      <svg x-show="t.kind==='success'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;margin-top:1px"><polyline points="20 6 9 17 4 12"/></svg>
+      <svg x-show="t.kind==='error'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <svg x-show="t.kind==='warn'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <svg x-show="t.kind==='info'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ah)" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      <span style="font-size:13px;color:var(--t1);line-height:1.45" x-text="t.msg"></span>
     </div>
   </template>
 </div>
 
-<!-- ══════════════════════════════════
-     ALPINE APP LOGIC
-═══════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════
+     ALPINE LOGIC
+═══════════════════════════════════════════════════ -->
 <script>
+// SVG icons as strings (injected into nav via x-html)
+const ICONS = {
+  chat:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`,
+  gallery:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+  threads:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`,
+  accounts:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+};
+
 function bridge() { return {
-  // ─── Navigation ─────────────────────────
+  // ─── Navigation ────────────────────────
   view: 'chat',
   tabs: [
-    { id: 'chat',     icon: '💬', label: 'Chat' },
-    { id: 'gallery',  icon: '🖼',  label: 'Gallery' },
-    { id: 'threads',  icon: '🗂',  label: 'Threads' },
-    { id: 'accounts', icon: '🔑',  label: 'Accounts' },
+    { id:'chat',     label:'Chat',     svg:ICONS.chat },
+    { id:'gallery',  label:'Gallery',  svg:ICONS.gallery },
+    { id:'threads',  label:'Threads',  svg:ICONS.threads },
+    { id:'accounts', label:'Accounts', svg:ICONS.accounts },
   ],
 
-  // ─── Global state ────────────────────────
-  toasts: [],
-  telemetry: {},
-  settings: {},
-  accounts: [],
-  chats: [],
-  wsLive: false,
-  _ws: null,
+  // ─── Global ───────────────────────────
+  toasts:[], telemetry:{}, settings:{}, accounts:[], chats:[],
+  wsLive:false, _ws:null,
 
-  // ─── Chat ────────────────────────────────
-  chatMsgs: [],
-  activeChat: null,
-  sidebarOpen: false,
-  generating: false,
-  progress: {},
-  prompt: { text: '', conv: '', t1: '', t2: '', showLayers: false },
-  examples: [
-    'Cinematic portrait, golden hour light',
-    'Abstract fluid art, deep ocean blues',
-    'Hyperrealistic product photography',
-    'Moody noir street scene, rain',
+  // ─── Chat ─────────────────────────────
+  chatMsgs:[], activeChat:null, sidebarOpen:false,
+  generating:false, progress:{},
+  prompt:{ text:'', conv:'', t1:'', t2:'', showLayers:false },
+  examples:[
+    'Cinematic portrait, golden hour warmth',
+    'Abstract deep-ocean fluid art',
+    'Product photography on white marble',
+    'Dramatic noir street scene, rain',
   ],
 
-  // ─── Gallery ─────────────────────────────
-  gallery: [],
-  galleryTotal: 0,
-  gNextCursor: null,
-  gLoading: false,
-  gFilter: 'all',
-  gConvFilter: '',
+  // ─── Gallery ──────────────────────────
+  gallery:[], galleryTotal:0, gNextCursor:null, gLoading:false,
+  gFilter:'all', gConvFilter:'',
 
-  // ─── Lightbox ────────────────────────────
-  lb: null,
-  lbZoom: 1,
-  lbTouchY: 0,
+  // ─── Lightbox ─────────────────────────
+  lb:null, lbZ:1, lbTy:0,
 
-  // ─── Cookie drawer ───────────────────────
-  cookiesOpen: false,
-  ckForm: { account: '', json: '' },
+  // ─── Drawers ──────────────────────────
+  cookiesOpen:false, ckForm:{ account:'', json:'' },
 
-  // ─────────────────────────────────────────
-  // INIT
-  // ─────────────────────────────────────────
+  // ──────────────────────────────────────
   async init() {
     await Promise.all([
-      this.loadAccounts(),
-      this.loadChats(),
-      this.loadTelemetry(),
-      this.loadSettings(),
+      this.loadAccounts(), this.loadChats(),
+      this.loadTelemetry(), this.loadSettings(),
     ]);
     this.connectWS();
-    setInterval(() => this.loadTelemetry(), 15000);
+    setInterval(()=>this.loadTelemetry(), 15000);
   },
 
-  // ─────────────────────────────────────────
-  // UTILS
-  // ─────────────────────────────────────────
-  async api(path, opts = {}) {
-    const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  // ─── Utilities ────────────────────────
+  async api(path, opts={}) {
+    const r = await fetch(path, { headers:{'Content-Type':'application/json'}, ...opts });
     if (!r.ok) {
-      const body = await r.json().catch(() => ({ detail: r.statusText }));
-      throw new Error(body.detail || body.error?.message || r.statusText);
+      const b = await r.json().catch(()=>({ detail:r.statusText }));
+      throw new Error(b.detail || b.error?.message || r.statusText);
     }
     return r.json();
   },
-  toast(msg, kind = 'info') {
-    const id = Date.now() + Math.random();
+  toast(msg, kind='info') {
+    const id = Date.now()+Math.random();
     this.toasts.push({ id, msg, kind });
-    setTimeout(() => this.toasts = this.toasts.filter(t => t.id !== id), 4500);
+    setTimeout(()=>this.toasts=this.toasts.filter(t=>t.id!==id), 4500);
   },
   clipCopy(txt, msg) {
-    navigator.clipboard?.writeText(txt || '').then(() => this.toast(msg, 'success'));
+    navigator.clipboard?.writeText(txt||'').then(()=>this.toast(msg,'success'));
   },
   ago(ts) {
     if (!ts) return '—';
-    const s = Date.now() / 1000 - ts;
-    if (s < 60) return 'just now';
-    if (s < 3600) return Math.floor(s / 60) + 'm ago';
-    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-    return Math.floor(s / 86400) + 'd ago';
+    const s = Date.now()/1000 - ts;
+    if (s<60) return 'just now';
+    if (s<3600) return Math.floor(s/60)+'m ago';
+    if (s<86400) return Math.floor(s/3600)+'h ago';
+    return Math.floor(s/86400)+'d ago';
   },
   bytes(b) {
     if (!b) return '—';
-    const u = ['B', 'KB', 'MB', 'GB']; let i = 0;
-    while (b >= 1024 && i < 3) { b /= 1024; i++; }
-    return b.toFixed(1) + ' ' + u[i];
+    const u=['B','KB','MB','GB']; let i=0;
+    while (b>=1024&&i<3){b/=1024;i++;}
+    return b.toFixed(1)+' '+u[i];
   },
   dur(s) {
     if (!s) return '—';
-    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
-    return h ? h + 'h ' + m + 'm' : m + 'm';
+    const h=Math.floor(s/3600), m=Math.floor(s%3600/60);
+    return h ? h+'h '+m+'m' : m+'m';
   },
-  truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '…' : s || ''; },
+  cut(s,n) { return s&&s.length>n ? s.slice(0,n)+'…':s||''; },
   cdLeft(a) {
-    const d = (a.rate_limited_until || 0) - Date.now() / 1000;
-    return d > 0 ? Math.ceil(d / 60) + 'm' : '—';
+    const d=(a.rate_limited_until||0)-Date.now()/1000;
+    return d>0 ? Math.ceil(d/60)+'m':'—';
   },
-  accountStatus(a) {
-    if (a.rate_limited_until && a.rate_limited_until > Date.now() / 1000)
-      return { label: '⏳ ' + this.cdLeft(a), cls: 'bg-warn/10 text-warn border border-warn/20' };
+  acctPill(a) {
+    if (a.rate_limited_until && a.rate_limited_until>Date.now()/1000)
+      return { label:'⏳ '+this.cdLeft(a), style:'background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.2);color:var(--amber)' };
     if (a.is_active)
-      return { label: '● Active', cls: 'bg-success/10 text-success border border-success/20' };
-    return { label: 'Standby', cls: 'bg-[#1a1a1a] text-tx3 border border-[#222]' };
+      return { label:'● Active', style:'background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.2);color:var(--green)' };
+    return { label:'Standby', style:'background:var(--c2);border:1px solid var(--b0);color:var(--t3)' };
   },
-  growTextarea(el) {
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+  grow(el) {
+    el.style.height='auto';
+    el.style.height=Math.min(el.scrollHeight,140)+'px';
   },
   scrollThread() {
-    this.$nextTick(() => {
-      const el = document.getElementById('thread');
-      if (el) el.scrollTop = el.scrollHeight;
-    });
+    this.$nextTick(()=>{ const el=document.getElementById('thread-scroll'); if(el) el.scrollTop=el.scrollHeight; });
   },
   prefill(text) {
-    this.prompt.text = text;
-    this.$nextTick(() => {
-      const el = this.$refs.promptInput;
-      if (el) { el.focus(); this.growTextarea(el); }
-    });
+    this.prompt.text=text;
+    this.$nextTick(()=>{ const el=this.$refs.promptInput; if(el){el.focus();this.grow(el);} });
   },
-  closeAll() {
-    this.lb = null;
-    this.cookiesOpen = false;
-    this.sidebarOpen = false;
-  },
+  closeAll() { this.lb=null; this.cookiesOpen=false; this.sidebarOpen=false; },
 
-  // ─────────────────────────────────────────
-  // CHAT
-  // ─────────────────────────────────────────
+  // ─── Chat ─────────────────────────────
   newChat() {
-    this.activeChat = null;
-    this.chatMsgs = [];
-    this.prompt.conv = '';
-    this.sidebarOpen = false;
-    this.$nextTick(() => this.$refs.promptInput?.focus());
+    this.activeChat=null; this.chatMsgs=[]; this.prompt.conv=''; this.sidebarOpen=false;
+    this.$nextTick(()=>this.$refs.promptInput?.focus());
   },
   async openChat(c) {
-    this.activeChat = c;
-    this.prompt.conv = c.conversation_id;
-    this.sidebarOpen = false;
-    this.chatMsgs = [];
-    // Load history from gallery
+    this.activeChat=c; this.prompt.conv=c.conversation_id;
+    this.sidebarOpen=false; this.chatMsgs=[];
     try {
-      const q = new URLSearchParams({ filter: 'all', limit: 40, conversation_id: c.conversation_id });
-      const p = await this.api('/api/gallery?' + q);
-      this.chatMsgs = [...p.items].reverse().map(img => this._imgToMsg(img));
+      const q=new URLSearchParams({ filter:'all', limit:40, conversation_id:c.conversation_id });
+      const p=await this.api('/api/gallery?'+q);
+      this.chatMsgs=[...p.items].reverse().map(img=>this._i2m(img));
       this.scrollThread();
-    } catch (e) { }
+    } catch(e){}
   },
-  _imgToMsg(img) {
+  _i2m(img) {
     return {
-      id: img.id, prompt: img.prompt || '(Historical generation)',
-      imageUrl: img.url, account: img.account_used,
-      dur: img.duration_s, size: img.size_bytes,
-      conversation_id: img.conversation_id, fav: img.favorite,
-      tweaked_prompt: img.tweaked_prompt, tweaked_prompt_2: img.tweaked_prompt_2,
-      md5: img.md5, retries: img.retries || 1,
+      id:img.id, prompt:img.prompt||'(Historical generation)',
+      imageUrl:img.url, account:img.account_used,
+      dur:img.duration_s, size:img.size_bytes,
+      conversation_id:img.conversation_id, fav:img.favorite,
+      tweaked_prompt:img.tweaked_prompt, tweaked_prompt_2:img.tweaked_prompt_2,
+      md5:img.md5, retries:img.retries||1,
     };
   },
   continueFrom(img) {
-    this.prompt.conv = img.conversation_id || '';
-    this.prompt.text = img.prompt || '';
-    this.prompt.t1 = img.tweaked_prompt || '';
-    this.prompt.t2 = img.tweaked_prompt_2 || '';
-    this.lb = null;
-    this.view = 'chat';
-    this.$nextTick(() => this.$refs.promptInput?.focus());
-    this.toast('Prompt pre-filled — continue generating');
+    this.prompt.conv=img.conversation_id||'';
+    this.prompt.text=img.prompt||'';
+    this.prompt.t1=img.tweaked_prompt||'';
+    this.prompt.t2=img.tweaked_prompt_2||'';
+    this.lb=null; this.view='chat';
+    this.toast('Prompt pre-filled — ready to continue');
+    this.$nextTick(()=>this.$refs.promptInput?.focus());
   },
-
   async generate() {
-    if (this.generating || !this.prompt.text.trim()) return;
-    const text = this.prompt.text.trim();
-    const pid = 'p-' + Date.now();
-    this.chatMsgs.push({ id: pid, prompt: text, imageUrl: null, _pending: true });
-    this.prompt.text = '';
-    this.$nextTick(() => {
-      const el = this.$refs.promptInput;
-      if (el) { el.style.height = ''; }
-    });
+    if (this.generating||!this.prompt.text.trim()) return;
+    const text=this.prompt.text.trim();
+    const pid='p-'+Date.now();
+    this.chatMsgs.push({ id:pid, prompt:text, imageUrl:null, _pending:true });
+    this.prompt.text='';
+    this.$nextTick(()=>{ const el=this.$refs.promptInput; if(el) el.style.height=''; });
     this.scrollThread();
-    this.generating = true;
-    this.progress = { status: 'Submitting…', try: 1, elapsed: 0, pct: 8 };
-    const t0 = Date.now();
-    const tick = setInterval(() => {
-      this.progress.elapsed = Math.round((Date.now() - t0) / 1000);
-      this.progress.pct = Math.min(90, this.progress.pct + 1.1);
-    }, 1000);
+    this.generating=true;
+    this.progress={ status:'Submitting…', try:1, elapsed:0, pct:8 };
+    const t0=Date.now();
+    const tick=setInterval(()=>{
+      this.progress.elapsed=Math.round((Date.now()-t0)/1000);
+      this.progress.pct=Math.min(90,this.progress.pct+1.1);
+    },1000);
     try {
-      const r = await this.api('/image', {
-        method: 'POST',
-        body: JSON.stringify({
-          prompt: text,
-          tweaked_prompt: this.prompt.t1 || null,
-          tweaked_prompt_2: this.prompt.t2 || null,
-          conversation_id: this.prompt.conv || null,
-          timeout_s: 300,
-        }),
-      });
+      const r=await this.api('/image',{ method:'POST', body:JSON.stringify({
+        prompt:text, tweaked_prompt:this.prompt.t1||null,
+        tweaked_prompt_2:this.prompt.t2||null,
+        conversation_id:this.prompt.conv||null, timeout_s:300,
+      })});
       clearInterval(tick);
-      this.progress = { status: 'Done', pct: 100, elapsed: Math.round((Date.now() - t0) / 1000) };
-      this.prompt.conv = r.conversation_id;
-      // Extract image ID from URL
-      let imgId = pid;
-      if (r.image_url) {
-        const m = r.image_url.match(/\/images\/([^/]+)\.\w+$/);
-        if (m) imgId = m[1];
-      }
-      const msg = {
-        id: imgId, prompt: text,
-        imageUrl: r.image_url || null,
-        account: r.account_used, dur: r.duration_s,
-        size: r.size_bytes, conversation_id: r.conversation_id,
-        fav: false,
-        tweaked_prompt: this.prompt.t1 || null,
-        tweaked_prompt_2: this.prompt.t2 || null,
-        retries: r.retries || 1,
-      };
-      this.chatMsgs = this.chatMsgs.filter(m => m.id !== pid);
+      this.progress={ status:'Done', pct:100, elapsed:Math.round((Date.now()-t0)/1000) };
+      this.prompt.conv=r.conversation_id;
+      let imgId=pid;
+      if (r.image_url) { const m=r.image_url.match(/\/images\/([^/]+)\.\w+$/); if(m) imgId=m[1]; }
+      const msg={ id:imgId, prompt:text, imageUrl:r.image_url||null,
+        account:r.account_used, dur:r.duration_s, size:r.size_bytes,
+        conversation_id:r.conversation_id, fav:false,
+        tweaked_prompt:this.prompt.t1||null, tweaked_prompt_2:this.prompt.t2||null,
+        retries:r.retries||1 };
+      this.chatMsgs=this.chatMsgs.filter(m=>m.id!==pid);
       this.chatMsgs.push(msg);
-      this.toast('Generated via ' + r.account_used, 'success');
+      this.toast('Generated via '+r.account_used,'success');
       this.scrollThread();
-      await Promise.all([this.loadChats(), this.loadTelemetry()]);
-    } catch (e) {
+      await Promise.all([this.loadChats(),this.loadTelemetry()]);
+    } catch(e) {
       clearInterval(tick);
-      this.chatMsgs = this.chatMsgs.filter(m => m.id !== pid);
-      this.toast('Failed: ' + e.message, 'error');
+      this.chatMsgs=this.chatMsgs.filter(m=>m.id!==pid);
+      this.toast('Failed: '+e.message,'error');
     }
-    this.generating = false;
+    this.generating=false;
   },
 
-  // ─────────────────────────────────────────
-  // GALLERY
-  // ─────────────────────────────────────────
-  resetGallery() { this.gallery = []; this.gNextCursor = null; },
+  // ─── Gallery ──────────────────────────
+  resetGallery() { this.gallery=[]; this.gNextCursor=null; },
   async loadGallery() {
-    if (this.gLoading) return;
-    this.gLoading = true;
+    if (this.gLoading) return; this.gLoading=true;
     try {
-      const q = new URLSearchParams({ filter: this.gFilter, limit: 40 });
-      if (this.gNextCursor) q.set('cursor', this.gNextCursor);
-      if (this.gConvFilter) q.set('conversation_id', this.gConvFilter);
-      const p = await this.api('/api/gallery?' + q);
-      this.gallery.push(...p.items);
-      this.gNextCursor = p.next_cursor;
-      this.galleryTotal = p.total;
-    } catch (e) { this.toast('Gallery error: ' + e.message, 'error'); }
-    this.gLoading = false;
+      const q=new URLSearchParams({ filter:this.gFilter, limit:40 });
+      if (this.gNextCursor) q.set('cursor',this.gNextCursor);
+      if (this.gConvFilter) q.set('conversation_id',this.gConvFilter);
+      const p=await this.api('/api/gallery?'+q);
+      this.gallery.push(...p.items); this.gNextCursor=p.next_cursor; this.galleryTotal=p.total;
+    } catch(e) { this.toast('Gallery error: '+e.message,'error'); }
+    this.gLoading=false;
   },
-  async openLightbox(img) {
-    this.lb = img; this.lbZoom = 1;
-    try { this.lb = await this.api('/api/gallery/' + img.id); } catch (e) { }
+  async openLb(img) {
+    this.lb=img; this.lbZ=1;
+    try { this.lb=await this.api('/api/gallery/'+img.id); } catch(e){}
   },
-  openLightboxMsg(msg) {
-    this.lb = {
-      id: msg.id, url: msg.imageUrl, prompt: msg.prompt,
-      tweaked_prompt: msg.tweaked_prompt, tweaked_prompt_2: msg.tweaked_prompt_2,
-      account_used: msg.account, duration_s: msg.dur, size_bytes: msg.size,
-      conversation_id: msg.conversation_id, favorite: msg.fav, md5: msg.md5,
-    };
-    this.lbZoom = 1;
+  openLbMsg(msg) {
+    this.lb={ id:msg.id, url:msg.imageUrl, prompt:msg.prompt,
+      tweaked_prompt:msg.tweaked_prompt, tweaked_prompt_2:msg.tweaked_prompt_2,
+      account_used:msg.account, duration_s:msg.dur, size_bytes:msg.size,
+      conversation_id:msg.conversation_id, favorite:msg.fav, md5:msg.md5 };
+    this.lbZ=1;
   },
   async toggleFav(msg) {
     try {
-      const r = await this.api('/api/gallery/' + msg.id + '/favorite', { method: 'POST' });
-      msg.fav = r.favorite;
-      if (this.lb?.id === msg.id) this.lb.favorite = r.favorite;
-    } catch (e) { this.toast(e.message, 'error'); }
+      const r=await this.api('/api/gallery/'+msg.id+'/favorite',{method:'POST'});
+      msg.fav=r.favorite;
+      if (this.lb?.id===msg.id) this.lb.favorite=r.favorite;
+    } catch(e){ this.toast(e.message,'error'); }
   },
   async toggleFavLb() {
     if (!this.lb) return;
     try {
-      const r = await this.api('/api/gallery/' + this.lb.id + '/favorite', { method: 'POST' });
-      this.lb.favorite = r.favorite;
-      const m = this.chatMsgs.find(m => m.id === this.lb.id);
-      if (m) m.fav = r.favorite;
-      const g = this.gallery.find(g => g.id === this.lb.id);
-      if (g) g.favorite = r.favorite;
-    } catch (e) { this.toast(e.message, 'error'); }
+      const r=await this.api('/api/gallery/'+this.lb.id+'/favorite',{method:'POST'});
+      this.lb.favorite=r.favorite;
+      const m=this.chatMsgs.find(m=>m.id===this.lb.id); if(m) m.fav=r.favorite;
+      const g=this.gallery.find(g=>g.id===this.lb.id); if(g) g.favorite=r.favorite;
+    } catch(e){ this.toast(e.message,'error'); }
   },
   async deleteImg(img) {
     if (!confirm('Delete this image permanently?')) return;
     try {
-      await this.api('/api/gallery/' + img.id, { method: 'DELETE' });
-      this.gallery = this.gallery.filter(g => g.id !== img.id);
-      this.chatMsgs = this.chatMsgs.filter(m => m.id !== img.id);
-      this.lb = null;
-      this.toast('Image deleted', 'success');
-    } catch (e) { this.toast(e.message, 'error'); }
+      await this.api('/api/gallery/'+img.id,{method:'DELETE'});
+      this.gallery=this.gallery.filter(g=>g.id!==img.id);
+      this.chatMsgs=this.chatMsgs.filter(m=>m.id!==img.id);
+      this.lb=null; this.toast('Image deleted','success');
+    } catch(e){ this.toast(e.message,'error'); }
   },
   filterByConv(c) {
-    this.gConvFilter = c.conversation_id;
-    this.view = 'gallery';
-    this.resetGallery();
-    this.loadGallery();
+    this.gConvFilter=c.conversation_id; this.view='gallery';
+    this.resetGallery(); this.loadGallery();
   },
 
-  // ─────────────────────────────────────────
-  // ACCOUNTS
-  // ─────────────────────────────────────────
+  // ─── Accounts ─────────────────────────
   async loadAccounts() {
-    try {
-      const r = await this.api('/accounts');
-      this.accounts = Array.isArray(r) ? r : (r.accounts || []);
-    } catch (e) { this.toast('Accounts: ' + e.message, 'error'); }
+    try { const r=await this.api('/accounts'); this.accounts=Array.isArray(r)?r:(r.accounts||[]); }
+    catch(e){ this.toast('Accounts: '+e.message,'error'); }
   },
   async switchTo(a) {
     try {
-      await this.api('/accounts/switch', { method: 'POST', body: JSON.stringify({ account: a.alias || a.id }) });
-      this.toast('Switched to ' + (a.alias || a.id), 'success');
-      await Promise.all([this.loadAccounts(), this.loadTelemetry()]);
-    } catch (e) { this.toast(e.message, 'error'); }
+      await this.api('/accounts/switch',{method:'POST',body:JSON.stringify({account:a.alias||a.id})});
+      this.toast('Switched to '+(a.alias||a.id),'success');
+      await Promise.all([this.loadAccounts(),this.loadTelemetry()]);
+    } catch(e){ this.toast(e.message,'error'); }
   },
   async importCookies() {
-    if (!this.ckForm.account || !this.ckForm.json)
-      return this.toast('Select an account and paste cookies JSON', 'error');
+    if (!this.ckForm.account||!this.ckForm.json) return this.toast('Select account and paste cookies JSON','error');
     try {
-      await this.api('/api/accounts/cookies', {
-        method: 'POST',
-        body: JSON.stringify({ account: this.ckForm.account, cookies_json: this.ckForm.json }),
-      });
-      this.toast('Cookies imported for ' + this.ckForm.account, 'success');
-      this.cookiesOpen = false;
-      this.ckForm = { account: '', json: '' };
+      await this.api('/api/accounts/cookies',{method:'POST',body:JSON.stringify({account:this.ckForm.account,cookies_json:this.ckForm.json})});
+      this.toast('Cookies imported for '+this.ckForm.account,'success');
+      this.cookiesOpen=false; this.ckForm={account:'',json:''};
       await this.loadAccounts();
-    } catch (e) { this.toast('Import failed: ' + e.message, 'error'); }
+    } catch(e){ this.toast('Import failed: '+e.message,'error'); }
   },
 
-  // ─────────────────────────────────────────
-  // THREADS
-  // ─────────────────────────────────────────
-  async loadChats() {
-    try { this.chats = await this.api('/api/chats'); } catch (e) { }
-  },
-  continueConv(c) {
-    this.openChat(c);
-    this.view = 'chat';
-  },
+  // ─── Threads ──────────────────────────
+  async loadChats() { try{ this.chats=await this.api('/api/chats'); }catch(e){} },
+  continueConv(c) { this.openChat(c); this.view='chat'; },
   async deleteConv(c) {
-    if (!confirm('Delete conversation ' + c.conversation_id.slice(0, 8) + '…?')) return;
+    if (!confirm('Delete conversation '+c.conversation_id.slice(0,8)+'…?')) return;
     try {
-      await this.api('/conversations/' + c.conversation_id, { method: 'DELETE' });
-      this.chats = this.chats.filter(x => x.conversation_id !== c.conversation_id);
-      if (this.activeChat?.conversation_id === c.conversation_id) this.newChat();
-      this.toast('Thread deleted', 'success');
-    } catch (e) { this.toast(e.message, 'error'); }
+      await this.api('/conversations/'+c.conversation_id,{method:'DELETE'});
+      this.chats=this.chats.filter(x=>x.conversation_id!==c.conversation_id);
+      if (this.activeChat?.conversation_id===c.conversation_id) this.newChat();
+      this.toast('Thread deleted','success');
+    } catch(e){ this.toast(e.message,'error'); }
   },
   async purgeStale() {
     try {
-      const r = await this.api('/api/chats/purge_stale?older_than_h=24', { method: 'POST' });
-      this.toast('Purged ' + r.purged + ' stale threads', 'success');
+      const r=await this.api('/api/chats/purge_stale?older_than_h=24',{method:'POST'});
+      this.toast('Purged '+r.purged+' stale threads','success');
       await this.loadChats();
-    } catch (e) { this.toast(e.message, 'error'); }
+    } catch(e){ this.toast(e.message,'error'); }
   },
 
-  // ─────────────────────────────────────────
-  // SETTINGS & TELEMETRY
-  // ─────────────────────────────────────────
-  async loadSettings() {
-    try { this.settings = await this.api('/api/settings'); } catch (e) { }
-  },
+  // ─── Settings & Telemetry ─────────────
+  async loadSettings() { try{ this.settings=await this.api('/api/settings'); }catch(e){} },
   async patchSettings(p) {
     try {
-      this.settings = await this.api('/api/settings', { method: 'PATCH', body: JSON.stringify(p) });
-      this.toast('Settings saved', 'success');
-    } catch (e) { this.toast(e.message, 'error'); }
+      this.settings=await this.api('/api/settings',{method:'PATCH',body:JSON.stringify(p)});
+      this.toast('Settings saved','success');
+    } catch(e){ this.toast(e.message,'error'); }
   },
   async loadTelemetry() {
     try {
-      this.telemetry = await this.api('/api/telemetry');
-      if (this.telemetry.settings) this.settings = this.telemetry.settings;
-    } catch (e) { }
+      this.telemetry=await this.api('/api/telemetry');
+      if (this.telemetry.settings) this.settings=this.telemetry.settings;
+    } catch(e){}
   },
 
-  // ─────────────────────────────────────────
-  // WEBSOCKET
-  // ─────────────────────────────────────────
+  // ─── WebSocket ────────────────────────
   connectWS() {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(proto + '://' + location.host + '/ws/events');
-    ws.onopen = () => this.wsLive = true;
-    ws.onclose = () => { this.wsLive = false; setTimeout(() => this.connectWS(), 3000); };
-    ws.onmessage = ev => {
-      const m = JSON.parse(ev.data);
-      if (m.type === 'generation_progress') {
-        this.progress = { ...this.progress, try: m.retry, status: m.status || 'Generating…' };
-      }
-      if (m.type === 'account_switched') {
-        this.toast('Auto-switched to ' + m.account, 'info');
-        this.loadAccounts(); this.loadTelemetry();
-      }
-      if (m.type === 'rate_limited') {
-        this.toast(m.account + ' rate-limited', 'warn');
-        this.loadAccounts();
-      }
-      if (m.type === 'generation_done' && !this.generating) {
-        if (this.view === 'gallery') { this.resetGallery(); this.loadGallery(); }
-        this.loadChats();
-      }
+    const proto=location.protocol==='https:'?'wss':'ws';
+    const ws=new WebSocket(proto+'://'+location.host+'/ws/events');
+    ws.onopen=()=>this.wsLive=true;
+    ws.onclose=()=>{ this.wsLive=false; setTimeout(()=>this.connectWS(),3000); };
+    ws.onmessage=ev=>{
+      const m=JSON.parse(ev.data);
+      if (m.type==='generation_progress') this.progress={...this.progress,try:m.retry,status:m.status||'Generating…'};
+      if (m.type==='account_switched') { this.toast('Auto-switched to '+m.account,'info'); this.loadAccounts(); this.loadTelemetry(); }
+      if (m.type==='rate_limited') { this.toast(m.account+' rate-limited','warn'); this.loadAccounts(); }
+      if (m.type==='generation_done'&&!this.generating) { if(this.view==='gallery'){this.resetGallery();this.loadGallery();} this.loadChats(); }
     };
-    this._ws = ws;
+    this._ws=ws;
   },
 }}
 </script>
