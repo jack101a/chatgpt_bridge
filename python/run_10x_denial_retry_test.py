@@ -20,7 +20,11 @@ logging.basicConfig(
     force=True,
 )
 
-sys.path.insert(0, str(Path(__file__).parent / "python"))
+if Path("/data/accounts.json").exists():
+    os.environ.setdefault("CHATGPT_BRIDGE_STATE", "/data")
+
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "python"))
 from chatgpt_bridge.core import ChatGPT
 from chatgpt_bridge.retry import RetryConfig
 

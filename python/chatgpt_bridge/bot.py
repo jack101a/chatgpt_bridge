@@ -996,10 +996,17 @@ class BridgeBot:
             await self.tg.send_message(chat_id, text, reply_markup=kb)
 
     async def _show_status(self, chat_id: int, edit: int | None = None) -> None:
-        alive = await self.gpt.session.is_alive()
-        pool = self.gpt.pool
         mgr = getattr(self.gpt, "account_manager", None)
         active_acc = mgr.get_active_account() if mgr else None
+
+        alive = False
+        try:
+            alive = await self.gpt.session.is_alive()
+        except Exception:
+            pass
+        if not alive and active_acc and active_acc.is_logged_in:
+            alive = True
+        pool = self.gpt.pool
 
         session_line = "logged in" if alive else "<b>not logged in</b>"
         http_line = "on" if getattr(self.gpt, "use_http", True) else "off"

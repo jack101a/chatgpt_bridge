@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -66,9 +67,21 @@ class ChatGPT:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._idle_task: asyncio.Task | None = None
         self._last_activity = time.monotonic()
+        self._busy_count: int = 0
         # Current conversation for continuity: text and image prompts continue
         # in the same chat until new_chat() is called.
         self._current_conversation_id: str | None = None
+
+    @contextlib.asynccontextmanager
+    async def _busy_guard(self):
+        """Keep the browser marked active and prevent premature idle shutdowns."""
+        self._busy_count += 1
+        self._touch_browser_activity()
+        try:
+            yield
+        finally:
+            self._busy_count = max(0, self._busy_count - 1)
+            self._touch_browser_activity()
 
     def _touch_browser_activity(self) -> None:
         self._last_activity = time.monotonic()
@@ -84,11 +97,17 @@ class ChatGPT:
     async def _idle_sleep_worker(self) -> None:
         try:
             while True:
+                if self._busy_count > 0:
+                    self._last_activity = time.monotonic()
+                    await asyncio.sleep(self.idle_timeout_s)
+                    continue
                 idle_elapsed = time.monotonic() - self._last_activity
                 remaining = self.idle_timeout_s - idle_elapsed
                 if remaining <= 0:
                     break
                 await asyncio.sleep(remaining)
+            if self._busy_count > 0:
+                return
             if self._started and self.browser._context is not None:
                 log.info(
                     "Browser idle for %ds; shutting down to free RAM/CPU.",
@@ -263,18 +282,19 @@ class ChatGPT:
         starts a fresh chat when neither exists. Tries the backend HTTP path
         first; on :class:`ShapeChangedError` falls back to the UI driver.
         """
-        await self._ensure_started()
-        cid = conversation_id or self._current_conversation_id
-        if self.use_http:
-            try:
-                result = await self.http.ask(prompt, conversation_id=cid)
-            except ShapeChangedError:
+        async with self._busy_guard():
+            await self._ensure_started()
+            cid = conversation_id or self._current_conversation_id
+            if self.use_http:
+                try:
+                    result = await self.http.ask(prompt, conversation_id=cid)
+                except ShapeChangedError:
+                    result = await self.ui.ask(prompt, conversation_id=cid)
+            else:
                 result = await self.ui.ask(prompt, conversation_id=cid)
-        else:
-            result = await self.ui.ask(prompt, conversation_id=cid)
-        self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
-        await self._track(result.get("conversation_id"))
-        return result
+            self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
+            await self._track(result.get("conversation_id"))
+            return result
 
     async def generate_image(
         self,
@@ -287,46 +307,45 @@ class ChatGPT:
         tweaked_prompt_2: str | None = None,
     ) -> dict:
         """Generate an image via the UI, continuing the current conversation."""
-        prompt = standardize_image_prompt(prompt)
-        await self._ensure_started()
-        cid = conversation_id or self._current_conversation_id
-        if retry is None:
-            retries = max_retries if max_retries is not None else self.max_retries
-            retry = RetryConfig(max_tries=retries)
-        kwargs: dict = {}
-        if tweaked_prompt is not None:
-            kwargs["tweaked_prompt"] = tweaked_prompt
-        if tweaked_prompt_2 is not None:
-            kwargs["tweaked_prompt_2"] = tweaked_prompt_2
-        try:
-            result = await self.ui.generate_image(
-                prompt,
-                timeout_s=timeout_s,
-                retry=retry,
-                conversation_id=cid,
-                **kwargs,
-            )
-            active_acc = self.account_manager.get_active_account()
-            self.account_manager.record_generation_success(active_acc.id)
-            self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
-            await self._track(result.get("conversation_id"))
-            return result
-        except GenerationDeniedError as exc:
-            if exc.conversation_id:
-                self._current_conversation_id = exc.conversation_id
-                await self._track(exc.conversation_id)
-            if exc.kind == "rate_limit":
-                info = parse_rate_limit_info(str(exc))
-                active_acc = self.account_manager.get_active_account()
-                strikes, alt_acc = self.account_manager.record_rate_limit(
-                    active_acc.id, info["wait_seconds"], info["resets_at_str"]
+        async with self._busy_guard():
+            prompt = standardize_image_prompt(prompt)
+            await self._ensure_started()
+            cid = conversation_id or self._current_conversation_id
+            if retry is None:
+                retries = max_retries if max_retries is not None else self.max_retries
+                retry = RetryConfig(max_tries=retries)
+            kwargs: dict = {}
+            if tweaked_prompt is not None:
+                kwargs["tweaked_prompt"] = tweaked_prompt
+            if tweaked_prompt_2 is not None:
+                kwargs["tweaked_prompt_2"] = tweaked_prompt_2
+            try:
+                result = await self.ui.generate_image(
+                    prompt,
+                    timeout_s=timeout_s,
+                    retry=retry,
+                    conversation_id=cid,
+                    **kwargs,
                 )
-                setattr(exc, "strikes", strikes)
-                setattr(exc, "alt_account", alt_acc)
-                setattr(exc, "rate_limit_info", info)
-            raise
-        finally:
-            self._touch_browser_activity()
+                active_acc = self.account_manager.get_active_account()
+                self.account_manager.record_generation_success(active_acc.id)
+                self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
+                await self._track(result.get("conversation_id"))
+                return result
+            except GenerationDeniedError as exc:
+                if exc.conversation_id:
+                    self._current_conversation_id = exc.conversation_id
+                    await self._track(exc.conversation_id)
+                if exc.kind == "rate_limit":
+                    info = parse_rate_limit_info(str(exc))
+                    active_acc = self.account_manager.get_active_account()
+                    strikes, alt_acc = self.account_manager.record_rate_limit(
+                        active_acc.id, info["wait_seconds"], info["resets_at_str"]
+                    )
+                    setattr(exc, "strikes", strikes)
+                    setattr(exc, "alt_account", alt_acc)
+                    setattr(exc, "rate_limit_info", info)
+                raise
 
     def new_chat(self) -> None:
         """Reset the current conversation so the next prompt starts fresh."""

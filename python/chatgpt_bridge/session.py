@@ -99,7 +99,15 @@ class SessionManager:
         if not self._pending_import:
             return
         ctx = await self.browser.context()
-        await ctx.add_cookies(self._pending_import)
+        try:
+            await ctx.add_cookies(self._pending_import)
+        except Exception as exc:
+            log.warning("Batch add_cookies failed (%s); adding individually", exc)
+            for c in self._pending_import:
+                try:
+                    await ctx.add_cookies([c])
+                except Exception as c_err:
+                    log.warning("Skipping invalid cookie %s: %s", c.get("name"), c_err)
         self._pending_import = None
 
     async def try_cookie_login(self, cookie_path: str | Path | None = None) -> bool:

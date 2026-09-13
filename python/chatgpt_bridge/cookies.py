@@ -94,10 +94,11 @@ def _normalize_json_cookie(raw: dict) -> dict:
         "sameSite": same_site,
     }
 
-    if host_only:
+    if host_only or name.startswith("__Host-"):
         # url-form host-only cookie; Playwright requires EITHER url OR
         # domain+path, not both — so drop domain AND path here.
-        return {**common, "url": f"https://{domain}{path}"}
+        clean_domain = domain.lstrip(".")
+        return {**common, "url": f"https://{clean_domain}{path}"}
 
     if not domain.startswith("."):
         domain = "." + domain

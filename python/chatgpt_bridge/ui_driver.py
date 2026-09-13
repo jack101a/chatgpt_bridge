@@ -414,6 +414,8 @@ class UIDriver:
         last_log_time = 0.0
 
         while time.monotonic() < deadline:
+            if hasattr(page, "is_closed") and page.is_closed():
+                raise BridgeError("Browser page was closed during generation wait")
             elapsed = time.monotonic() - start_time
             # 1. ALWAYS check for a new image first on every poll cycle
             src = await self._find_new_image_src(page, existing_ids)
@@ -646,7 +648,7 @@ class UIDriver:
                     await page.keyboard.press("ControlOrMeta+A")
                     await page.keyboard.press("Backspace")
                     await asyncio.sleep(0.1)
-                    await page.keyboard.type(new_prompt, delay=10)
+                    await page.keyboard.insert_text(new_prompt)
                     await asyncio.sleep(0.2)
 
             send = page.locator(
@@ -780,10 +782,9 @@ class UIDriver:
             }""")
         except Exception:
             pass
-        await asyncio.sleep(0.1)
-        # Type characters: fill() doesn't fire the input events the
-        # contenteditable ProseMirror composer needs.
-        await page.keyboard.type(prompt, delay=10)
+        # Use insert_text: keyboard.type() emits Enter keydown on newlines,
+        # which triggers premature form submission in ChatGPT ProseMirror composer.
+        await page.keyboard.insert_text(prompt)
         await asyncio.sleep(0.3)
         # In modern ChatGPT, the send button is #composer-submit-button / [data-testid="send-button"].
         # Wait briefly for React/ProseMirror to mark the button as enabled.
