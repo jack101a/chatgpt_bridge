@@ -64,19 +64,29 @@ def test_rate_limit_tracking_and_strikes(tmp_path: Path):
     assert acc1.is_rate_limited() is True
     assert acc1.consecutive_rate_limits == 1
 
-    # Add a second account
+    # Add a second account (not logged in initially)
     acc2 = mgr.add_account("Secondary")
+    assert acc2.is_logged_in is False
 
     # Strike 2
     strikes, alt = mgr.record_rate_limit(acc1.id, wait_seconds=3600, resets_at_str="18:00")
     assert strikes == 2
     assert alt is None
 
-    # Strike 3 -> triggers least used alternative identification
+    # Strike 3 with unauthenticated acc2 -> alt is None (safe, won't switch to unauthenticated profile!)
     strikes, alt = mgr.record_rate_limit(acc1.id, wait_seconds=3600, resets_at_str="18:00")
     assert strikes == 3
-    assert alt is not None
-    assert alt.id == acc2.id
+    assert alt is None
+
+    # Now log in acc2
+    acc2.email = "sec@chatgpt.com"
+    acc2.is_authenticated = True
+    assert acc2.is_logged_in is True
+
+    # Check available accounts
+    alt_logged_in = mgr.get_least_used_available_account(exclude_id=acc1.id)
+    assert alt_logged_in is not None
+    assert alt_logged_in.id == acc2.id
 
 
 def test_least_used_account_selection(tmp_path: Path):
@@ -85,9 +95,11 @@ def test_least_used_account_selection(tmp_path: Path):
     acc1.last_used_at = time.time() - 100
 
     acc2 = mgr.add_account("Old Account")
+    acc2.email = "old@chatgpt.com"
     acc2.last_used_at = time.time() - 500  # Used longer ago (least recently used)
 
     acc3 = mgr.add_account("Recent Account")
+    acc3.email = "recent@chatgpt.com"
     acc3.last_used_at = time.time() - 50
 
     # Old Account should be selected as least recently used

@@ -27,6 +27,7 @@ class _FakeTG:
         self.edited: list[tuple] = []
         self.answered: list[tuple] = []
         self.commands: list[dict] | None = None
+        self.downloaded_content = b""
 
     async def send_message(self, chat_id, text, parse_mode="HTML", reply_markup=None):
         # Mirror the real TelegramAPI.send_message chunking behavior.
@@ -48,6 +49,12 @@ class _FakeTG:
 
     async def send_photo(self, chat_id, path, caption="", parse_mode="HTML"):
         self.sent.append(("photo", chat_id, path, caption))
+
+    async def get_file(self, file_id: str) -> dict:
+        return {"file_id": file_id, "file_path": f"documents/{file_id}"}
+
+    async def download_file(self, file_path: str) -> bytes:
+        return self.downloaded_content
 
 
 class _FakePool:
@@ -85,6 +92,7 @@ class _FakeGPT:
         self._current_conversation_id = None
         self.new_chat_calls = 0
         self.switched_accounts: list[str] = []
+        self.logged_in_accounts: list[str] = []
 
     async def ask(self, prompt):
         self.asks.append(prompt)
@@ -110,6 +118,17 @@ class _FakeGPT:
             alias = account_id
             email = "user@example.com"
         return _Acc()
+
+    async def login_account(self, account_id: str, cookies) -> dict:
+        self.logged_in_accounts.append(account_id)
+        if self.account_manager:
+            acc = self.account_manager.find_account(account_id)
+            if acc:
+                acc.is_authenticated = True
+                acc.email = "authed@chatgpt.com"
+                acc.name = "Authed User"
+                self.account_manager._save()
+        return {"email": "authed@chatgpt.com", "name": "Authed User", "account_id": account_id}
 
 
 ALLOWED = 42
@@ -141,6 +160,21 @@ def _callback(data, user_id=ALLOWED, chat_id=99, message_id=5):
             "data": data,
             "from": {"id": user_id},
             "message": {"chat": {"id": chat_id}, "message_id": message_id},
+        }
+    }
+
+
+def _doc_update(file_id="doc_123", file_name="cookies.json", caption="", user_id=ALLOWED, chat_id=99):
+    return {
+        "message": {
+            "from": {"id": user_id},
+            "chat": {"id": chat_id},
+            "document": {
+                "file_id": file_id,
+                "file_name": file_name,
+                "mime_type": "application/json",
+            },
+            "caption": caption,
         }
     }
 
@@ -828,7 +862,7 @@ def test_accounts_command_and_callbacks(tmp_path):
 
     # 2. Add an account via /accounts add
     _await(bot.handle_update(_update("/accounts add Secondary")))
-    assert any("Created new account" in m[2] and "Secondary" in m[2] for m in _msgs(tg))
+    assert any("Created Account slot" in m[2] and "Secondary" in m[2] for m in _msgs(tg))
     assert len(mgr.list_accounts()) == 2
 
     # 3. Switch account via callback
@@ -916,3 +950,131 @@ def test_rate_limit_strike_3_no_alt_prompts_add():
     assert len(msgs) >= 1
     assert "No alternative account is currently available" in msgs[-1][2]
     assert "acc:add" in str(msgs[-1][3])
+
+
+def test_cookie_file_upload_authenticates_account(tmp_path):
+    import json
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    primary = mgr.find_account("default")
+    assert primary is not None
+    primary.is_authenticated = True
+    mgr._save()
+
+    acc2 = mgr.add_account("WorkAccount")
+    assert not acc2.is_logged_in
+
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    cookie_data = json.dumps([
+        {"name": "__Secure-next-auth.session-token", "value": "test-session-val"},
+        {"name": "_puid", "value": "test-puid-val"},
+    ]).encode("utf-8")
+    tg.downloaded_content = cookie_data
+
+    # User uploads cookies.json file
+    _await(bot.handle_update(_doc_update(file_id="doc_cookies_1", file_name="cookies.json")))
+    assert acc2.id in gpt.logged_in_accounts
+    assert acc2.is_logged_in
+    msgs = _msgs(tg)
+    assert any("ChatGPT Login Successful!" in m[2] and "WorkAccount" in m[2] for m in msgs)
+
+
+def test_cookie_paste_authenticates_account(tmp_path):
+    import json
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    primary = mgr.find_account("default")
+    assert primary is not None
+    primary.is_authenticated = True
+    mgr._save()
+
+    acc2 = mgr.add_account("Backup")
+    assert not acc2.is_logged_in
+
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    cookie_str = json.dumps([
+        {"name": "__Secure-next-auth.session-token", "value": "test-token-value"}
+    ])
+
+    # User pastes raw cookie json string
+    _await(bot.handle_update(_update(cookie_str)))
+    assert acc2.id in gpt.logged_in_accounts
+    assert acc2.is_logged_in
+    msgs = _msgs(tg)
+    assert any("ChatGPT Login Successful!" in m[2] for m in msgs)
+
+
+def test_accounts_login_command_and_prompt(tmp_path):
+    import json
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    acc2 = mgr.add_account("WorkAcc")
+
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. User runs /accounts login WorkAcc
+    _await(bot.handle_update(_update(f"/accounts login {acc2.id}")))
+    msgs = _msgs(tg)
+    assert any("Log in ChatGPT Account:" in m[2] and "WorkAcc" in m[2] for m in msgs)
+
+    # 2. User then pastes cookies
+    cookie_str = json.dumps([{"name": "__Secure-next-auth.session-token", "value": "xyz"}])
+    _await(bot.handle_update(_update(cookie_str)))
+    assert acc2.id in gpt.logged_in_accounts
+    assert acc2.is_logged_in
+
+
+def test_accounts_login_callback_and_submission(tmp_path):
+    import json
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    acc2 = mgr.add_account("DevAcc")
+
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. User clicks login callback
+    _await(bot.handle_update(_callback(f"acc:login:{acc2.id}")))
+    msgs = _msgs(tg)
+    assert any("Log in ChatGPT Account:" in m[2] and "DevAcc" in m[2] for m in msgs)
+
+    # 2. User submits cookies
+    cookie_str = json.dumps([{"name": "__Secure-next-auth.session-token", "value": "dev-token"}])
+    _await(bot.handle_update(_update(cookie_str)))
+    assert acc2.id in gpt.logged_in_accounts
+    assert acc2.is_logged_in
+
+
+def test_cookie_paste_multiple_unauthenticated_picker(tmp_path):
+    import json
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    # default account is unauthenticated
+    acc2 = mgr.add_account("SecondAcc")
+    # now 2 accounts are unauthenticated
+
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    cookie_str = json.dumps([{"name": "__Secure-next-auth.session-token", "value": "picker-token"}])
+    # User pastes cookies without prior prompt -> bot asks which account to log in to
+    _await(bot.handle_update(_update(cookie_str)))
+    msgs = _msgs(tg)
+    assert any("Select which account you want to authenticate" in m[2] for m in msgs)
+
+    # User clicks button for SecondAcc
+    _await(bot.handle_update(_callback(f"acc:apply_cookies:{acc2.id}")))
+    assert acc2.id in gpt.logged_in_accounts
+    assert acc2.is_logged_in
+    msgs = _msgs(tg)
+    assert any("ChatGPT Login Successful!" in m[2] and "SecondAcc" in m[2] for m in msgs)

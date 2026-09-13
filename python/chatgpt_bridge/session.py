@@ -102,20 +102,24 @@ class SessionManager:
         await ctx.add_cookies(self._pending_import)
         self._pending_import = None
 
-    async def try_cookie_login(self) -> bool:
+    async def try_cookie_login(self, cookie_path: str | Path | None = None) -> bool:
         """Try cookie-file import; return True iff session became alive."""
-        cookie_path = None
-        if COOKIE_JSON.exists():
-            cookie_path = COOKIE_JSON
-        elif COOKIE_TXT.exists():
-            cookie_path = COOKIE_TXT
+        if cookie_path is None:
+            if COOKIE_JSON.exists():
+                cookie_path = COOKIE_JSON
+            elif COOKIE_TXT.exists():
+                cookie_path = COOKIE_TXT
+        else:
+            cookie_path = Path(cookie_path)
+            if not cookie_path.exists():
+                return False
         if cookie_path is None:
             return False
         self.import_cookie_file(cookie_path)
         await self.apply_pending_import()
         return await self.is_alive()
 
-    async def login_flow(self, interactive: bool = True) -> None:
+    async def login_flow(self, cookie_path: str | Path | None = None, interactive: bool = True) -> None:
         """Establish a session using the documented priority.
 
         Priority: existing live profile -> cookie import -> interactive
@@ -127,7 +131,7 @@ class SessionManager:
             return
 
         # 2. Cookie import if a cookie file is present.
-        if await self.try_cookie_login():
+        if await self.try_cookie_login(cookie_path=cookie_path):
             return
 
         # 3. Interactive headful relaunch.

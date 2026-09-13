@@ -108,22 +108,26 @@ class ChatGPT:
             return
         await self.browser.start()
         self._touch_browser_activity()
+        active_acc = self.account_manager.get_active_account()
         await self.session.apply_pending_import()
         if not await self.session.is_alive():
-            # Try cookie-file import before giving up or going interactive.
-            await self.session.try_cookie_login()
+            # Try per-account cookies first, then default cookies
+            if active_acc.cookies_file and Path(active_acc.cookies_file).exists():
+                await self.session.try_cookie_login(active_acc.cookies_file)
+            else:
+                await self.session.try_cookie_login()
+
         if not await self.session.is_alive():
             if self.auto_relogin:
-                await self.session.login_flow()
+                await self.session.login_flow(cookie_path=active_acc.cookies_file or None)
             else:
                 raise AuthError(
-                    "No valid ChatGPT session. Re-login or refresh cookies, "
-                    "or construct with auto_relogin=True."
+                    f"No valid ChatGPT session for account '{active_acc.alias}'. "
+                    "Re-login or refresh cookies."
                 )
         self._started = True
         try:
-            active_acc = self.account_manager.get_active_account()
-            if not active_acc.email:
+            if not active_acc.email or not active_acc.is_authenticated:
                 user_info = await self.session.get_user_info()
                 if user_info and user_info.get("email"):
                     self.account_manager.update_identity(
@@ -149,6 +153,71 @@ class ChatGPT:
         )
         self._current_conversation_id = None
         return acc
+
+    async def login_account(
+        self,
+        account_id_or_alias: str,
+        cookies: list[dict] | str | Path,
+    ) -> dict:
+        """Authenticate a specific account using cookies, verify session, and store identity."""
+        acc = self.account_manager.find_account(account_id_or_alias)
+        if not acc:
+            raise KeyError(f"Account not found: {account_id_or_alias}")
+
+        from .cookies import parse_cookie_text, cookies_valid
+        if isinstance(cookies, (str, Path)):
+            if isinstance(cookies, Path) or (
+                isinstance(cookies, str)
+                and (cookies.endswith(".json") or cookies.endswith(".txt"))
+                and Path(cookies).exists()
+            ):
+                text = Path(cookies).read_text(encoding="utf-8")
+            else:
+                text = str(cookies)
+            cookie_list = parse_cookie_text(text)
+        elif isinstance(cookies, list):
+            cookie_list = cookies
+        else:
+            raise TypeError(f"Unsupported cookie type: {type(cookies)}")
+
+        if not cookies_valid(cookie_list):
+            raise ValueError(
+                "Provided cookies do not contain a valid, unexpired ChatGPT session-token. "
+                "Ensure you export cookies while logged into chatgpt.com."
+            )
+
+        # Save to account cookies_file
+        cookie_file = Path(acc.cookies_file or (self.account_manager.accounts_root / acc.id / "cookies.json"))
+        cookie_file.parent.mkdir(parents=True, exist_ok=True)
+        cookie_file.write_text(json.dumps(cookie_list, indent=2), encoding="utf-8")
+        acc.cookies_file = str(cookie_file)
+
+        # If active browser is running on this profile, close it first
+        is_active = self.account_manager.active_account_id == acc.id
+        if self._started and is_active:
+            await self.aclose()
+
+        # Launch temporary browser context to apply cookies and harvest identity
+        from .browser import BrowserManager
+        bm = BrowserManager(headless=self.headless, profile_dir=acc.profile_dir)
+        try:
+            ctx = await bm.context()
+            await ctx.add_cookies(cookie_list)
+            sm = SessionManager(bm)
+            alive = await sm.is_alive()
+            if not alive:
+                raise AuthError(
+                    "ChatGPT session verification failed (session endpoint did not return an authenticated user)."
+                )
+            info = await sm.get_user_info()
+            email = info.get("email", "")
+            name = info.get("name", "")
+            self.account_manager.update_identity(acc.id, email=email, name=name)
+            acc.is_authenticated = True
+            self.account_manager._save()
+            return {"ok": True, "account": acc, "email": email, "name": name}
+        finally:
+            await bm.stop()
 
     async def ask(
         self,

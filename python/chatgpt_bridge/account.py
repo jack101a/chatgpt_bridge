@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -29,12 +29,23 @@ class AccountInfo:
     name: str = ""
     profile_dir: str = ""
     chat_pool_file: str = ""
+    cookies_file: str = ""
+    is_authenticated: bool = False
     created_at: float = field(default_factory=time.time)
     last_used_at: float = 0.0
     total_generations: int = 0
     consecutive_rate_limits: int = 0
     rate_limited_until: float | None = None
     rate_limit_resets_at_str: str = ""
+
+    @property
+    def is_logged_in(self) -> bool:
+        """True if the account is verified to have an authenticated ChatGPT session."""
+        if self.is_authenticated or bool(self.email):
+            return True
+        if self.cookies_file and Path(self.cookies_file).exists():
+            return True
+        return False
 
     def is_rate_limited(self, now: float | None = None) -> bool:
         t = now if now is not None else time.time()
@@ -66,8 +77,18 @@ class AccountManager:
             try:
                 data = json.loads(self.registry_file.read_text(encoding="utf-8"))
                 self.active_account_id = data.get("active_account_id", "default")
+                valid_fields = {f.name for f in fields(AccountInfo)}
                 for acc_id, acc_data in data.get("accounts", {}).items():
-                    self.accounts[acc_id] = AccountInfo(**acc_data)
+                    filtered = {k: v for k, v in acc_data.items() if k in valid_fields}
+                    acc = AccountInfo(**filtered)
+                    if not acc.cookies_file:
+                        if acc.id == "default":
+                            acc.cookies_file = str(self.state_dir / "cookies.json")
+                        else:
+                            acc.cookies_file = str(self.accounts_root / acc.id / "cookies.json")
+                    if acc.email:
+                        acc.is_authenticated = True
+                    self.accounts[acc_id] = acc
                 if self.accounts and self.active_account_id not in self.accounts:
                     self.active_account_id = next(iter(self.accounts))
                 return
@@ -77,11 +98,14 @@ class AccountManager:
         # Migration / Initial default setup
         default_profile = self.state_dir / "profile"
         default_pool = self.state_dir / "chat_pool.json"
+        default_cookies = self.state_dir / "cookies.json"
         acc_default = AccountInfo(
             id="default",
             alias="Primary",
             profile_dir=str(default_profile),
             chat_pool_file=str(default_pool),
+            cookies_file=str(default_cookies),
+            is_authenticated=default_cookies.exists(),
             created_at=time.time(),
             last_used_at=time.time(),
         )
@@ -135,6 +159,7 @@ class AccountManager:
         acc_dir = self.accounts_root / acc_id
         profile_dir = acc_dir / "profile"
         pool_file = acc_dir / "chat_pool.json"
+        cookies_file = acc_dir / "cookies.json"
         profile_dir.mkdir(parents=True, exist_ok=True)
 
         acc = AccountInfo(
@@ -142,6 +167,8 @@ class AccountManager:
             alias=alias,
             profile_dir=str(profile_dir),
             chat_pool_file=str(pool_file),
+            cookies_file=str(cookies_file),
+            is_authenticated=False,
             created_at=time.time(),
         )
         self.accounts[acc_id] = acc
@@ -155,6 +182,10 @@ class AccountManager:
         acc = self.find_account(id_or_alias)
         if not acc:
             return False
+        acc_dir = self.accounts_root / acc.id
+        if acc_dir.exists():
+            import shutil
+            shutil.rmtree(acc_dir, ignore_errors=True)
         del self.accounts[acc.id]
         if self.active_account_id == acc.id:
             self.active_account_id = next(iter(self.accounts))
@@ -169,6 +200,7 @@ class AccountManager:
         updated = False
         if email and acc.email != email:
             acc.email = email
+            acc.is_authenticated = True
             updated = True
         if name and acc.name != name:
             acc.name = name
@@ -213,15 +245,17 @@ class AccountManager:
     def get_least_used_available_account(
         self, exclude_id: str | None = None
     ) -> AccountInfo | None:
-        """Return the least recently used account that is not currently rate-limited."""
+        """Return the least recently used account that is authenticated and not currently rate-limited."""
         now = time.time()
         available = [
             acc
             for acc in self.accounts.values()
-            if (exclude_id is None or acc.id != exclude_id) and not acc.is_rate_limited(now)
+            if acc.is_logged_in
+            and (exclude_id is None or acc.id != exclude_id)
+            and not acc.is_rate_limited(now)
         ]
         if not available:
             return None
-        # Sort by last_used_at ascending (LRU)
-        available.sort(key=lambda a: a.last_used_at)
+        # Sort by total_generations first, then last_used_at ascending (LRU)
+        available.sort(key=lambda a: (a.total_generations, a.last_used_at))
         return available[0]

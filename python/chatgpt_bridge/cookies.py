@@ -167,6 +167,30 @@ def _parse_netscape(text: str) -> list[dict]:
     return cookies
 
 
+def parse_cookie_text(text: str) -> list[dict]:
+    """Parse cookie text in either JSON or Netscape format into Playwright-style dicts."""
+    stripped = text.strip()
+    if not stripped:
+        return []
+    if stripped.startswith(("{", "[")):
+        return _parse_json(stripped)
+    return _parse_netscape(stripped)
+
+
+def is_cookie_content(text: str) -> bool:
+    """Check if a string appears to be exported ChatGPT session cookies."""
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if "session-token" in stripped or "__Secure" in stripped:
+        return True
+    if stripped.startswith("[") and ("name" in stripped or "domain" in stripped):
+        return True
+    if "#HttpOnly_" in stripped or ("\tTRUE\t" in stripped or "\tFALSE\t" in stripped):
+        return True
+    return False
+
+
 def load_cookie_file(path: str | Path) -> list[dict]:
     """Load cookies from a Netscape or JSON cookie file.
 
@@ -177,10 +201,7 @@ def load_cookie_file(path: str | Path) -> list[dict]:
     """
     p = Path(path)
     text = p.read_text(encoding="utf-8")
-    stripped = text.lstrip()
-    if stripped.startswith(("{", "[")):
-        return _parse_json(text)
-    return _parse_netscape(text)
+    return parse_cookie_text(text)
 
 
 def cookies_valid(cookies: list[dict]) -> bool:

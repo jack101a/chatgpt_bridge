@@ -32,6 +32,7 @@ from typing import Mapping
 
 import httpx
 
+from .cookies import cookies_valid, is_cookie_content, parse_cookie_text
 from .core import ChatGPT
 from .errors import AuthError, BridgeTimeoutError, GenerationDeniedError
 from .retry import auto_tweak_prompt
@@ -470,6 +471,18 @@ class TelegramAPI:
             if not data_resp.get("ok"):
                 raise RuntimeError(f"telegram sendPhoto failed: {data_resp.get('description')}")
 
+    async def get_file(self, file_id: str) -> dict:
+        """Fetch file metadata from Telegram Bot API."""
+        return await self._call("getFile", file_id=file_id)
+
+    async def download_file(self, file_path: str) -> bytes:
+        """Download raw binary/text file payload from Telegram Bot API."""
+        url = f"https://api.telegram.org/file/bot{self.token}/{file_path}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.content
+
     async def close(self) -> None:
         await self._client.aclose()
 
@@ -591,13 +604,15 @@ class BridgeBot:
         self.config = config
         self.gpt = gpt
         self._lock = asyncio.Lock()
-        # pending action per user: {user_id: ("ask"|"image", timestamp)}
+        # pending action per user: {user_id: ("ask"|"image"|..., timestamp)}
         self._pending: dict[int, tuple[str, float]] = {}
         # active mode per user: {user_id: "chat"|"image"}
         self._user_modes: dict[int, str] = {}
         # last prompts for easy 1-click retry:
         self._last_prompt: dict[int, str] = {}
         self._last_image_prompt: dict[int, str] = {}
+        # pending cookies cache for account selection
+        self._pending_cookies: dict[int, str] = {}
 
     # ------------------------------------------------------------- dispatch
 
@@ -608,34 +623,57 @@ class BridgeBot:
 
         message = update.get("message") or {}
         text = (message.get("text") or "").strip()
+        document = message.get("document")
         chat = message.get("chat") or {}
         user = message.get("from") or {}
         chat_id = chat.get("id")
         user_id = user.get("id")
-        if chat_id is None or not text:
+        if chat_id is None:
             return
         if not self.config.allowed(user_id):
             log.warning("ignoring message from unlisted user_id=%s", user_id)
             return
 
-        # Slash commands always win over pending state.
+        # 1. Did the user send a document (file upload)?
+        if document:
+            caption = (message.get("caption") or "").strip()
+            await self._handle_document_upload(chat_id, user_id, document, caption)
+            return
+
+        if not text:
+            return
+
+        # 2. Slash commands always win over pending state.
         if text.startswith("/"):
             await self._dispatch_command(chat_id, user_id, text)
             return
 
-        # Pending action (tap-to-prime) consumes this message as the prompt.
+        # 3. Pending action consumes this message.
         pending = self._take_pending(user_id)
-        if pending == "image":
-            await self._locked(chat_id, self._run_image(chat_id, text))
-            return
-        elif pending == "ask":
-            await self._locked(chat_id, self._run_ask(chat_id, text))
-            return
-        elif pending == "add_account":
-            await self._locked(chat_id, self._create_account_from_prompt(chat_id, text))
+        if pending:
+            if pending == "image":
+                await self._locked(chat_id, self._run_image(chat_id, text))
+                return
+            elif pending == "ask":
+                await self._locked(chat_id, self._run_ask(chat_id, text))
+                return
+            elif pending == "add_account":
+                await self._locked(chat_id, self._create_account_from_prompt(chat_id, text))
+                return
+            elif pending.startswith("login_account:"):
+                acc_id = pending[len("login_account:"):].strip()
+                await self._locked(
+                    chat_id,
+                    self._handle_cookie_submission(chat_id, user_id, text, account_id_hint=acc_id),
+                )
+                return
+
+        # 4. Check if raw cookie text / JSON was pasted directly
+        if is_cookie_content(text):
+            await self._locked(chat_id, self._handle_cookie_submission(chat_id, user_id, text))
             return
 
-        # Auto-detect mode and image intent
+        # 5. Auto-detect mode and image intent
         user_mode = self._user_modes.get(user_id, "chat") if user_id else "chat"
         if user_mode == "image" or is_image_intent(text):
             await self._locked(chat_id, self._run_image(chat_id, text))
@@ -745,6 +783,29 @@ class BridgeBot:
         elif data.startswith("acc:switch:"):
             acc_id = data[len("acc:switch:"):].strip()
             await self._locked(chat_id, self._switch_account_callback(chat_id, cb_id, acc_id, edit=message.get("message_id")))
+        elif data.startswith("acc:login:"):
+            acc_id = data[len("acc:login:"):].strip()
+            await self._start_login_prompt(chat_id, user_id, acc_id)
+        elif data.startswith("acc:del:"):
+            acc_id = data[len("acc:del:"):].strip()
+            mgr = getattr(self.gpt, "account_manager", None)
+            if mgr:
+                try:
+                    mgr.remove_account(acc_id)
+                    await self.tg.answer_callback_query(cb_id, "Account removed")
+                    await self._show_accounts(chat_id, edit=message.get("message_id"))
+                except Exception as exc:
+                    await self.tg.answer_callback_query(cb_id, f"Error: {exc}", show_alert=True)
+        elif data.startswith("acc:apply_cookies:"):
+            acc_id = data[len("acc:apply_cookies:"):].strip()
+            cookie_text = self._pending_cookies.pop(user_id, "") if user_id else ""
+            if cookie_text:
+                await self._locked(
+                    chat_id,
+                    self._handle_cookie_submission(chat_id, user_id, cookie_text, account_id_hint=acc_id),
+                )
+            else:
+                await self.tg.answer_callback_query(cb_id, "No pending cookies found", show_alert=True)
         elif data == "acc:add":
             await self._prime(chat_id, user_id, "add_account", edit=message.get("message_id"))
         elif data == "menu:status":
@@ -779,6 +840,10 @@ class BridgeBot:
             return None
         del self._pending[user_id]
         return action
+
+    def _set_pending(self, user_id: int | None, action: str) -> None:
+        if user_id is not None:
+            self._pending[user_id] = (action, time.monotonic())
 
     def _clear_pending(self, user_id: int | None) -> None:
         if user_id is not None:
@@ -923,31 +988,45 @@ class BridgeBot:
             accounts = mgr.list_accounts()
             active = mgr.get_active_account()
             lines = [
-                "<b>👤 ChatGPT Accounts</b>",
+                f"<b>👤 ChatGPT Accounts</b> ({len(accounts)} configured)",
                 "",
             ]
-            switch_buttons = []
+            account_rows = []
             for acc in accounts:
                 is_act = acc.id == active.id
-                badge = "🟢 Active" if is_act else ("⏳ Rate-limited" if acc.is_rate_limited() else "⚪ Ready")
-                email_info = f" ({acc.email})" if acc.email else ""
-                lines.append(f"• <b>{esc(acc.alias)}</b>{esc(email_info)} — {badge}")
+                if not acc.is_logged_in:
+                    badge = "⚠️ Not Logged In"
+                elif is_act:
+                    badge = "🟢 Active"
+                elif acc.is_rate_limited():
+                    badge = "⏳ Rate-limited"
+                else:
+                    badge = "⚪ Ready"
+                email_info = f" (<code>{esc(acc.email)}</code>)" if acc.email else " <i>(Needs login)</i>"
+                lines.append(f"• <b>{esc(acc.alias)}</b>{email_info} — {badge}")
                 lines.append(f"  ID: <code>{esc(acc.id)}</code> | Generations: {acc.total_generations}")
                 if acc.is_rate_limited():
                     rem_m = int(acc.remaining_rate_limit_seconds() / 60)
                     lines.append(f"  <i>Limit resets ~{acc.rate_limit_resets_at_str} (~{rem_m}m left)</i>")
+                elif not acc.is_logged_in:
+                    lines.append("  <i>⚠️ Needs login — tap 'Login' button below to provide cookies</i>")
 
-                btn_label = f"✓ {acc.alias}" if is_act else f"Switch: {acc.alias}"
-                switch_buttons.append(_btn(btn_label, f"acc:switch:{acc.id}"))
+                row = []
+                if acc.is_logged_in:
+                    btn_label = f"✓ {acc.alias}" if is_act else f"Switch: {acc.alias}"
+                    row.append(_btn(btn_label, f"acc:switch:{acc.id}"))
+                row.append(_btn(f"🔑 Login: {acc.alias}", f"acc:login:{acc.id}"))
+                if len(accounts) > 1 and not is_act:
+                    row.append(_btn("🗑", f"acc:del:{acc.id}"))
+                account_rows.append(row)
 
             lines.append("")
-            lines.append("<i>Use buttons below or /accounts add &lt;alias&gt;</i>")
+            lines.append("<i>To add an account: tap '➕ Add Account' or run /accounts add &lt;alias&gt;</i>")
             text = "\n".join(lines)
 
-            rows = [switch_buttons[i:i + 2] for i in range(0, len(switch_buttons), 2)]
-            rows.append([_btn("➕ Add Account", "acc:add"), _btn("🔄 Refresh", "menu:accounts")])
-            rows.append([_btn("🏠 Menu", "menu:home")])
-            kb = {"inline_keyboard": rows}
+            account_rows.append([_btn("➕ Add Account", "acc:add"), _btn("🔄 Refresh", "menu:accounts")])
+            account_rows.append([_btn("🏠 Menu", "menu:home")])
+            kb = {"inline_keyboard": account_rows}
 
         if edit is not None:
             await self.tg.edit_message_text(chat_id, edit, text, reply_markup=kb)
@@ -970,9 +1049,10 @@ class BridgeBot:
             target = parts[2]
             try:
                 acc = await self.gpt.switch_account(target)
+                status_text = "🟢 (Logged In)" if acc.is_logged_in else "⚠️ (Not Logged In — send cookies to authenticate)"
                 await self.tg.send_message(
                     chat_id,
-                    f"🟢 <b>Switched active account to:</b> <b>{esc(acc.alias)}</b> (<code>{esc(acc.id)}</code>)",
+                    f"🟢 <b>Switched active account to:</b> <b>{esc(acc.alias)}</b> (<code>{esc(acc.id)}</code>) {status_text}",
                     reply_markup=_accounts_keyboard_quick(),
                 )
             except Exception as exc:
@@ -981,15 +1061,22 @@ class BridgeBot:
             alias = " ".join(parts[2:]).strip()
             try:
                 acc = mgr.add_account(alias)
+                target_uid = user_id if user_id is not None else chat_id
+                self._set_pending(target_uid, f"login_account:{acc.id}")
                 await self.tg.send_message(
                     chat_id,
-                    f"✅ <b>Created new account:</b> <b>{esc(acc.alias)}</b> (<code>{esc(acc.id)}</code>)\n\n"
-                    f"Profile directory initialized at: <code>{esc(acc.profile_dir)}</code>\n"
-                    f"Switch to it using <code>/accounts switch {esc(acc.id)}</code>.",
+                    f"✅ <b>Created Account slot:</b> <b>{esc(acc.alias)}</b> (<code>{esc(acc.id)}</code>)\n\n"
+                    "👉 <b>Now send your ChatGPT cookies to log in:</b>\n"
+                    "• 📄 <b>Upload file:</b> Send your <code>cookies.json</code> or <code>cookies.txt</code>\n"
+                    "• 📋 <b>Or paste:</b> Paste your exported cookie JSON or Netscape text here\n\n"
+                    "<i>(Export cookies from chatgpt.com in Chrome/Firefox using Cookie-Editor)</i>",
                     reply_markup=_accounts_keyboard_quick(),
                 )
             except Exception as exc:
                 await self.tg.send_message(chat_id, f"❌ Failed to add account: {esc(str(exc))}")
+        elif subcmd == "login" and len(parts) >= 3:
+            target = parts[2]
+            await self._start_login_prompt(chat_id, user_id, target)
         elif subcmd == "remove" and len(parts) >= 3:
             target = parts[2]
             try:
@@ -1012,7 +1099,8 @@ class BridgeBot:
     ) -> None:
         try:
             acc = await self.gpt.switch_account(acc_id)
-            await self.tg.answer_callback_query(cb_id, f"Switched to {acc.alias}")
+            status_note = f" ({acc.email})" if acc.email else " (Needs login)"
+            await self.tg.answer_callback_query(cb_id, f"Switched to {acc.alias}{status_note}")
             await self._show_accounts(chat_id, edit=edit)
         except Exception as exc:
             log.exception("failed to switch account via callback")
@@ -1025,11 +1113,15 @@ class BridgeBot:
             return
         try:
             acc = mgr.add_account(alias.strip())
+            user_id = chat_id
+            self._set_pending(user_id, f"login_account:{acc.id}")
             await self.tg.send_message(
                 chat_id,
-                f"✅ <b>Account created:</b> <b>{esc(acc.alias)}</b> (<code>{esc(acc.id)}</code>)\n\n"
-                f"Isolated profile and FIFO chat pool initialized.\n"
-                f"Use <code>/accounts switch {esc(acc.id)}</code> to activate it.",
+                f"✅ <b>Account '{esc(acc.alias)}' created!</b>\n\n"
+                "👉 <b>Now send your ChatGPT cookies to log in:</b>\n"
+                "• 📄 <b>Upload file:</b> Send your <code>cookies.json</code> or <code>cookies.txt</code>\n"
+                "• 📋 <b>Or paste:</b> Paste your exported cookie JSON or Netscape text here\n\n"
+                "<i>(Export cookies from chatgpt.com in Chrome/Firefox using Cookie-Editor)</i>",
                 reply_markup=_accounts_keyboard_quick(),
             )
         except Exception as exc:
@@ -1037,6 +1129,144 @@ class BridgeBot:
                 chat_id,
                 f"❌ Failed to create account: {esc(str(exc))}",
                 reply_markup=_accounts_keyboard_quick(),
+            )
+
+    async def _start_login_prompt(
+        self, chat_id: int, user_id: int | None, acc_id_or_alias: str
+    ) -> None:
+        mgr = getattr(self.gpt, "account_manager", None)
+        if not mgr:
+            return
+        acc = mgr.find_account(acc_id_or_alias)
+        if not acc:
+            await self.tg.send_message(
+                chat_id, f"Account '{esc(acc_id_or_alias)}' not found.", reply_markup=_home_keyboard()
+            )
+            return
+        target_uid = user_id if user_id is not None else chat_id
+        self._set_pending(target_uid, f"login_account:{acc.id}")
+        await self.tg.send_message(
+            chat_id,
+            f"🔑 <b>Log in ChatGPT Account: {esc(acc.alias)}</b>\n\n"
+            "Please send your ChatGPT session cookies for this account:\n"
+            "• 📄 <b>Upload file:</b> Send your <code>cookies.json</code> or <code>cookies.txt</code>\n"
+            "• 📋 <b>Or paste:</b> Paste your exported cookie JSON or Netscape text directly here\n\n"
+            "<i>(Tip: Log into chatgpt.com in Chrome/Firefox, open Cookie-Editor, and click Export)</i>",
+            reply_markup=_accounts_keyboard_quick(),
+        )
+
+    async def _handle_document_upload(
+        self, chat_id: int, user_id: int | None, document: dict, caption: str
+    ) -> None:
+        file_id = document.get("file_id")
+        file_name = document.get("file_name", "").lower()
+        if not file_id:
+            return
+
+        try:
+            file_meta = await self.tg.get_file(file_id)
+            file_path = file_meta.get("file_path") or (file_meta.get("result") or {}).get("file_path")
+            if not file_path:
+                raise RuntimeError("Telegram API returned empty file_path")
+            raw_bytes = await self.tg.download_file(file_path)
+            content_text = raw_bytes.decode("utf-8", errors="replace")
+        except Exception as exc:
+            log.warning("failed to download document: %s", exc)
+            await self.tg.send_message(
+                chat_id,
+                f"❌ Failed to download file: <code>{esc(str(exc))}</code>",
+                reply_markup=_home_keyboard(),
+            )
+            return
+
+        pending = self._take_pending(user_id) if user_id else None
+        target_acc_id = None
+        if pending and pending.startswith("login_account:"):
+            target_acc_id = pending[len("login_account:"):].strip()
+
+        if is_cookie_content(content_text) or file_name.endswith((".json", ".txt")):
+            await self._locked(
+                chat_id,
+                self._handle_cookie_submission(
+                    chat_id, user_id, content_text, account_id_hint=target_acc_id
+                ),
+            )
+        else:
+            await self.tg.send_message(
+                chat_id,
+                "📄 Received file, but it does not appear to contain ChatGPT cookies or tokens.\n"
+                "<i>Please upload your cookies.json or cookies.txt file.</i>",
+                reply_markup=_home_keyboard(),
+            )
+
+    async def _handle_cookie_submission(
+        self,
+        chat_id: int,
+        user_id: int | None,
+        cookie_text: str,
+        account_id_hint: str | None = None,
+    ) -> None:
+        mgr = getattr(self.gpt, "account_manager", None)
+        if not mgr:
+            await self.tg.send_message(
+                chat_id, "Account manager is not enabled.", reply_markup=_home_keyboard()
+            )
+            return
+
+        target_acc = None
+        if account_id_hint:
+            target_acc = mgr.find_account(account_id_hint)
+
+        if not target_acc:
+            unauth = [a for a in mgr.list_accounts() if not a.is_logged_in]
+            if len(unauth) == 1:
+                target_acc = unauth[0]
+            elif not unauth:
+                target_acc = mgr.get_active_account()
+            else:
+                if user_id:
+                    self._pending_cookies[user_id] = cookie_text
+                rows = [
+                    [_btn(f"🔑 Log in to: {a.alias}", f"acc:apply_cookies:{a.id}")]
+                    for a in unauth
+                ]
+                rows.append([_btn("➕ New Account", "acc:add"), _btn("🏠 Menu", "menu:home")])
+                await self.tg.send_message(
+                    chat_id,
+                    "🍪 <b>ChatGPT Cookies Received!</b>\n\n"
+                    "Select which account you want to authenticate with these cookies:",
+                    reply_markup={"inline_keyboard": rows},
+                )
+                return
+
+        await self.tg.send_chat_action(chat_id, "typing")
+        try:
+            res = await self.gpt.login_account(target_acc.id, cookie_text)
+            email = res.get("email") or target_acc.email
+            name = res.get("name") or target_acc.name or target_acc.alias
+            await self.tg.send_message(
+                chat_id,
+                "🎉 <b>ChatGPT Login Successful!</b>\n\n"
+                f"• <b>Account:</b> <b>{esc(target_acc.alias)}</b>\n"
+                f"• <b>User:</b> <b>{esc(name)}</b>\n"
+                f"• <b>Email:</b> <code>{esc(email)}</code>\n"
+                "• <b>Status:</b> 🟢 Ready & Logged In\n\n"
+                "<i>This ChatGPT account is now authenticated and ready.</i>",
+                reply_markup=_accounts_keyboard_quick(),
+            )
+        except Exception as exc:
+            log.exception("login_account failed")
+            await self.tg.send_message(
+                chat_id,
+                "❌ <b>ChatGPT Login Failed</b>\n\n"
+                f"<code>{esc(str(exc))}</code>\n\n"
+                "<i>Tip: Log into chatgpt.com in your browser, open Cookie-Editor extension, export cookies, and send the file or text here.</i>",
+                reply_markup={
+                    "inline_keyboard": [
+                        [_btn(f"🔑 Try Again: {target_acc.alias}", f"acc:login:{target_acc.id}")],
+                        [_btn("👤 Accounts", "menu:accounts"), _btn("🏠 Menu", "menu:home")],
+                    ]
+                },
             )
 
     async def _cmd_http(self, chat_id: int, text: str) -> None:
