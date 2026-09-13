@@ -1078,3 +1078,24 @@ def test_cookie_paste_multiple_unauthenticated_picker(tmp_path):
     assert acc2.is_logged_in
     msgs = _msgs(tg)
     assert any("ChatGPT Login Successful!" in m[2] and "SecondAcc" in m[2] for m in msgs)
+
+
+def test_retries_command_and_callbacks():
+    gpt = _FakeGPT()
+    gpt.max_retries = 10
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. /retries shows current settings and inline options
+    _await(bot.handle_update(_update("/retries")))
+    msgs = _msgs(tg)
+    assert any("Image Generation Retry Settings" in m[2] and "10x" in m[2] for m in msgs)
+
+    # 2. Update via callback
+    _await(bot.handle_update(_callback("set:retries:5")))
+    assert gpt.max_retries == 5
+
+    # 3. Update via command
+    _await(bot.handle_update(_update("/retries 15")))
+    assert gpt.max_retries == 15
+    msgs2 = _msgs(tg)
+    assert any("Max generation retries updated to: 15x" in m[2] for m in msgs2)

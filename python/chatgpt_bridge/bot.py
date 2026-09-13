@@ -495,14 +495,14 @@ def _btn(label: str, data: str) -> dict:
     return {"text": label, "callback_data": data}
 
 
-def _menu_keyboard(mode: str = "chat") -> dict:
+def _menu_keyboard(mode: str = "chat", max_retries: int = 10) -> dict:
     mode_label = "🎨 Switch to Image Mode" if mode == "chat" else "💬 Switch to Chat Mode"
     mode_target = "mode:image" if mode == "chat" else "mode:chat"
     return {
         "inline_keyboard": [
             [_btn("🎨 Generate Image", "menu:image"), _btn("🆕 New chat", "menu:new")],
-            [_btn("👤 Accounts", "menu:accounts"), _btn("📊 Status", "menu:status")],
-            [_btn(mode_label, mode_target)],
+            [_btn("👤 Accounts", "menu:accounts"), _btn(f"⚙️ Retries ({max_retries}x)", "menu:retries")],
+            [_btn("📊 Status", "menu:status"), _btn(mode_label, mode_target)],
         ]
     }
 
@@ -520,10 +520,10 @@ def _ask_footer() -> dict:
     }
 
 
-def _image_footer() -> dict:
+def _image_footer(retries: int = 10) -> dict:
     return {
         "inline_keyboard": [
-            [_btn("🔄 Retry (10x)", "retry:image"), _btn("🆕 New chat", "menu:new")],
+            [_btn(f"🔄 Retry ({retries}x)", "retry:image"), _btn("🆕 New chat", "menu:new")],
         ]
     }
 
@@ -589,6 +589,7 @@ COMMANDS = [
     {"command": "new", "description": "Start a fresh chat (FIFO 10-chat pool)"},
     {"command": "status", "description": "Show account status & rate limits"},
     {"command": "accounts", "description": "Manage & switch ChatGPT accounts"},
+    {"command": "retries", "description": "View / set max generation retries"},
     {"command": "retry", "description": "Retry last image"},
     {"command": "mode", "description": "Toggle Chat / Image mode"},
     {"command": "menu", "description": "Show the main menu"},
@@ -702,6 +703,8 @@ class BridgeBot:
             await self._locked(chat_id, self._cmd_retry(chat_id, user_id))
         elif cmd == "/status":
             await self._locked(chat_id, self._show_status(chat_id))
+        elif cmd == "/retries":
+            await self._locked(chat_id, self._cmd_retries(chat_id, text))
         elif cmd == "/chats":
             await self._locked(chat_id, self._show_chats(chat_id))
         elif cmd == "/clear":
@@ -737,6 +740,17 @@ class BridgeBot:
 
         if data == "menu:home":
             await self._show_menu(chat_id, user_id=user_id, edit=message.get("message_id"))
+        elif data == "menu:retries":
+            await self._show_retries(chat_id, edit=message.get("message_id"))
+        elif data.startswith("set:retries:"):
+            n_str = data.split(":")[2]
+            try:
+                n = int(n_str)
+                self.gpt.max_retries = n
+                await self.tg.answer_callback_query(cb_id, f"Max retries set to {n}x")
+                await self._show_retries(chat_id, edit=message.get("message_id"))
+            except Exception as exc:
+                await self.tg.answer_callback_query(cb_id, f"Error: {exc}", show_alert=True)
         elif data == "mode:image":
             if user_id:
                 self._user_modes[user_id] = "image"
@@ -883,7 +897,8 @@ class BridgeBot:
         self, chat_id: int, user_id: int | None = None, edit: int | None = None
     ) -> None:
         mode = self._user_modes.get(user_id, "chat") if user_id else "chat"
-        kb = _menu_keyboard(mode)
+        retries = getattr(self.gpt, "max_retries", 10)
+        kb = _menu_keyboard(mode, max_retries=retries)
         if edit is not None:
             await self.tg.edit_message_text(
                 chat_id, edit, MENU_TEXT, reply_markup=kb
@@ -903,10 +918,11 @@ class BridgeBot:
             new_mode = "image" if current == "chat" else "chat"
         if user_id:
             self._user_modes[user_id] = new_mode
+        retries = getattr(self.gpt, "max_retries", 10)
         if new_mode == "image":
             msg = (
                 "🎨 <b>Image Mode enabled.</b>\n\n"
-                "All prompts sent now will be generated as images with automatic 10x denial retries.\n"
+                f"All prompts sent now will be generated as images with automatic {retries}x denial retries.\n"
                 "Use <code>/mode chat</code> or the menu to switch back."
             )
         else:
@@ -918,18 +934,62 @@ class BridgeBot:
         await self.tg.send_message(chat_id, msg, reply_markup=_home_keyboard())
 
     async def _cmd_retry(self, chat_id: int, user_id: int | None) -> None:
-        """Retry the last image generation with 10x denial retries."""
+        """Retry the last image generation with denial retries."""
         prompt = self._last_image_prompt.get(chat_id) or self._last_prompt.get(chat_id)
         if not prompt:
             await self.tg.send_message(
                 chat_id, "No recent prompt found to retry.", reply_markup=_home_keyboard()
             )
             return
+        retries = getattr(self.gpt, "max_retries", 10)
         await self.tg.send_message(
             chat_id,
-            f"🔄 <b>Retrying image generation (10x denial retries)...</b>\n\n<i>{esc(prompt[:200])}</i>",
+            f"🔄 <b>Retrying image generation ({retries}x denial retries)...</b>\n\n<i>{esc(prompt[:200])}</i>",
         )
         await self._run_image(chat_id, prompt)
+
+    async def _cmd_retries(self, chat_id: int, text: str) -> None:
+        """View or update max generation retry count."""
+        parts = text.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            val = max(1, min(30, int(parts[1])))
+            self.gpt.max_retries = val
+            await self.tg.send_message(
+                chat_id,
+                f"✅ <b>Max generation retries updated to: {val}x</b>\n\n"
+                f"• Direct prompt retries: 1–5\n"
+                f"• Prompt rephrase retries: 6–{val}\n\n"
+                "<i>Denial errors and transient failures will now retry up to this limit.</i>",
+                reply_markup=_home_keyboard(),
+            )
+        else:
+            await self._show_retries(chat_id)
+
+    async def _show_retries(self, chat_id: int, edit: int | None = None) -> None:
+        current = getattr(self.gpt, "max_retries", 10)
+        text = (
+            f"🔁 <b>Image Generation Retry Settings</b>\n\n"
+            f"Current Max Retries: <b>{current}x</b>\n\n"
+            "When ChatGPT refuses, times out, or fails to generate an image:\n"
+            "• <b>Tries 1–5:</b> Direct automatic retries.\n"
+            "• <b>Tries 6+:</b> Intelligent prompt rephrasing (preserves 1:1 visual intent).\n\n"
+            "Select a retry limit below or type <code>/retries &lt;number&gt;</code> (e.g. <code>/retries 10</code>):"
+        )
+        kb = {
+            "inline_keyboard": [
+                [
+                    _btn(f"{'🔘' if current == 3 else '⚪'} 3x", "set:retries:3"),
+                    _btn(f"{'🔘' if current == 5 else '⚪'} 5x", "set:retries:5"),
+                    _btn(f"{'🔘' if current == 10 else '⚪'} 10x", "set:retries:10"),
+                    _btn(f"{'🔘' if current == 15 else '⚪'} 15x", "set:retries:15"),
+                ],
+                [_btn("📊 Status", "menu:status"), _btn("🏠 Menu", "menu:home")],
+            ]
+        }
+        if edit is not None:
+            await self.tg.edit_message_text(chat_id, edit, text, reply_markup=kb)
+        else:
+            await self.tg.send_message(chat_id, text, reply_markup=kb)
 
     async def _show_status(self, chat_id: int, edit: int | None = None) -> None:
         alive = await self.gpt.session.is_alive()
@@ -941,6 +1001,7 @@ class BridgeBot:
         http_line = "on" if getattr(self.gpt, "use_http", True) else "off"
         current = getattr(self.gpt, "_current_conversation_id", None)
         current_line = f"<code>{esc(current)}</code>" if current else "none (fresh chat)"
+        retries = getattr(self.gpt, "max_retries", 10)
 
         lines = [
             "<b>Status</b>",
@@ -963,6 +1024,7 @@ class BridgeBot:
             f"Chats tracked: {len(pool._ids)}",
             f"Fast HTTP path: {http_line}",
             f"Current chat: {current_line}",
+            f"Max Retries: <b>{retries}x</b>",
         ])
         if not alive:
             lines.append("")
@@ -970,8 +1032,8 @@ class BridgeBot:
         text = "\n".join(lines)
         kb = {
             "inline_keyboard": [
-                [_btn("👤 Accounts", "menu:accounts"), _btn("🔄 Refresh", "menu:status")],
-                [_btn("🏠 Menu", "menu:home")],
+                [_btn(f"⚙️ Retries ({retries}x)", "menu:retries"), _btn("👤 Accounts", "menu:accounts")],
+                [_btn("🔄 Refresh", "menu:status"), _btn("🏠 Menu", "menu:home")],
             ]
         }
         if edit is not None:
@@ -1387,13 +1449,14 @@ class BridgeBot:
                 await hb_task
             except asyncio.CancelledError:
                 pass
+        retries = getattr(self.gpt, "max_retries", 10)
         caption = esc(prompt[:1000])
         try:
             await self.tg.send_photo(
                 chat_id,
                 result["path"],
                 caption=f"<i>{caption}</i>",
-                reply_markup=_image_footer(),
+                reply_markup=_image_footer(retries),
             )
         except TypeError:
             await self.tg.send_photo(
@@ -1401,7 +1464,7 @@ class BridgeBot:
                 result["path"],
                 caption=f"<i>{caption}</i>",
             )
-            await self.tg.send_message(chat_id, "Done.", reply_markup=_image_footer())
+            await self.tg.send_message(chat_id, "Done.", reply_markup=_image_footer(retries))
 
     async def _do_clear(self, chat_id: int, edit: int | None = None) -> None:
         pool = self.gpt.pool
