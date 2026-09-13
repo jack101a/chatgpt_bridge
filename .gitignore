@@ -32,6 +32,7 @@ daemon.log
 # --- Test result artifacts ---
 *_test_results.json
 full_test_results.json
+*results.json
 
 # --- Editor / OS ---
 .DS_Store
