@@ -32,7 +32,12 @@ from typing import Mapping
 
 import httpx
 
-from .cookies import cookies_valid, is_cookie_content, parse_cookie_text
+from .cookies import (
+    cookies_valid,
+    is_cookie_content,
+    looks_like_cookie_or_token,
+    parse_cookie_text,
+)
 from .core import ChatGPT
 from .errors import AuthError, BridgeTimeoutError, GenerationDeniedError
 from .retry import auto_tweak_prompt
@@ -614,6 +619,8 @@ class BridgeBot:
         self._last_image_prompt: dict[int, str] = {}
         # pending cookies cache for account selection
         self._pending_cookies: dict[int, str] = {}
+        # buffer for split multi-chunk cookie messages
+        self._cookie_buffer: dict[int, str] = {}
 
     # ------------------------------------------------------------- dispatch
 
@@ -663,14 +670,16 @@ class BridgeBot:
                 return
             elif pending.startswith("login_account:"):
                 acc_id = pending[len("login_account:"):].strip()
+                # Maintain pending state so subsequent chunks or retries stay in login mode
+                self._set_pending(user_id, f"login_account:{acc_id}")
                 await self._locked(
                     chat_id,
                     self._handle_cookie_submission(chat_id, user_id, text, account_id_hint=acc_id),
                 )
                 return
 
-        # 4. Check if raw cookie text / JSON was pasted directly
-        if is_cookie_content(text):
+        # 4. Check if raw cookie text / JSON / token was pasted directly
+        if looks_like_cookie_or_token(text):
             await self._locked(chat_id, self._handle_cookie_submission(chat_id, user_id, text))
             return
 
@@ -1301,11 +1310,37 @@ class BridgeBot:
                 )
                 return
 
+        # Multi-chunk buffering for Telegram message splits
+        raw_to_parse = cookie_text
+        if user_id:
+            buffered = self._cookie_buffer.get(user_id, "")
+            if buffered:
+                combined = buffered + "\n" + cookie_text
+                try:
+                    test_cookies = parse_cookie_text(combined)
+                    if cookies_valid(test_cookies):
+                        raw_to_parse = combined
+                        self._cookie_buffer.pop(user_id, None)
+                    else:
+                        self._cookie_buffer[user_id] = combined
+                except Exception:
+                    self._cookie_buffer[user_id] = combined
+            else:
+                try:
+                    test_cookies = parse_cookie_text(cookie_text)
+                    if not cookies_valid(test_cookies):
+                        self._cookie_buffer[user_id] = cookie_text
+                except Exception:
+                    self._cookie_buffer[user_id] = cookie_text
+
         await self.tg.send_chat_action(chat_id, "typing")
         try:
-            res = await self.gpt.login_account(target_acc.id, cookie_text)
+            res = await self.gpt.login_account(target_acc.id, raw_to_parse)
             email = res.get("email") or target_acc.email
             name = res.get("name") or target_acc.name or target_acc.alias
+            self._clear_pending(user_id)
+            if user_id:
+                self._cookie_buffer.pop(user_id, None)
             await self.tg.send_message(
                 chat_id,
                 "🎉 <b>ChatGPT Login Successful!</b>\n\n"
@@ -1318,18 +1353,23 @@ class BridgeBot:
             )
         except Exception as exc:
             log.exception("login_account failed")
-            await self.tg.send_message(
-                chat_id,
-                "❌ <b>ChatGPT Login Failed</b>\n\n"
-                f"<code>{esc(str(exc))}</code>\n\n"
-                "<i>Tip: Log into chatgpt.com in your browser, open Cookie-Editor extension, export cookies, and send the file or text here.</i>",
-                reply_markup={
-                    "inline_keyboard": [
-                        [_btn(f"🔑 Try Again: {target_acc.alias}", f"acc:login:{target_acc.id}")],
-                        [_btn("👤 Accounts", "menu:accounts"), _btn("🏠 Menu", "menu:home")],
-                    ]
-                },
-            )
+            if user_id and user_id in self._cookie_buffer:
+                log.info("buffering partial cookie text for user_id=%s (len: %d)", user_id, len(self._cookie_buffer[user_id]))
+            else:
+                if user_id:
+                    self._set_pending(user_id, f"login_account:{target_acc.id}")
+                await self.tg.send_message(
+                    chat_id,
+                    "❌ <b>ChatGPT Login Failed</b>\n\n"
+                    f"<code>{esc(str(exc))}</code>\n\n"
+                    "<i>Tip: Log into chatgpt.com in your browser, open Cookie-Editor extension, export cookies, and send the file or text here.</i>",
+                    reply_markup={
+                        "inline_keyboard": [
+                            [_btn(f"🔑 Try Again: {target_acc.alias}", f"acc:login:{target_acc.id}")],
+                            [_btn("👤 Accounts", "menu:accounts"), _btn("🏠 Menu", "menu:home")],
+                        ]
+                    },
+                )
 
     async def _cmd_http(self, chat_id: int, text: str) -> None:
         """Toggle the fast HTTP path on/off (``/http on``, ``/http off``, ``/http``)."""
@@ -1412,6 +1452,17 @@ class BridgeBot:
                 log.debug("heartbeat %s failed: %s", action, exc)
 
     async def _run_ask(self, chat_id: int, prompt: str) -> None:
+        if looks_like_cookie_or_token(prompt):
+            log.warning("blocked cookie/auth data from being sent to ChatGPT ask API")
+            await self.tg.send_message(
+                chat_id,
+                "⚠️ <b>Authentication Data Detected</b>\n\n"
+                "This message looks like ChatGPT cookie or session data rather than a chat question, so it was <b>not</b> sent to ChatGPT.\n\n"
+                "👉 To log in with these cookies, send them after tapping <b>[🔑 Login]</b> in <code>/accounts</code>, or upload your <code>cookies.json</code> file.",
+                reply_markup=_accounts_keyboard_quick(),
+            )
+            return
+
         self._last_prompt[chat_id] = prompt
         await self.tg.send_chat_action(chat_id, "typing")
         stop_event = asyncio.Event()

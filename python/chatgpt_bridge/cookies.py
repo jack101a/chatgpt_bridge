@@ -248,6 +248,35 @@ def is_cookie_content(text: str) -> bool:
     return False
 
 
+def looks_like_cookie_or_token(text: str) -> bool:
+    """Check if text appears to be cookie data, tokens, or cookie file fragments."""
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if is_cookie_content(stripped):
+        return True
+    lower = stripped.lower()
+    indicators = (
+        "session-token",
+        "__secure",
+        "expirationdate",
+        "samesite",
+        "httponly",
+        '"domain":',
+        "'domain':",
+        '"path":',
+        "cf_clearance",
+        "_puid",
+        "chatgpt.com",
+    )
+    matched = sum(1 for ind in indicators if ind in lower)
+    if matched >= 2:
+        return True
+    if (stripped.startswith(("[{", "{", "[")) or stripped.endswith(("}]", "}"))) and any(ind in lower for ind in indicators):
+        return True
+    return False
+
+
 def load_cookie_file(path: str | Path) -> list[dict]:
     """Load cookies from a Netscape or JSON cookie file.
 

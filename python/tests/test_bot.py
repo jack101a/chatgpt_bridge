@@ -1099,3 +1099,19 @@ def test_retries_command_and_callbacks():
     assert gpt.max_retries == 15
     msgs2 = _msgs(tg)
     assert any("Max generation retries updated to: 15x" in m[2] for m in msgs2)
+
+
+def test_cookie_data_never_sent_to_chatgpt_ask():
+    gpt = _FakeGPT()
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. User accidentally pastes cookie data directly in chat -> intercepted by cookie handler, never goes to ask
+    cookie_chunk = '{"domain": ".chatgpt.com", "expirationDate": 1789299999, "name": "other_cookie", "path": "/"}'
+    _await(bot.handle_update(_update(cookie_chunk)))
+    assert len(gpt.asks) == 0
+
+    # 2. User accidentally sends cookie data with /ask -> blocked by safety guard in _run_ask
+    _await(bot.handle_update(_update(f"/ask {cookie_chunk}")))
+    assert len(gpt.asks) == 0
+    msgs = _msgs(tg)
+    assert any("Authentication Data Detected" in m[2] for m in msgs)
