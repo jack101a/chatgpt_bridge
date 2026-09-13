@@ -16,6 +16,7 @@ echo " Data Directory: ${DATA_DIR}"
 echo "=============================================="
 
 # Start Xvfb virtual display
+rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
 export DISPLAY=:99
 Xvfb :99 -screen 0 "${SCREEN_WIDTH}x${SCREEN_HEIGHT}x24" -nolisten tcp &
 XVFB_PID=$!
