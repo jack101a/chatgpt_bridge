@@ -35,6 +35,15 @@ LOADING_SELECTOR = '[data-testid="image-gen-loading-state"]'
 
 HOME_URL = "https://chatgpt.com/"
 
+_DIALOG_CHECK_JS = """() => {
+    const dialogs = [...document.querySelectorAll('[role="dialog"]')].map(d => d.textContent || '').join(' ');
+    const alerts = [...document.querySelectorAll('[role="alert"], .text-token-text-error')].map(d => d.textContent || '').join(' ');
+    const combined = (dialogs + ' ' + alerts).trim();
+    if (!combined) return { isLimited: false, text: '' };
+    const isLimited = /too many requests|requests too quickly|rate limit|hourly limit|you've reached your limit/i.test(combined);
+    return { isLimited, text: combined.slice(0, 300).trim() };
+}"""
+
 _DOM_TO_MD_JS = """() => {
     const assistantNodes = document.querySelectorAll('[data-message-author-role="assistant"]');
     if (!assistantNodes.length) return '';
@@ -139,6 +148,12 @@ class UIDriver:
             p.write_text(json.dumps(sorted(list(self._delivered_image_ids))), encoding="utf-8")
         except Exception:
             pass
+
+    async def _save_image(self, src: str, out_dir, ctx_req, page=None):
+        try:
+            return await save_image(src, out_dir, ctx_req, page=page)
+        except TypeError:
+            return await save_image(src, out_dir, ctx_req)
 
     async def _page(self, conversation_id: str | None = None):
         # Reuse existing open page if already on the requested conversation
@@ -292,7 +307,7 @@ class UIDriver:
                 fid = _extract_file_id(outcome["src"])
                 if fid:
                     self._record_delivered_id(fid)
-                path = await save_image(outcome["src"], _images_dir(), ctx.request)
+                path = await self._save_image(outcome["src"], _images_dir(), ctx.request, page=page)
                 return {
                     "path": str(path),
                     "prompt": prompt,
@@ -337,7 +352,7 @@ class UIDriver:
                     fid = _extract_file_id(src)
                     if fid:
                         self._record_delivered_id(fid)
-                    path = await save_image(src, _images_dir(), ctx.request)
+                    path = await self._save_image(src, _images_dir(), ctx.request, page=page)
                     return {
                         "path": str(path),
                         "prompt": prompt,
@@ -407,8 +422,8 @@ class UIDriver:
                     fid = _extract_file_id(outcome["src"])
                     if fid:
                         self._record_delivered_id(fid)
-                    path = await save_image(
-                        outcome["src"], _images_dir(), ctx.request
+                    path = await self._save_image(
+                        outcome["src"], _images_dir(), ctx.request, page=page
                     )
                     return {
                         "path": str(path),
@@ -488,6 +503,12 @@ class UIDriver:
             if hasattr(page, "is_closed") and page.is_closed():
                 raise BridgeError("Browser page was closed during generation wait")
             elapsed = time.monotonic() - start_time
+
+            # 0. Fast Rate Limit Dialog Check: Bail immediately within 1s on modal dialogs
+            dialog_err = await self._check_rate_limit_dialog(page)
+            if dialog_err:
+                log.warning("Fast rate limit dialog detected: %s", dialog_err[:120])
+                return {"kind": "rate_limit", "text": dialog_err}
 
             # 1. Generation in progress?
             loading = await self._is_loading(page)
@@ -665,6 +686,20 @@ class UIDriver:
         except Exception:
             return False
         return False
+
+    async def _check_rate_limit_dialog(self, page) -> str | None:
+        """Check for active ChatGPT rate-limit modal dialogs or error banners.
+
+        Returns the matched warning/dialog text if detected, otherwise None.
+        """
+        try:
+            if hasattr(page, "evaluate"):
+                info = await page.evaluate(_DIALOG_CHECK_JS)
+                if isinstance(info, dict) and info.get("isLimited"):
+                    return info.get("text") or "rate limit dialog detected"
+        except Exception:
+            pass
+        return None
 
     async def _click_try_again(self, page) -> bool:
         """Click in-place 'Try again' / 'Regenerate' button if present."""
@@ -920,6 +955,10 @@ class UIDriver:
         stable_polls = 0
         stop_selector = 'button[data-testid="stop-button"], button[aria-label*="Stop"]'
         while time.monotonic() < deadline:
+            dialog_err = await self._check_rate_limit_dialog(page)
+            if dialog_err:
+                raise GenerationDeniedError(dialog_err, kind="rate_limit")
+
             generating = False
             try:
                 stop_btn = page.locator(stop_selector)

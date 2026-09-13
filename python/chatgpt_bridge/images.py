@@ -48,11 +48,30 @@ async def _find_image_src(page) -> str | None:
         return None
 
 
-async def save_image(src: str, out_dir: Path, ctx) -> Path:
+_IN_PAGE_FETCH_JS = """async (url) => {
+    try {
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) return { ok: false, status: res.status };
+        const blob = await res.blob();
+        return await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve({ ok: true, data: reader.result });
+            reader.onerror = () => resolve({ ok: false, error: 'filereader_error' });
+            reader.readAsDataURL(blob);
+        });
+    } catch (e) {
+        return { ok: false, error: String(e) };
+    }
+}"""
+
+
+async def save_image(src: str, out_dir: Path, ctx=None, page=None) -> Path:
     """Download an image from ``src`` (url/data/blob) and save it to disk.
 
-    ``ctx`` is a Playwright ``APIRequestContext`` used to fetch remote URLs.
-    Returns the path to the saved file.
+    If ``page`` is provided (or if ``src`` is a ``blob:`` URL), the image is fetched
+    directly inside the authenticated browser context to eliminate 403 Forbidden errors
+    and bypass CDN token expiration.
+    Falls back to Playwright ``ctx.get(src)`` if in-page fetch fails or page is None.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{int(time.time() * 1000)}.png"
@@ -63,15 +82,39 @@ async def save_image(src: str, out_dir: Path, ctx) -> Path:
         dest.write_bytes(content)
         return dest
 
-    if src.startswith("blob:"):
-        raise BridgeTimeoutError("blob: image URLs require in-page fetch; unsupported")
+    # 1. In-page authenticated blob/url fetch if page context is provided
+    if page is not None and hasattr(page, "evaluate"):
+        try:
+            res = await page.evaluate(_IN_PAGE_FETCH_JS, src)
+            if isinstance(res, dict) and res.get("ok") and res.get("data"):
+                content = _decode_data_url(res["data"])
+                dest.write_bytes(content)
+                return dest
+            elif src.startswith("blob:"):
+                err = res.get("error") if isinstance(res, dict) else "unknown"
+                raise BridgeTimeoutError(f"in-page blob fetch failed: {err}")
+        except Exception as exc:
+            if src.startswith("blob:"):
+                raise BridgeTimeoutError(
+                    f"blob: image URLs require in-page fetch; failed: {exc}"
+                ) from exc
 
-    # Remote URL: fetch via the request context.
-    resp = await ctx.get(src)
-    if resp.status != 200:
-        raise BridgeTimeoutError(f"failed to download image (status {resp.status})")
-    dest.write_bytes(await resp.body())
-    return dest
+    if src.startswith("blob:"):
+        raise BridgeTimeoutError(
+            "blob: image URLs require in-page fetch; unsupported without page"
+        )
+
+    # 2. Remote URL fallback via Playwright request context
+    if ctx is not None and hasattr(ctx, "get"):
+        resp = await ctx.get(src)
+        if resp.status != 200:
+            raise BridgeTimeoutError(f"failed to download image (status {resp.status})")
+        dest.write_bytes(await resp.body())
+        return dest
+
+    raise BridgeTimeoutError(
+        "failed to download image: no valid fetch mechanism available (page or ctx required)"
+    )
 
 
 def _decode_data_url(src: str) -> bytes:

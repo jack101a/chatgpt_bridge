@@ -156,3 +156,74 @@ def test_chatgpt_generate_image_denied_preserves_conversation_id():
 
     assert exc_info.value.conversation_id == "c-denied"
     assert gpt._current_conversation_id == "c-denied"
+
+
+def test_save_image_in_page_fetch_remote(tmp_path):
+    png = b"\x89PNG\r\n\x1a\ninpagepng"
+    b64 = base64.b64encode(png).decode()
+    data_url = f"data:image/png;base64,{b64}"
+
+    class _FakePage:
+        async def evaluate(self, script, arg):
+            assert arg == "https://chatgpt.com/backend-api/estuary/content/file-123"
+            return {"ok": True, "data": data_url}
+
+    path = asyncio.run(
+        save_image(
+            "https://chatgpt.com/backend-api/estuary/content/file-123",
+            tmp_path,
+            ctx=None,
+            page=_FakePage(),
+        )
+    )
+    assert path.exists()
+    assert path.read_bytes() == png
+
+
+def test_save_image_in_page_fetch_blob(tmp_path):
+    png = b"\x89PNG\r\n\x1a\nblobpng"
+    b64 = base64.b64encode(png).decode()
+    data_url = f"data:image/png;base64,{b64}"
+
+    class _FakePage:
+        async def evaluate(self, script, arg):
+            assert arg == "blob:https://chatgpt.com/blob-uuid-123"
+            return {"ok": True, "data": data_url}
+
+    path = asyncio.run(
+        save_image(
+            "blob:https://chatgpt.com/blob-uuid-123",
+            tmp_path,
+            ctx=None,
+            page=_FakePage(),
+        )
+    )
+    assert path.exists()
+    assert path.read_bytes() == png
+
+
+def test_save_image_in_page_fallback_to_ctx(tmp_path):
+    class _FailingPage:
+        async def evaluate(self, script, arg):
+            return {"ok": False, "status": 500}
+
+    class _FakeResp:
+        status = 200
+
+        async def body(self) -> bytes:
+            return b"fallback-ctx-bytes"
+
+    class _FakeCtx:
+        async def get(self, url: str):
+            return _FakeResp()
+
+    path = asyncio.run(
+        save_image(
+            "https://chatgpt.com/fallback.png",
+            tmp_path,
+            ctx=_FakeCtx(),
+            page=_FailingPage(),
+        )
+    )
+    assert path.exists()
+    assert path.read_bytes() == b"fallback-ctx-bytes"

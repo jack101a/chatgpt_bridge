@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
@@ -384,3 +385,69 @@ def test_conversation_continuity_denial_does_not_return_prompt1_image():
     # _wait_for_outcome must return denial, NOT the old image!
     outcome = asyncio.run(d._wait_for_outcome(page, timeout_s=3, auto_retry=False))
     assert outcome["kind"] == "denial"
+
+
+def test_wait_for_outcome_bails_immediately_on_rate_limit_dialog():
+    class _DialogPage:
+        def __init__(self):
+            self.eval_calls = []
+
+        def is_closed(self):
+            return False
+
+        async def evaluate(self, script, *args):
+            self.eval_calls.append(script)
+            return {
+                "isLimited": True,
+                "text": "Too many requests — You're making requests too quickly. Please try again later.",
+            }
+
+        async def locator(self, *args, **kwargs):
+            class _FakeLoc:
+                async def count(self):
+                    return 0
+            return _FakeLoc()
+
+    page = _DialogPage()
+    d = UIDriver.__new__(UIDriver)
+    d._delivered_image_ids = set()
+
+    t0 = time.monotonic()
+    outcome = asyncio.run(d._wait_for_outcome(page, timeout_s=30, auto_retry=False))
+    elapsed = time.monotonic() - t0
+
+    assert outcome["kind"] == "rate_limit"
+    assert "Too many requests" in outcome["text"]
+    assert elapsed < 2.0  # Must bail immediately within 1-2 seconds, not 30s
+
+
+def test_wait_for_answer_bails_immediately_on_rate_limit_dialog():
+    class _DialogPage:
+        def is_closed(self):
+            return False
+
+        async def evaluate(self, script, *args):
+            return {
+                "isLimited": True,
+                "text": "Too many requests in dialog",
+            }
+
+        def locator(self, *args, **kwargs):
+            class _FakeLoc:
+                async def count(self):
+                    return 0
+                async def is_visible(self):
+                    return False
+            return _FakeLoc()
+
+    page = _DialogPage()
+    d = UIDriver.__new__(UIDriver)
+
+    t0 = time.monotonic()
+    with pytest.raises(GenerationDeniedError) as exc_info:
+        asyncio.run(d._wait_for_answer(page, timeout_s=30))
+    elapsed = time.monotonic() - t0
+
+    assert exc_info.value.kind == "rate_limit"
+    assert "Too many requests" in str(exc_info.value)
+    assert elapsed < 2.0
