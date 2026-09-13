@@ -32,7 +32,7 @@ sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
 # Add project python directory
-sys.path.insert(0, str(Path(__file__).parent / "python"))
+sys.path.insert(0, str(Path(__file__).parent))
 from chatgpt_bridge.core import ChatGPT
 from chatgpt_bridge.errors import BridgeTimeoutError, GenerationDeniedError
 from chatgpt_bridge.retry import RetryConfig
