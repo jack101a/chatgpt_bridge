@@ -81,11 +81,15 @@ class AccountManager:
                 for acc_id, acc_data in data.get("accounts", {}).items():
                     filtered = {k: v for k, v in acc_data.items() if k in valid_fields}
                     acc = AccountInfo(**filtered)
-                    if not acc.cookies_file:
-                        if acc.id == "default":
-                            acc.cookies_file = str(self.state_dir / "cookies.json")
-                        else:
-                            acc.cookies_file = str(self.accounts_root / acc.id / "cookies.json")
+                    # Always rebase paths relative to current state_dir for host/container portability
+                    if acc.id == "default":
+                        acc.profile_dir = str(self.state_dir / "profile")
+                        acc.chat_pool_file = str(self.state_dir / "chat_pool.json")
+                        acc.cookies_file = str(self.state_dir / "cookies.json")
+                    else:
+                        acc.profile_dir = str(self.accounts_root / acc.id / "profile")
+                        acc.chat_pool_file = str(self.accounts_root / acc.id / "chat_pool.json")
+                        acc.cookies_file = str(self.accounts_root / acc.id / "cookies.json")
                     if acc.email:
                         acc.is_authenticated = True
                     self.accounts[acc_id] = acc
