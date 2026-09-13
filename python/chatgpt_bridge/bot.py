@@ -621,6 +621,7 @@ class BridgeBot:
         self._pending_cookies: dict[int, str] = {}
         # buffer for split multi-chunk cookie messages
         self._cookie_buffer: dict[int, str] = {}
+        self._cookie_buffer_time: dict[int, float] = {}
 
     # ------------------------------------------------------------- dispatch
 
@@ -1315,23 +1316,62 @@ class BridgeBot:
         if user_id:
             buffered = self._cookie_buffer.get(user_id, "")
             if buffered:
-                combined = buffered + "\n" + cookie_text
-                try:
-                    test_cookies = parse_cookie_text(combined)
-                    if cookies_valid(test_cookies):
-                        raw_to_parse = combined
-                        self._cookie_buffer.pop(user_id, None)
+                candidate_direct = buffered + cookie_text
+                candidate_nl = buffered + "\n" + cookie_text
+                chosen = None
+                for cand in (candidate_direct, candidate_nl):
+                    try:
+                        c_list = parse_cookie_text(cand)
+                        if cookies_valid(c_list):
+                            chosen = cand
+                            break
+                    except Exception:
+                        pass
+
+                if chosen:
+                    raw_to_parse = chosen
+                    self._cookie_buffer.pop(user_id, None)
+                    self._cookie_buffer_time.pop(user_id, None)
+                else:
+                    self._cookie_buffer[user_id] = candidate_direct
+                    ts = asyncio.get_running_loop().time()
+                    self._cookie_buffer_time[user_id] = ts
+                    await asyncio.sleep(1.2)
+                    if self._cookie_buffer_time.get(user_id, 0) > ts:
+                        return
+                    final_buf = self._cookie_buffer.pop(user_id, candidate_direct)
+                    self._cookie_buffer_time.pop(user_id, None)
+                    for cand in (final_buf, final_buf.replace("\n", "")):
+                        try:
+                            c_list = parse_cookie_text(cand)
+                            if cookies_valid(c_list):
+                                raw_to_parse = cand
+                                break
+                        except Exception:
+                            pass
                     else:
-                        self._cookie_buffer[user_id] = combined
-                except Exception:
-                    self._cookie_buffer[user_id] = combined
+                        raw_to_parse = final_buf
             else:
                 try:
-                    test_cookies = parse_cookie_text(cookie_text)
-                    if not cookies_valid(test_cookies):
+                    c_list = parse_cookie_text(cookie_text)
+                    if not cookies_valid(c_list):
                         self._cookie_buffer[user_id] = cookie_text
+                        ts = asyncio.get_running_loop().time()
+                        self._cookie_buffer_time[user_id] = ts
+                        await asyncio.sleep(1.2)
+                        if self._cookie_buffer_time.get(user_id, 0) > ts:
+                            return
+                        raw_to_parse = self._cookie_buffer.pop(user_id, cookie_text)
+                        self._cookie_buffer_time.pop(user_id, None)
                 except Exception:
                     self._cookie_buffer[user_id] = cookie_text
+                    ts = asyncio.get_running_loop().time()
+                    self._cookie_buffer_time[user_id] = ts
+                    await asyncio.sleep(1.2)
+                    if self._cookie_buffer_time.get(user_id, 0) > ts:
+                        return
+                    raw_to_parse = self._cookie_buffer.pop(user_id, cookie_text)
+                    self._cookie_buffer_time.pop(user_id, None)
 
         await self.tg.send_chat_action(chat_id, "typing")
         try:
@@ -1341,6 +1381,7 @@ class BridgeBot:
             self._clear_pending(user_id)
             if user_id:
                 self._cookie_buffer.pop(user_id, None)
+                self._cookie_buffer_time.pop(user_id, None)
             await self.tg.send_message(
                 chat_id,
                 "🎉 <b>ChatGPT Login Successful!</b>\n\n"
@@ -1353,23 +1394,22 @@ class BridgeBot:
             )
         except Exception as exc:
             log.exception("login_account failed")
-            if user_id and user_id in self._cookie_buffer:
-                log.info("buffering partial cookie text for user_id=%s (len: %d)", user_id, len(self._cookie_buffer[user_id]))
-            else:
-                if user_id:
-                    self._set_pending(user_id, f"login_account:{target_acc.id}")
-                await self.tg.send_message(
-                    chat_id,
-                    "❌ <b>ChatGPT Login Failed</b>\n\n"
-                    f"<code>{esc(str(exc))}</code>\n\n"
-                    "<i>Tip: Log into chatgpt.com in your browser, open Cookie-Editor extension, export cookies, and send the file or text here.</i>",
-                    reply_markup={
-                        "inline_keyboard": [
-                            [_btn(f"🔑 Try Again: {target_acc.alias}", f"acc:login:{target_acc.id}")],
-                            [_btn("👤 Accounts", "menu:accounts"), _btn("🏠 Menu", "menu:home")],
-                        ]
-                    },
-                )
+            if user_id:
+                self._cookie_buffer.pop(user_id, None)
+                self._cookie_buffer_time.pop(user_id, None)
+                self._set_pending(user_id, f"login_account:{target_acc.id}")
+            await self.tg.send_message(
+                chat_id,
+                "❌ <b>ChatGPT Login Failed</b>\n\n"
+                f"<code>{esc(str(exc))}</code>\n\n"
+                "<i>💡 Tip: Ensure you are actively logged in on chatgpt.com before exporting. If you were logged out or on the login page, the session token is revoked.</i>",
+                reply_markup={
+                    "inline_keyboard": [
+                        [_btn(f"🔑 Try Again: {target_acc.alias}", f"acc:login:{target_acc.id}")],
+                        [_btn("👤 Accounts", "menu:accounts"), _btn("🏠 Menu", "menu:home")],
+                    ]
+                },
+            )
 
     async def _cmd_http(self, chat_id: int, text: str) -> None:
         """Toggle the fast HTTP path on/off (``/http on``, ``/http off``, ``/http``)."""

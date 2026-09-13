@@ -105,8 +105,9 @@ class ChatGPT:
         return self._loop
 
     async def _ensure_started(self) -> None:
-        if self._started and self.browser._context is not None:
-            self._touch_browser_activity()
+        if self._started:
+            if self.browser._context is not None:
+                self._touch_browser_activity()
             return
         await self.browser.start()
         self._touch_browser_activity()
@@ -236,8 +237,9 @@ class ChatGPT:
 
             if not user_info:
                 raise AuthError(
-                    "ChatGPT session verification failed (session endpoint did not return an authenticated user). "
-                    "Please ensure you were logged in when exporting cookies."
+                    "ChatGPT session verification failed: The session endpoint returned no active user.\n"
+                    "This usually means the cookies were exported from a logged-out tab or the session was revoked. "
+                    "Please ensure you are actively logged into chatgpt.com (with the chat prompt visible) before exporting cookies."
                 )
 
             email = user_info.get("email", "")
