@@ -86,16 +86,29 @@ class _FakePage:
             )
         if "Switch model" in selector:
             return _FakeLocator(count=1 if cur.get("switch_model") else 0)
-        if "image-gen-loading" in selector:
+        if (
+            "image-gen-loading" in selector
+            or "stop" in selector.lower()
+            or "streaming" in selector
+            or "aria-busy" in selector
+            or "loading" in selector
+            or "dalle" in selector
+            or "tool" in selector
+        ):
             return _FakeLocator(count=1 if cur.get("loading") else 0)
         if "conversation-turn" in selector:
             return _FakeLocator(count=1, text=cur.get("text", ""))
         # IMAGE_SELECTOR (alt/src based)
-        return _FakeLocator(
-            count=1 if cur.get("image") else 0,
-            src=cur.get("src"),
-            alt=cur.get("alt"),
-        )
+        if any(
+            x in selector
+            for x in ("img", "estuary", "oaiusercontent", "Generated image", "src")
+        ):
+            return _FakeLocator(
+                count=1 if cur.get("image") else 0,
+                src=cur.get("src"),
+                alt=cur.get("alt"),
+            )
+        return _FakeLocator(count=0)
 
     async def close(self):
         pass
@@ -343,3 +356,31 @@ def test_generate_image_tweaks_prompt_on_retry_6():
     assert edited_prompts[:5] == [None, None, None, None, None]
     # Retry 6 should pass new_prompt="tweaked prompt"
     assert edited_prompts[5] == "tweaked prompt"
+
+
+def test_delivered_image_cache_excludes_prior_images():
+    page = _FakePage(
+        {"image": True, "src": "https://x/estuary/content?id=file_delivered_999&sig=1"}
+    )
+    d = UIDriver.__new__(UIDriver)
+    d._delivered_image_ids = {"file_delivered_999"}
+    # Because file_delivered_999 is already marked delivered, _find_new_image_src must return None
+    res = asyncio.run(d._find_new_image_src(page, set()))
+    assert res is None
+
+
+def test_conversation_continuity_denial_does_not_return_prompt1_image():
+    # Prompt 1 image is in the DOM, but Prompt 2 receives a guardrail denial
+    page = _FakePage(
+        {
+            "image": True,
+            "src": "https://x/estuary/content?id=file_prompt_1&sig=1",
+            "text": "We’re so sorry, but the image we created may violate our guardrails around nudity, sexuality, or ero",
+        }
+    )
+    d = UIDriver.__new__(UIDriver)
+    d._delivered_image_ids = {"file_prompt_1"}
+    # Because file_prompt_1 was delivered for Prompt 1 and Prompt 2 was denied,
+    # _wait_for_outcome must return denial, NOT the old image!
+    outcome = asyncio.run(d._wait_for_outcome(page, timeout_s=3, auto_retry=False))
+    assert outcome["kind"] == "denial"

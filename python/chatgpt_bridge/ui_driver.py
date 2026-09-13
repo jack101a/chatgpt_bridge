@@ -106,12 +106,39 @@ class UIDriver:
 
     _active_page = None
     _active_cid: str | None = None
+    _delivered_image_ids: set[str] = set()
 
     def __init__(self, browser: BrowserManager, session: SessionManager) -> None:
         self.browser = browser
         self.session = session
         self._active_page = None
         self._active_cid = None
+        self._delivered_image_ids = self._load_delivered_ids()
+
+    def _load_delivered_ids(self) -> set[str]:
+        try:
+            p = _images_dir() / "delivered_ids.json"
+            if p.exists():
+                import json
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    return set(data)
+        except Exception:
+            pass
+        return set()
+
+    def _record_delivered_id(self, fid: str) -> None:
+        if not fid:
+            return
+        if not hasattr(self, "_delivered_image_ids") or self._delivered_image_ids is UIDriver._delivered_image_ids:
+            self._delivered_image_ids = set(UIDriver._delivered_image_ids)
+        self._delivered_image_ids.add(fid)
+        try:
+            p = _images_dir() / "delivered_ids.json"
+            import json
+            p.write_text(json.dumps(sorted(list(self._delivered_image_ids))), encoding="utf-8")
+        except Exception:
+            pass
 
     async def _page(self, conversation_id: str | None = None):
         # Reuse existing open page if already on the requested conversation
@@ -163,6 +190,14 @@ class UIDriver:
                         raise RuntimeError(
                             f"Failed to load conversation {conversation_id}: redirected to home."
                         )
+                    # Allow existing conversation turns and images to hydrate into DOM
+                    try:
+                        await page.locator(TURN_SELECTOR).first.wait_for(
+                            state="attached", timeout=5000
+                        )
+                        await asyncio.sleep(0.5)
+                    except Exception:
+                        pass
                 self._active_page = page
                 self._active_cid = conversation_id
                 return page
@@ -222,24 +257,41 @@ class UIDriver:
         cid = conversation_id
         page = await self._page(cid)
         initial_images = await self._existing_image_ids(page)
+        turn_count_before = 0
+        try:
+            turn_count_before = await page.locator(TURN_SELECTOR).count()
+        except Exception:
+            pass
 
         # Attempt 1: Initial submission
         try:
             await self._submit_prompt(page, prompt)
             try:
                 outcome = await self._wait_for_outcome(
-                    page, timeout_s, auto_retry=False, existing=initial_images
+                    page,
+                    timeout_s,
+                    auto_retry=False,
+                    existing=initial_images,
+                    min_turn_idx=turn_count_before,
                 )
             except TypeError:
-                outcome = await self._wait_for_outcome(
-                    page, timeout_s, auto_retry=False
-                )
+                try:
+                    outcome = await self._wait_for_outcome(
+                        page, timeout_s, auto_retry=False, existing=initial_images
+                    )
+                except TypeError:
+                    outcome = await self._wait_for_outcome(
+                        page, timeout_s, auto_retry=False
+                    )
             if not cid:
                 cid = await self._current_conversation_id(page)
                 self._active_cid = cid
 
             if outcome["kind"] == "image":
                 ctx = await self.browser.context()
+                fid = _extract_file_id(outcome["src"])
+                if fid:
+                    self._record_delivered_id(fid)
                 path = await save_image(outcome["src"], _images_dir(), ctx.request)
                 return {
                     "path": str(path),
@@ -277,9 +329,14 @@ class UIDriver:
             page = await self._page(cid)
             try:
                 # Check if an image arrived during delay from previous attempt
-                src = await self._find_new_image_src(page, initial_images)
+                src = await self._find_new_image_src(
+                    page, initial_images, min_turn_idx=turn_count_before
+                )
                 if src:
                     ctx = await self.browser.context()
+                    fid = _extract_file_id(src)
+                    if fid:
+                        self._record_delivered_id(fid)
                     path = await save_image(src, _images_dir(), ctx.request)
                     return {
                         "path": str(path),
@@ -326,18 +383,30 @@ class UIDriver:
 
                 try:
                     outcome = await self._wait_for_outcome(
-                        page, timeout_s, auto_retry=False, existing=initial_images
+                        page,
+                        timeout_s,
+                        auto_retry=False,
+                        existing=initial_images,
+                        min_turn_idx=turn_count_before,
                     )
                 except TypeError:
-                    outcome = await self._wait_for_outcome(
-                        page, timeout_s, auto_retry=False
-                    )
+                    try:
+                        outcome = await self._wait_for_outcome(
+                            page, timeout_s, auto_retry=False, existing=initial_images
+                        )
+                    except TypeError:
+                        outcome = await self._wait_for_outcome(
+                            page, timeout_s, auto_retry=False
+                        )
                 if not cid:
                     cid = await self._current_conversation_id(page)
                     self._active_cid = cid
 
                 if outcome["kind"] == "image":
                     ctx = await self.browser.context()
+                    fid = _extract_file_id(outcome["src"])
+                    if fid:
+                        self._record_delivered_id(fid)
                     path = await save_image(
                         outcome["src"], _images_dir(), ctx.request
                     )
@@ -381,6 +450,7 @@ class UIDriver:
         timeout_s: int,
         auto_retry: bool = True,
         existing: set[str] | None = None,
+        min_turn_idx: int = 0,
     ) -> dict:
         """Poll until a NEW image, a settled denial, or a retry button appears.
 
@@ -405,8 +475,9 @@ class UIDriver:
         saw_loading = False
         clicked_try_again = False
         clicked_switch_model = False
+        delivered = getattr(self, "_delivered_image_ids", set())
         existing_ids = (
-            existing
+            set(existing) | delivered
             if existing is not None
             else await self._existing_image_ids(page)
         )
@@ -417,15 +488,10 @@ class UIDriver:
             if hasattr(page, "is_closed") and page.is_closed():
                 raise BridgeError("Browser page was closed during generation wait")
             elapsed = time.monotonic() - start_time
-            # 1. ALWAYS check for a new image first on every poll cycle
-            src = await self._find_new_image_src(page, existing_ids)
-            if src:
-                fid = _extract_file_id(src)
-                log.info("New image detected in DOM: id=%s (elapsed: %.1fs) -> returning immediately", fid, elapsed)
-                return {"kind": "image", "src": src}
 
-            # 2. Generation in progress?
-            if await self._is_loading(page):
+            # 1. Generation in progress?
+            loading = await self._is_loading(page)
+            if loading:
                 if not saw_loading:
                     saw_loading = True
                     log.info("Active generation indicator detected (stop button/tool call). Waiting for DALL-E...")
@@ -437,16 +503,7 @@ class UIDriver:
                 await asyncio.sleep(0.5)
                 continue
 
-            # 3. "Try again" button visible (only if auto_retry=True)
-            if auto_retry and not clicked_try_again and await self._click_try_again(page):
-                clicked_try_again = True
-                saw_loading = False
-                stable_polls = 0
-                last_text = ""
-                await asyncio.sleep(1.5)
-                continue
-
-            # 4. Settled assistant text?
+            # 2. Settled assistant text? Check for refusal / content policy denial
             text = await self._read_last_assistant(page)
             if text and text == last_text:
                 stable_polls += 1
@@ -466,13 +523,45 @@ class UIDriver:
                     # kind == "no_image": Do NOT declare failure prematurely after only 1.5s!
                     # Image generation takes 15-30s. Only declare "no_image" if at least 25s
                     # have passed without loading or image, and text is settled.
-                    elapsed = time.monotonic() - start_time
                     min_wait = min(25.0, timeout_s * 0.8)
                     if elapsed >= min_wait and stable_polls >= 8:
                         return {"kind": "no_image", "text": text}
             elif text:
                 last_text = text
                 stable_polls = 0
+
+            # 3. Check for a new image
+            src = await self._find_new_image_src(
+                page, existing_ids, min_turn_idx=min_turn_idx
+            )
+            if src:
+                fid = _extract_file_id(src)
+                # Gate: If elapsed < 5.0s and we never observed any loading indicator,
+                # this cannot be a freshly generated DALL-E image. It's a DOM hydration artifact.
+                if elapsed < 5.0 and not saw_loading:
+                    log.debug(
+                        "Ignoring pre-existing DOM image id=%s during initial hydration (elapsed: %.1fs)",
+                        fid,
+                        elapsed,
+                    )
+                    existing_ids.add(fid)
+                else:
+                    log.info(
+                        "New image detected in DOM: id=%s (elapsed: %.1fs) -> returning immediately",
+                        fid,
+                        elapsed,
+                    )
+                    return {"kind": "image", "src": src}
+
+            # 4. "Try again" button visible (only if auto_retry=True)
+            if auto_retry and not clicked_try_again and await self._click_try_again(page):
+                clicked_try_again = True
+                saw_loading = False
+                stable_polls = 0
+                last_text = ""
+                await asyncio.sleep(1.5)
+                continue
+
             await asyncio.sleep(0.5)
 
         raise BridgeTimeoutError(
@@ -486,32 +575,50 @@ class UIDriver:
         unlike ``alt`` which ChatGPT can reuse for similar prompts. We key on
         the ``id`` because it is guaranteed unique per generated image.
         """
+        ids: set[str] = set(getattr(self, "_delivered_image_ids", set()))
         try:
             locator = page.locator(IMAGE_SELECTOR)
             count = await locator.count()
-            ids: set[str] = set()
             for i in range(count):
                 src = await locator.nth(i).get_attribute("src") or ""
                 fid = _extract_file_id(src)
                 if fid:
                     ids.add(fid)
-            return ids
         except Exception:
-            return set()
+            pass
+        return ids
 
-    async def _find_new_image_src(self, page, existing: set[str]) -> str | None:
+    async def _find_new_image_src(
+        self, page, existing: set[str], min_turn_idx: int = 0
+    ) -> str | None:
         """Return the src of the most recent image whose ``id`` is new.
 
         Iterates from last to first; returns the first image whose ``id``
-        (``file_XXX``) is not in ``existing`` (i.e. a newly generated image).
+        (``file_XXX``) is not in ``existing`` and not in ``_delivered_image_ids``.
+        If ``min_turn_idx > 0``, searches only in turns starting from ``min_turn_idx``.
         """
+        delivered = getattr(self, "_delivered_image_ids", set())
         try:
+            turns = page.locator(TURN_SELECTOR)
+            turn_count = await turns.count()
+            if turn_count > 0 and turn_count > min_turn_idx:
+                for t_idx in range(turn_count - 1, max(-1, min_turn_idx - 1), -1):
+                    turn = turns.nth(t_idx)
+                    imgs = turn.locator(IMAGE_SELECTOR)
+                    img_count = await imgs.count()
+                    for i in range(img_count - 1, -1, -1):
+                        src = await imgs.nth(i).get_attribute("src") or ""
+                        fid = _extract_file_id(src)
+                        if fid and fid not in existing and fid not in delivered:
+                            return src
+
+            # Fallback to page-wide search if turn scoping found nothing
             locator = page.locator(IMAGE_SELECTOR)
             count = await locator.count()
             for i in range(count - 1, -1, -1):
                 src = await locator.nth(i).get_attribute("src") or ""
                 fid = _extract_file_id(src)
-                if fid and fid not in existing:
+                if fid and fid not in existing and fid not in delivered:
                     return src
             return None
         except Exception:
@@ -872,7 +979,7 @@ def _extract_file_id(src: str) -> str:
     """Extract file ID from estuary, oaiusercontent, or data URL."""
     if not src:
         return ""
-    m = re.search(r"(?:id=|(?:content|files)/)(file[-_][a-zA-Z0-9]+)", src)
+    m = re.search(r"(?:id=|(?:content|files)/)(file[-_][a-zA-Z0-9_-]+)", src)
     if m:
         return m.group(1)
     # If no file ID pattern matches, use full clean src as identifier
