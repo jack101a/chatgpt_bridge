@@ -58,18 +58,23 @@ class BrowserManager:
             except Exception:
                 pass
 
+        width = int(os.environ.get("SCREEN_WIDTH", "1280"))
+        height = int(os.environ.get("SCREEN_HEIGHT", "720"))
         self._playwright = await async_playwright().start()
         self._context = await self._playwright.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR),
             headless=self.headless,
             args=[
                 "--disable-blink-features=AutomationControlled",
-                "--window-size=1920,1080",
+                f"--window-size={width},{height}",
                 "--start-maximized",
                 "--disable-session-crashed-bubble",
                 "--hide-crash-restore-bubble",
                 "--no-first-run",
                 "--no-default-browser-check",
+                "--mute-audio",
+                "--disable-audio-output",
+                "--disk-cache-size=33554432",
             ],
             no_viewport=True,
         )

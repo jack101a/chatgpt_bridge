@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  chatgpt-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chatgpt-bridge:latest
+    container_name: chatgpt-bridge
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8465}:${PORT:-8465}"
+    environment:
+      - PORT=${PORT:-8465}
+      - HOST=0.0.0.0
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
+      - MAX_RETRIES=4
+      - BROWSER_IDLE_TIMEOUT_S=300
+      # Optional: Telegram bot credentials (leave empty if using API only)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS:-*}
+    volumes:
+      - ./data:/data
+    shm_size: "1gb"

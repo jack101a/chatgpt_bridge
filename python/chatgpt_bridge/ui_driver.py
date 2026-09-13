@@ -625,16 +625,20 @@ class UIDriver:
                     await asyncio.sleep(0.2)
 
             send = page.locator(
-                'button:has-text("Send"), button:has-text("Save"), button[aria-label*="Send"], button[data-testid*="send"], [data-testid="send-button"]'
+                '#composer-submit-button, button[data-testid="send-button"], button:has-text("Send"), button:has-text("Save"), button[aria-label*="Send"]'
             ).first
-            if await send.count() > 0:
+            for _ in range(15):
+                if await send.count() > 0 and await send.is_visible():
+                    dis = await send.get_attribute("disabled")
+                    aria_dis = await send.get_attribute("aria-disabled")
+                    if dis is None and aria_dis != "true":
+                        break
+                await asyncio.sleep(0.1)
+            if await send.count() > 0 and await send.is_visible():
                 try:
-                    await send.evaluate("b => b.click()")
+                    await send.click()
                 except Exception:
-                    try:
-                        await send.click(force=True)
-                    except TypeError:
-                        await send.click()
+                    await page.keyboard.press("Enter")
                 return True
             # Fallback to Enter key inside edit box
             await page.keyboard.press("Enter")
@@ -755,17 +759,26 @@ class UIDriver:
         # Type characters: fill() doesn't fire the input events the
         # contenteditable ProseMirror composer needs.
         await page.keyboard.type(prompt, delay=10)
-        await asyncio.sleep(0.2)
-        await page.keyboard.press("Enter")
         await asyncio.sleep(0.3)
+        # In modern ChatGPT, the send button is #composer-submit-button / [data-testid="send-button"].
+        # Wait briefly for React/ProseMirror to mark the button as enabled.
         send_btn = page.locator(
-            'button[data-testid="composer-send-button"], button[data-testid="send-button"], button[aria-label*="Send"]'
+            '#composer-submit-button, button[data-testid="send-button"], button[data-testid="composer-send-button"], button[aria-label*="Send"]'
         ).first
+        for _ in range(15):
+            if await send_btn.count() > 0 and await send_btn.is_visible():
+                dis = await send_btn.get_attribute("disabled")
+                aria_dis = await send_btn.get_attribute("aria-disabled")
+                if dis is None and aria_dis != "true":
+                    break
+            await asyncio.sleep(0.1)
         if await send_btn.count() > 0 and await send_btn.is_visible():
             try:
-                await send_btn.click(force=True)
+                await send_btn.click()
             except Exception:
-                pass
+                await page.keyboard.press("Enter")
+        else:
+            await page.keyboard.press("Enter")
 
     async def _wait_for_answer(self, page, timeout_s: int = 120) -> str:
         """Poll assistant turns until the answer is stable and generation has completed."""

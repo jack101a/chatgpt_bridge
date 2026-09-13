@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
+import time
 
 from .browser import BrowserManager
 from .chat_pool import DEFAULT_MAX_CHATS, ChatPoolManager
@@ -11,6 +14,8 @@ from .http_client import BackendClient
 from .retry import RetryConfig
 from .session import SessionManager
 from .ui_driver import UIDriver
+
+log = logging.getLogger(__name__)
 
 
 class ChatGPT:
@@ -25,12 +30,22 @@ class ChatGPT:
         headless: bool = True,
         auto_relogin: bool = False,
         max_chats: int | None = None,
-        max_retries: int = 10,
+        max_retries: int | None = None,
         use_http: bool = True,
+        idle_timeout_s: int | None = None,
     ) -> None:
         self.headless = headless
         self.auto_relogin = auto_relogin
-        self.max_retries = max_retries
+        self.max_retries = (
+            max_retries
+            if max_retries is not None
+            else int(os.environ.get("MAX_RETRIES", "4"))
+        )
+        self.idle_timeout_s = (
+            idle_timeout_s
+            if idle_timeout_s is not None
+            else int(os.environ.get("BROWSER_IDLE_TIMEOUT_S", "300"))
+        )
         self.use_http = use_http
         self.browser = BrowserManager(headless=headless)
         self.session = SessionManager(self.browser)
@@ -42,9 +57,40 @@ class ChatGPT:
         )
         self._started = False
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._idle_task: asyncio.Task | None = None
+        self._last_activity = time.monotonic()
         # Current conversation for continuity: text and image prompts continue
         # in the same chat until new_chat() is called.
         self._current_conversation_id: str | None = None
+
+    def _touch_browser_activity(self) -> None:
+        self._last_activity = time.monotonic()
+        if self.idle_timeout_s > 0:
+            if self._idle_task and not self._idle_task.done():
+                self._idle_task.cancel()
+            try:
+                loop = asyncio.get_running_loop()
+                self._idle_task = loop.create_task(self._idle_sleep_worker())
+            except RuntimeError:
+                pass
+
+    async def _idle_sleep_worker(self) -> None:
+        try:
+            while True:
+                idle_elapsed = time.monotonic() - self._last_activity
+                remaining = self.idle_timeout_s - idle_elapsed
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(remaining)
+            if self._started and self.browser._context is not None:
+                log.info(
+                    "Browser idle for %ds; shutting down to free RAM/CPU.",
+                    self.idle_timeout_s,
+                )
+                await self.browser.stop()
+                self._started = False
+        except asyncio.CancelledError:
+            pass
 
     def _get_loop(self) -> asyncio.AbstractEventLoop:
         if self._loop is None or self._loop.is_closed():
@@ -52,9 +98,11 @@ class ChatGPT:
         return self._loop
 
     async def _ensure_started(self) -> None:
-        if self._started:
+        if self._started and self.browser._context is not None:
+            self._touch_browser_activity()
             return
         await self.browser.start()
+        self._touch_browser_activity()
         await self.session.apply_pending_import()
         if not await self.session.is_alive():
             # Try cookie-file import before giving up or going interactive.
@@ -128,6 +176,8 @@ class ChatGPT:
                 self._current_conversation_id = exc.conversation_id
                 await self._track(exc.conversation_id)
             raise
+        finally:
+            self._touch_browser_activity()
 
     def new_chat(self) -> None:
         """Reset the current conversation so the next prompt starts fresh."""
@@ -137,10 +187,13 @@ class ChatGPT:
     async def delete_conversation(self, conversation_id: str) -> bool:
         """Delete a conversation by ID from ChatGPT history."""
         await self._ensure_started()
-        res = await self.ui.delete_conversation(conversation_id)
-        if conversation_id == self._current_conversation_id:
-            self._current_conversation_id = None
-        return res
+        try:
+            res = await self.ui.delete_conversation(conversation_id)
+            if conversation_id == self._current_conversation_id:
+                self._current_conversation_id = None
+            return res
+        finally:
+            self._touch_browser_activity()
 
     def delete_conversation_sync(self, conversation_id: str) -> bool:
         return self._get_loop().run_until_complete(self.delete_conversation(conversation_id))
