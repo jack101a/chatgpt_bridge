@@ -39,3 +39,4 @@ full_test_results.json
 .idea/
 .vscode/
 graphify-out/
+.worktrees/
