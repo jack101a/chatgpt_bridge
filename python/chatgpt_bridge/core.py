@@ -38,6 +38,8 @@ class ChatGPT:
         use_http: bool = True,
         idle_timeout_s: int | None = None,
         account_manager: AccountManager | None = None,
+        auto_switch: bool | None = None,
+        auto_switch_strikes: int | None = None,
     ) -> None:
         self.headless = headless
         self.auto_relogin = auto_relogin
@@ -53,6 +55,16 @@ class ChatGPT:
         )
         self.use_http = use_http
         self.account_manager = account_manager or AccountManager()
+        self.auto_switch = (
+            auto_switch
+            if auto_switch is not None
+            else os.environ.get("CHATGPT_BRIDGE_AUTO_SWITCH", "1") not in ("0", "false", "no")
+        )
+        self.auto_switch_strikes = (
+            auto_switch_strikes
+            if auto_switch_strikes is not None
+            else int(os.environ.get("CHATGPT_BRIDGE_AUTO_SWITCH_STRIKES", "1"))
+        )
         active_acc = self.account_manager.get_active_account()
         self.browser = BrowserManager(headless=headless, profile_dir=active_acc.profile_dir)
         self.session = SessionManager(self.browser)
@@ -159,6 +171,25 @@ class ChatGPT:
                     )
         except Exception:
             pass
+
+    async def _check_proactive_switch(self) -> tuple[AccountInfo, str] | None:
+        """If auto_switch is enabled and active account is rate-limited, switch to the healthiest alternative."""
+        if not self.auto_switch:
+            return None
+        active_acc = self.account_manager.get_active_account()
+        if active_acc.is_rate_limited():
+            alt = self.account_manager.get_least_used_available_account(exclude_id=active_acc.id)
+            if alt:
+                prev_alias = active_acc.alias
+                log.info(
+                    "Active account '%s' is rate-limited until %s. Proactively auto-switching to '%s'.",
+                    prev_alias,
+                    active_acc.rate_limit_resets_at_str or "future",
+                    alt.alias,
+                )
+                new_acc = await self.switch_account(alt.id)
+                return (new_acc, prev_alias)
+        return None
 
     async def switch_account(self, account_id_or_alias: str) -> AccountInfo:
         """Switch the active account, stopping current browser context and loading the new profile."""
@@ -283,18 +314,57 @@ class ChatGPT:
         first; on :class:`ShapeChangedError` falls back to the UI driver.
         """
         async with self._busy_guard():
+            switched_from: str | None = None
+            if self.auto_switch:
+                switched = await self._check_proactive_switch()
+                if switched:
+                    _, switched_from = switched
+
             await self._ensure_started()
             cid = conversation_id or self._current_conversation_id
-            if self.use_http:
-                try:
-                    result = await self.http.ask(prompt, conversation_id=cid)
-                except ShapeChangedError:
+            active_acc = self.account_manager.get_active_account()
+
+            try:
+                if self.use_http:
+                    try:
+                        result = await self.http.ask(prompt, conversation_id=cid)
+                    except ShapeChangedError:
+                        result = await self.ui.ask(prompt, conversation_id=cid)
+                else:
                     result = await self.ui.ask(prompt, conversation_id=cid)
-            else:
-                result = await self.ui.ask(prompt, conversation_id=cid)
-            self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
-            await self._track(result.get("conversation_id"))
-            return result
+                self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
+                await self._track(result.get("conversation_id"))
+                result["account_used"] = active_acc.alias
+                if switched_from:
+                    result["switched_from"] = switched_from
+                return result
+            except GenerationDeniedError as exc:
+                if exc.kind == "rate_limit" and self.auto_switch:
+                    info = parse_rate_limit_info(str(exc))
+                    strikes, alt_acc = self.account_manager.record_rate_limit(
+                        active_acc.id,
+                        info["wait_seconds"],
+                        info["resets_at_str"],
+                        min_strikes=self.auto_switch_strikes,
+                    )
+                    if alt_acc:
+                        log.warning(
+                            "Account '%s' rate-limited during ask (%d strikes). Auto-switching to '%s' and retrying...",
+                            active_acc.alias,
+                            strikes,
+                            alt_acc.alias,
+                        )
+                        prev_alias = active_acc.alias
+                        await self.switch_account(alt_acc.id)
+                        await self._ensure_started()
+                        retry_res = await self.ui.ask(prompt, conversation_id=None)
+                        new_acc = self.account_manager.get_active_account()
+                        self._current_conversation_id = retry_res.get("conversation_id") or self._current_conversation_id
+                        await self._track(retry_res.get("conversation_id"))
+                        retry_res["account_used"] = new_acc.alias
+                        retry_res["switched_from"] = prev_alias
+                        return retry_res
+                raise
 
     async def generate_image(
         self,
@@ -309,6 +379,12 @@ class ChatGPT:
         """Generate an image via the UI, continuing the current conversation."""
         async with self._busy_guard():
             prompt = standardize_image_prompt(prompt)
+            switched_from: str | None = None
+            if self.auto_switch:
+                switched = await self._check_proactive_switch()
+                if switched:
+                    _, switched_from = switched
+
             await self._ensure_started()
             cid = conversation_id or self._current_conversation_id
             if retry is None:
@@ -331,6 +407,9 @@ class ChatGPT:
                 self.account_manager.record_generation_success(active_acc.id)
                 self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
                 await self._track(result.get("conversation_id"))
+                result["account_used"] = active_acc.alias
+                if switched_from:
+                    result["switched_from"] = switched_from
                 return result
             except GenerationDeniedError as exc:
                 if exc.conversation_id:
@@ -340,11 +419,41 @@ class ChatGPT:
                     info = parse_rate_limit_info(str(exc))
                     active_acc = self.account_manager.get_active_account()
                     strikes, alt_acc = self.account_manager.record_rate_limit(
-                        active_acc.id, info["wait_seconds"], info["resets_at_str"]
+                        active_acc.id,
+                        info["wait_seconds"],
+                        info["resets_at_str"],
+                        min_strikes=self.auto_switch_strikes,
                     )
                     setattr(exc, "strikes", strikes)
                     setattr(exc, "alt_account", alt_acc)
                     setattr(exc, "rate_limit_info", info)
+
+                    if self.auto_switch and alt_acc:
+                        log.warning(
+                            "Account '%s' hit rate limit (%d strikes). Auto-switching to '%s' and retrying prompt...",
+                            active_acc.alias,
+                            strikes,
+                            alt_acc.alias,
+                        )
+                        prev_alias = active_acc.alias
+                        await self.switch_account(alt_acc.id)
+                        await self._ensure_started()
+                        retry_result = await self.ui.generate_image(
+                            prompt,
+                            timeout_s=timeout_s,
+                            retry=retry,
+                            conversation_id=None,
+                            **kwargs,
+                        )
+                        new_active = self.account_manager.get_active_account()
+                        self.account_manager.record_generation_success(new_active.id)
+                        self._current_conversation_id = (
+                            retry_result.get("conversation_id") or self._current_conversation_id
+                        )
+                        await self._track(retry_result.get("conversation_id"))
+                        retry_result["account_used"] = new_active.alias
+                        retry_result["switched_from"] = prev_alias
+                        return retry_result
                 raise
 
     def new_chat(self) -> None:

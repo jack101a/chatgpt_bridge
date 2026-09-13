@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 
@@ -42,6 +43,56 @@ _DIALOG_CHECK_JS = """() => {
     if (!combined) return { isLimited: false, text: '' };
     const isLimited = /too many requests|requests too quickly|rate limit|hourly limit|you've reached your limit/i.test(combined);
     return { isLimited, text: combined.slice(0, 300).trim() };
+}"""
+
+_ENSURE_PROJECT_JS = """async (projectName) => {
+    if (!projectName) return null;
+    try {
+        const listRes = await fetch('/backend-api/gizmos/snorlax/sidebar', {
+            headers: { 'accept': 'application/json' },
+            credentials: 'include'
+        });
+        if (listRes.ok) {
+            const data = await listRes.json();
+            const items = data.items || data.gizmos || [];
+            for (const item of items) {
+                const gizmo = item.gizmo || item;
+                const name = (gizmo.display && gizmo.display.name) || gizmo.name;
+                if (gizmo.id && name && name.toLowerCase() === projectName.toLowerCase()) {
+                    return gizmo.id;
+                }
+            }
+        }
+        const projListRes = await fetch('/backend-api/projects', {
+            headers: { 'accept': 'application/json' },
+            credentials: 'include'
+        });
+        if (projListRes.ok) {
+            const pData = await projListRes.json();
+            const projs = pData.items || pData.projects || [];
+            for (const p of projs) {
+                if (p.name && p.name.toLowerCase() === projectName.toLowerCase() && p.id) {
+                    return p.id;
+                }
+            }
+        }
+        const createRes = await fetch('/backend-api/projects', {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                'accept': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({ name: projectName })
+        });
+        if (createRes.ok) {
+            const created = await createRes.json();
+            return created.id || created.project_id || null;
+        }
+    } catch (e) {
+        return null;
+    }
+    return null;
 }"""
 
 _DOM_TO_MD_JS = """() => {
@@ -123,6 +174,9 @@ class UIDriver:
         self._active_page = None
         self._active_cid = None
         self._delivered_image_ids = self._load_delivered_ids()
+        self.project_name = os.environ.get("CHATGPT_BRIDGE_PROJECT_NAME", "").strip()
+        self._project_id: str | None = None
+        self._project_checked: bool = False
 
     def _load_delivered_ids(self) -> set[str]:
         try:
@@ -155,8 +209,27 @@ class UIDriver:
         except TypeError:
             return await save_image(src, out_dir, ctx_req)
 
+    async def _ensure_bot_project(self, page) -> str | None:
+        """Find or create a ChatGPT Project / Folder for bot chat isolation."""
+        if not self.project_name:
+            return None
+        try:
+            pid = await page.evaluate(_ENSURE_PROJECT_JS, self.project_name)
+            if pid and isinstance(pid, str):
+                log.info("Using ChatGPT project isolation '%s' (id: %s)", self.project_name, pid)
+                return pid
+        except Exception as exc:
+            log.debug("Project isolation discovery failed or not supported: %s", exc)
+        return None
+
     async def _page(self, conversation_id: str | None = None):
-        # Reuse existing open page if already on the requested conversation
+        target_home = (
+            f"https://chatgpt.com/g/{self._project_id}"
+            if self._project_id
+            else HOME_URL
+        )
+
+        # Reuse existing open page if already on the requested conversation or project/home
         if self._active_page is not None:
             try:
                 is_closed = self._active_page.is_closed()
@@ -165,8 +238,10 @@ class UIDriver:
             if not is_closed:
                 if conversation_id and self._active_cid == conversation_id:
                     return self._active_page
-                if not conversation_id and not self._active_cid and self._active_page.url == HOME_URL:
-                    return self._active_page
+                if not conversation_id and not self._active_cid:
+                    cur_url_clean = self._active_page.url.rstrip("/")
+                    if cur_url_clean in (target_home.rstrip("/"), HOME_URL.rstrip("/")):
+                        return self._active_page
                 # Different conversation needed — close previous page
                 try:
                     await self._active_page.close()
@@ -177,10 +252,35 @@ class UIDriver:
 
         ctx = await self.browser.context()
         page = await ctx.new_page()
+
+        # If project isolation is configured and not checked yet, check at HOME_URL first
+        if self.project_name and not self._project_checked and not conversation_id:
+            try:
+                await page.goto(HOME_URL, wait_until="domcontentloaded", timeout=60_000)
+                self._project_id = await self._ensure_bot_project(page)
+            except Exception as exc:
+                log.debug("Initial project check at HOME_URL failed: %s", exc)
+            finally:
+                self._project_checked = True
+
+            if self._project_id:
+                target_home = f"https://chatgpt.com/g/{self._project_id}"
+                try:
+                    await page.goto(target_home, wait_until="domcontentloaded", timeout=30_000)
+                    if page.url.rstrip("/") == HOME_URL.rstrip("/"):
+                        log.info("Project url redirected to home, disabling project isolation")
+                        self._project_id = None
+                except Exception:
+                    self._project_id = None
+
+            self._active_page = page
+            self._active_cid = None
+            return page
+
         url = (
             f"https://chatgpt.com/c/{conversation_id}"
             if conversation_id
-            else HOME_URL
+            else target_home
         )
         # Navigate with retries: the box's network is flaky (ERR_NETWORK_CHANGED)
         # and /c/{id} loads are slower than the home page. Retry transient
@@ -200,7 +300,7 @@ class UIDriver:
                         if f"/c/{conversation_id}" in cur_url or (cur_url != HOME_URL and "/c/" in cur_url):
                             break
                         await asyncio.sleep(0.4)
-                    if page.url.rstrip("/") == HOME_URL.rstrip("/"):
+                    if page.url.rstrip("/") in (HOME_URL.rstrip("/"), target_home.rstrip("/")):
                         await page.close()
                         raise RuntimeError(
                             f"Failed to load conversation {conversation_id}: redirected to home."
@@ -213,6 +313,8 @@ class UIDriver:
                         await asyncio.sleep(0.5)
                     except Exception:
                         pass
+                elif self._project_id and page.url.rstrip("/") == HOME_URL.rstrip("/"):
+                    self._project_id = None
                 self._active_page = page
                 self._active_cid = conversation_id
                 return page

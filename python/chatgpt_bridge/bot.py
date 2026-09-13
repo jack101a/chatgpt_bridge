@@ -1523,6 +1523,8 @@ class BridgeBot:
                 pass
         text = result.get("text") or "(empty answer)"
         formatted = markdown_to_telegram_html(text)
+        if result.get("switched_from") and result.get("account_used"):
+            formatted = f"<i>🔄 Auto-switched: {esc(result['switched_from'])} ➔ {esc(result['account_used'])}</i>\n\n" + formatted
         await self.tg.send_message(chat_id, formatted, reply_markup=_ask_footer())
 
     async def _run_image(
@@ -1546,7 +1548,9 @@ class BridgeBot:
             except asyncio.CancelledError:
                 pass
         retries = getattr(self.gpt, "max_retries", 10)
-        caption = esc(prompt[:1000])
+        caption = esc(prompt[:900])
+        if result.get("switched_from") and result.get("account_used"):
+            caption += f"\n\n🔄 <i>Auto-switched: {esc(result['switched_from'])} ➔ {esc(result['account_used'])}</i>"
         try:
             await self.tg.send_photo(
                 chat_id,

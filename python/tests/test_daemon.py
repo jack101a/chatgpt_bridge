@@ -164,5 +164,63 @@ def test_get_image_endpoint(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert resp.content == b"\x89PNG\r\n\x1a\nfakeimage"
 
+
+def test_list_and_switch_accounts_endpoints(monkeypatch):
+    class _MockAccount:
+        def __init__(self, aid, alias):
+            self.id = aid
+            self.alias = alias
+            self.email = f"{alias.lower()}@test.com"
+            self.is_authenticated = True
+            self.total_generations = 5
+            self.consecutive_rate_limits = 0
+            self.rate_limited_until = None
+            self.rate_limit_resets_at_str = ""
+
+        def is_rate_limited(self):
+            return False
+
+    class _MockAccountManager:
+        def __init__(self):
+            self.active_account_id = "acc_1"
+            self.accounts = {
+                "acc_1": _MockAccount("acc_1", "Primary"),
+                "acc_2": _MockAccount("acc_2", "Secondary"),
+            }
+
+    class _MockCore:
+        def __init__(self):
+            self.account_manager = _MockAccountManager()
+
+        async def switch_account(self, account):
+            if account in ("Secondary", "acc_2"):
+                self.account_manager.active_account_id = "acc_2"
+                return self.account_manager.accounts["acc_2"]
+            raise KeyError(f"Account not found: {account}")
+
+    core = _MockCore()
+    monkeypatch.setattr(daemon, "_get_core", lambda: core)
+    client = TestClient(daemon.app)
+
+    # 1. GET /accounts
+    resp = client.get("/accounts")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["active_account_id"] == "acc_1"
+    assert len(data["accounts"]) == 2
+    assert data["accounts"][0]["alias"] == "Primary"
+    assert data["accounts"][0]["is_active"] is True
+
+    # 2. POST /accounts/switch to Secondary
+    switch_resp = client.post("/accounts/switch", json={"account": "Secondary"})
+    assert switch_resp.status_code == 200
+    assert switch_resp.json() == {"ok": True, "active_account": "Secondary", "account_id": "acc_2"}
+    assert core.account_manager.active_account_id == "acc_2"
+
+    # 3. POST /accounts/switch to invalid account
+    fail_resp = client.post("/accounts/switch", json={"account": "NonExistent"})
+    assert fail_resp.status_code == 404
+
+
     resp_404 = client.get("/images/nonexistent.png")
     assert resp_404.status_code == 404

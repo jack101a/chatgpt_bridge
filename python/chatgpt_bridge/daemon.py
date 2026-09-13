@@ -69,6 +69,10 @@ class ImageRequest(BaseModel):
     tweaked_prompt_2: str | None = Field(default=None, description="Optional further refined prompt for retries 8-10")
 
 
+class SwitchAccountRequest(BaseModel):
+    account: str = Field(..., description="Account ID or alias to switch to")
+
+
 def _get_core() -> ChatGPT:
     global _core
     if _core is None:
@@ -176,6 +180,43 @@ async def delete_conversation(conversation_id: str) -> dict:
             return {"ok": ok, "conversation_id": conversation_id}
         except Exception as exc:
             return _error_response(exc)
+
+
+@app.get("/accounts")
+async def list_accounts() -> dict:
+    """List all configured accounts, active status, and rate-limit states."""
+    core = _get_core()
+    mgr = core.account_manager
+    accs = [
+        {
+            "id": a.id,
+            "alias": a.alias,
+            "email": a.email,
+            "is_active": a.id == mgr.active_account_id,
+            "is_authenticated": a.is_authenticated,
+            "total_generations": a.total_generations,
+            "consecutive_rate_limits": a.consecutive_rate_limits,
+            "is_rate_limited": a.is_rate_limited(),
+            "rate_limited_until": a.rate_limited_until,
+            "rate_limit_resets_at_str": a.rate_limit_resets_at_str,
+        }
+        for a in mgr.accounts.values()
+    ]
+    return {"active_account_id": mgr.active_account_id, "accounts": accs}
+
+
+@app.post("/accounts/switch")
+async def switch_account(req: SwitchAccountRequest) -> dict:
+    """Switch the active account programmatically."""
+    core = _get_core()
+    async with _lock:
+        try:
+            acc = await core.switch_account(req.account)
+            return {"ok": True, "active_account": acc.alias, "account_id": acc.id}
+        except KeyError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            return _error_response(e)
 
 
 def write_daemon_json() -> None:

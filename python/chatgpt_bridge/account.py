@@ -225,12 +225,17 @@ class AccountManager:
         self._save()
 
     def record_rate_limit(
-        self, account_id: str, wait_seconds: float, resets_at_str: str = ""
+        self,
+        account_id: str,
+        wait_seconds: float,
+        resets_at_str: str = "",
+        min_strikes: int = 1,
     ) -> tuple[int, AccountInfo | None]:
         """Record a rate limit occurrence.
 
         Returns (consecutive_rate_limits, least_used_alternative_account).
-        If consecutive_rate_limits >= 3, attempts to identify the least-used available alternative account.
+        If consecutive_rate_limits >= min_strikes or wait_seconds >= 60, attempts to identify
+        the least-used available alternative account.
         """
         acc = self.accounts.get(account_id)
         if not acc:
@@ -242,7 +247,7 @@ class AccountManager:
         self._save()
 
         alt_account = None
-        if acc.consecutive_rate_limits >= 3:
+        if acc.consecutive_rate_limits >= min_strikes or wait_seconds >= 60:
             alt_account = self.get_least_used_available_account(exclude_id=account_id)
         return (acc.consecutive_rate_limits, alt_account)
 
