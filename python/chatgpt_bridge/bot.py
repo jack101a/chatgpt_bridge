@@ -483,17 +483,13 @@ def _btn(label: str, data: str) -> dict:
 
 
 def _menu_keyboard(mode: str = "chat") -> dict:
-    mode_btn = (
-        _btn("🎨 Switch to Image Mode", "mode:image")
-        if mode == "chat"
-        else _btn("💬 Switch to Chat Mode", "mode:chat")
-    )
+    mode_label = "🎨 Switch to Image Mode" if mode == "chat" else "💬 Switch to Chat Mode"
+    mode_target = "mode:image" if mode == "chat" else "mode:chat"
     return {
         "inline_keyboard": [
-            [mode_btn, _btn("🆕 New chat", "menu:new")],
-            [_btn("❓ Ask", "menu:ask"), _btn("🎨 Image", "menu:image")],
-            [_btn("📊 Status", "menu:status"), _btn("💬 Chats", "menu:chats")],
-            [_btn("🗑 Clear all chats", "menu:clear")],
+            [_btn("🎨 Generate Image", "menu:image"), _btn("🆕 New chat", "menu:new")],
+            [_btn("👤 Accounts", "menu:accounts"), _btn("📊 Status", "menu:status")],
+            [_btn(mode_label, mode_target)],
         ]
     }
 
@@ -514,8 +510,7 @@ def _ask_footer() -> dict:
 def _image_footer() -> dict:
     return {
         "inline_keyboard": [
-            [_btn("🔄 Retry (10x)", "retry:image"), _btn("🎨 Another image", "menu:image")],
-            [_btn("🆕 New chat", "menu:new"), _btn("🏠 Menu", "menu:home")],
+            [_btn("🔄 Retry (10x)", "retry:image"), _btn("🆕 New chat", "menu:new")],
         ]
     }
 
@@ -528,6 +523,15 @@ def _clear_confirm_keyboard() -> dict:
     return {
         "inline_keyboard": [
             [_btn("🗑 Yes, clear all", "clear:confirm"), _btn("Cancel", "cb:cancel")]
+        ]
+    }
+
+
+def _accounts_keyboard_quick() -> dict:
+    return {
+        "inline_keyboard": [
+            [_btn("👤 View Accounts", "menu:accounts"), _btn("📊 Status", "menu:status")],
+            [_btn("🏠 Menu", "menu:home")],
         ]
     }
 
@@ -568,15 +572,12 @@ MENU_TEXT = (
 )
 
 COMMANDS = [
+    {"command": "image", "description": "Generate an image (10x auto-retries)"},
+    {"command": "new", "description": "Start a fresh chat (FIFO 10-chat pool)"},
+    {"command": "status", "description": "Show account status & rate limits"},
+    {"command": "accounts", "description": "Manage & switch ChatGPT accounts"},
+    {"command": "retry", "description": "Retry last image"},
     {"command": "mode", "description": "Toggle Chat / Image mode"},
-    {"command": "retry", "description": "Retry last image (10x denial retry)"},
-    {"command": "new", "description": "Start a fresh chat"},
-    {"command": "image", "description": "Generate an image"},
-    {"command": "ask", "description": "Ask ChatGPT a question"},
-    {"command": "status", "description": "Show session and bridge health"},
-    {"command": "chats", "description": "List tracked conversations"},
-    {"command": "clear", "description": "Delete all tracked conversations"},
-    {"command": "http", "description": "Toggle fast HTTP path on/off"},
     {"command": "menu", "description": "Show the main menu"},
     {"command": "help", "description": "Show help"},
 ]
@@ -630,6 +631,9 @@ class BridgeBot:
         elif pending == "ask":
             await self._locked(chat_id, self._run_ask(chat_id, text))
             return
+        elif pending == "add_account":
+            await self._locked(chat_id, self._create_account_from_prompt(chat_id, text))
+            return
 
         # Auto-detect mode and image intent
         user_mode = self._user_modes.get(user_id, "chat") if user_id else "chat"
@@ -652,6 +656,8 @@ class BridgeBot:
                 await self._locked(chat_id, self._run_ask(chat_id, prompt))
             else:
                 await self._prime(chat_id, user_id, "ask")
+        elif cmd == "/accounts":
+            await self._locked(chat_id, self._cmd_accounts(chat_id, user_id, text))
         elif cmd == "/mode":
             await self._locked(chat_id, self._cmd_mode(chat_id, user_id, text))
         elif cmd == "/retry":
@@ -734,6 +740,13 @@ class BridgeBot:
             await self._prime(chat_id, user_id, "ask", edit=message.get("message_id"))
         elif data == "menu:image":
             await self._prime(chat_id, user_id, "image", edit=message.get("message_id"))
+        elif data == "menu:accounts":
+            await self._locked(chat_id, self._show_accounts(chat_id, edit=message.get("message_id")))
+        elif data.startswith("acc:switch:"):
+            acc_id = data[len("acc:switch:"):].strip()
+            await self._locked(chat_id, self._switch_account_callback(chat_id, cb_id, acc_id, edit=message.get("message_id")))
+        elif data == "acc:add":
+            await self._prime(chat_id, user_id, "add_account", edit=message.get("message_id"))
         elif data == "menu:status":
             await self._locked(chat_id, self._show_status(chat_id, edit=message.get("message_id")))
         elif data == "menu:chats":
@@ -784,6 +797,11 @@ class BridgeBot:
             text = (
                 "<b>Image</b>\n\n"
                 "Describe the image you want. Generation can take 1–5 minutes."
+            )
+        elif action == "add_account":
+            text = (
+                "<b>Add Account</b>\n\n"
+                "Send the alias name for the new account (e.g. <code>Backup</code> or <code>Personal</code>)."
             )
         else:
             text = "<b>Ask</b>\n\nSend your question as the next message."
@@ -851,32 +869,175 @@ class BridgeBot:
     async def _show_status(self, chat_id: int, edit: int | None = None) -> None:
         alive = await self.gpt.session.is_alive()
         pool = self.gpt.pool
+        mgr = getattr(self.gpt, "account_manager", None)
+        active_acc = mgr.get_active_account() if mgr else None
+
         session_line = "logged in" if alive else "<b>not logged in</b>"
         http_line = "on" if getattr(self.gpt, "use_http", True) else "off"
         current = getattr(self.gpt, "_current_conversation_id", None)
         current_line = f"<code>{esc(current)}</code>" if current else "none (fresh chat)"
+
         lines = [
             "<b>Status</b>",
             "",
+        ]
+        if active_acc:
+            lines.append(f"Account: <b>{esc(active_acc.alias)}</b> (<code>{esc(active_acc.id)}</code>)")
+            if active_acc.email:
+                lines.append(f"Identity: <code>{esc(active_acc.email)}</code>")
+            if active_acc.is_rate_limited():
+                rem_m = int(active_acc.remaining_rate_limit_seconds() / 60)
+                lines.append(f"Rate Limit: ⚠️ <b>Limited</b> (~{rem_m}m left, resets {active_acc.rate_limit_resets_at_str}) [Strikes: {active_acc.consecutive_rate_limits}/3]")
+            else:
+                lines.append("Rate Limit: 🟢 Normal")
+            lines.append("")
+
+        lines.extend([
             f"Session: {session_line}",
             f"Browser: {'running' if self.gpt._started else 'not started'}",
             f"Chats tracked: {len(pool._ids)}",
             f"Fast HTTP path: {http_line}",
             f"Current chat: {current_line}",
-        ]
+        ])
         if not alive:
             lines.append("")
             lines.append("<i>Log in from the host machine, then check again.</i>")
         text = "\n".join(lines)
         kb = {
             "inline_keyboard": [
-                [_btn("🔄 Refresh", "menu:status"), _btn("🏠 Menu", "menu:home")]
+                [_btn("👤 Accounts", "menu:accounts"), _btn("🔄 Refresh", "menu:status")],
+                [_btn("🏠 Menu", "menu:home")],
             ]
         }
         if edit is not None:
             await self.tg.edit_message_text(chat_id, edit, text, reply_markup=kb)
         else:
             await self.tg.send_message(chat_id, text, reply_markup=kb)
+
+    async def _show_accounts(self, chat_id: int, edit: int | None = None) -> None:
+        mgr = getattr(self.gpt, "account_manager", None)
+        if not mgr:
+            text = "<b>Accounts:</b> Multi-account manager is not enabled."
+            kb = _home_keyboard()
+        else:
+            accounts = mgr.list_accounts()
+            active = mgr.get_active_account()
+            lines = [
+                "<b>👤 ChatGPT Accounts</b>",
+                "",
+            ]
+            switch_buttons = []
+            for acc in accounts:
+                is_act = acc.id == active.id
+                badge = "🟢 Active" if is_act else ("⏳ Rate-limited" if acc.is_rate_limited() else "⚪ Ready")
+                email_info = f" ({acc.email})" if acc.email else ""
+                lines.append(f"• <b>{esc(acc.alias)}</b>{esc(email_info)} — {badge}")
+                lines.append(f"  ID: <code>{esc(acc.id)}</code> | Generations: {acc.total_generations}")
+                if acc.is_rate_limited():
+                    rem_m = int(acc.remaining_rate_limit_seconds() / 60)
+                    lines.append(f"  <i>Limit resets ~{acc.rate_limit_resets_at_str} (~{rem_m}m left)</i>")
+
+                btn_label = f"✓ {acc.alias}" if is_act else f"Switch: {acc.alias}"
+                switch_buttons.append(_btn(btn_label, f"acc:switch:{acc.id}"))
+
+            lines.append("")
+            lines.append("<i>Use buttons below or /accounts add &lt;alias&gt;</i>")
+            text = "\n".join(lines)
+
+            rows = [switch_buttons[i:i + 2] for i in range(0, len(switch_buttons), 2)]
+            rows.append([_btn("➕ Add Account", "acc:add"), _btn("🔄 Refresh", "menu:accounts")])
+            rows.append([_btn("🏠 Menu", "menu:home")])
+            kb = {"inline_keyboard": rows}
+
+        if edit is not None:
+            await self.tg.edit_message_text(chat_id, edit, text, reply_markup=kb)
+        else:
+            await self.tg.send_message(chat_id, text, reply_markup=kb)
+
+    async def _cmd_accounts(self, chat_id: int, user_id: int | None, text: str) -> None:
+        mgr = getattr(self.gpt, "account_manager", None)
+        if not mgr:
+            await self.tg.send_message(chat_id, "Multi-account manager is not enabled.", reply_markup=_home_keyboard())
+            return
+
+        parts = text.split()
+        if len(parts) == 1:
+            await self._show_accounts(chat_id)
+            return
+
+        subcmd = parts[1].lower()
+        if subcmd == "switch" and len(parts) >= 3:
+            target = parts[2]
+            try:
+                acc = await self.gpt.switch_account(target)
+                await self.tg.send_message(
+                    chat_id,
+                    f"🟢 <b>Switched active account to:</b> <b>{esc(acc.alias)}</b> (<code>{esc(acc.id)}</code>)",
+                    reply_markup=_accounts_keyboard_quick(),
+                )
+            except Exception as exc:
+                await self.tg.send_message(chat_id, f"❌ Failed to switch: {esc(str(exc))}")
+        elif subcmd == "add" and len(parts) >= 3:
+            alias = " ".join(parts[2:]).strip()
+            try:
+                acc = mgr.add_account(alias)
+                await self.tg.send_message(
+                    chat_id,
+                    f"✅ <b>Created new account:</b> <b>{esc(acc.alias)}</b> (<code>{esc(acc.id)}</code>)\n\n"
+                    f"Profile directory initialized at: <code>{esc(acc.profile_dir)}</code>\n"
+                    f"Switch to it using <code>/accounts switch {esc(acc.id)}</code>.",
+                    reply_markup=_accounts_keyboard_quick(),
+                )
+            except Exception as exc:
+                await self.tg.send_message(chat_id, f"❌ Failed to add account: {esc(str(exc))}")
+        elif subcmd == "remove" and len(parts) >= 3:
+            target = parts[2]
+            try:
+                removed = mgr.remove_account(target)
+                if removed:
+                    await self.tg.send_message(
+                        chat_id,
+                        f"🗑 Removed account <code>{esc(target)}</code>.",
+                        reply_markup=_accounts_keyboard_quick(),
+                    )
+                else:
+                    await self.tg.send_message(chat_id, f"Account <code>{esc(target)}</code> not found.")
+            except Exception as exc:
+                await self.tg.send_message(chat_id, f"❌ Cannot remove account: {esc(str(exc))}")
+        else:
+            await self._show_accounts(chat_id)
+
+    async def _switch_account_callback(
+        self, chat_id: int, cb_id: str, acc_id: str, edit: int | None = None
+    ) -> None:
+        try:
+            acc = await self.gpt.switch_account(acc_id)
+            await self.tg.answer_callback_query(cb_id, f"Switched to {acc.alias}")
+            await self._show_accounts(chat_id, edit=edit)
+        except Exception as exc:
+            log.exception("failed to switch account via callback")
+            await self.tg.answer_callback_query(cb_id, f"Error: {exc}", show_alert=True)
+
+    async def _create_account_from_prompt(self, chat_id: int, alias: str) -> None:
+        mgr = getattr(self.gpt, "account_manager", None)
+        if not mgr:
+            await self.tg.send_message(chat_id, "Account manager is not enabled.", reply_markup=_home_keyboard())
+            return
+        try:
+            acc = mgr.add_account(alias.strip())
+            await self.tg.send_message(
+                chat_id,
+                f"✅ <b>Account created:</b> <b>{esc(acc.alias)}</b> (<code>{esc(acc.id)}</code>)\n\n"
+                f"Isolated profile and FIFO chat pool initialized.\n"
+                f"Use <code>/accounts switch {esc(acc.id)}</code> to activate it.",
+                reply_markup=_accounts_keyboard_quick(),
+            )
+        except Exception as exc:
+            await self.tg.send_message(
+                chat_id,
+                f"❌ Failed to create account: {esc(str(exc))}",
+                reply_markup=_accounts_keyboard_quick(),
+            )
 
     async def _cmd_http(self, chat_id: int, text: str) -> None:
         """Toggle the fast HTTP path on/off (``/http on``, ``/http off``, ``/http``)."""
@@ -1010,7 +1171,7 @@ class BridgeBot:
                 result["path"],
                 caption=f"<i>{caption}</i>",
             )
-        await self.tg.send_message(chat_id, "Done.", reply_markup=_image_footer())
+            await self.tg.send_message(chat_id, "Done.", reply_markup=_image_footer())
 
     async def _do_clear(self, chat_id: int, edit: int | None = None) -> None:
         pool = self.gpt.pool
@@ -1040,6 +1201,84 @@ class BridgeBot:
                 await coro
             except GenerationDeniedError as exc:
                 kind = getattr(exc, "kind", "unknown")
+                if kind == "rate_limit":
+                    strikes = getattr(exc, "strikes", 1)
+                    alt_acc = getattr(exc, "alt_account", None)
+                    info = getattr(exc, "rate_limit_info", {})
+                    resets_str = info.get("resets_at_str") or "soon"
+                    hours = info.get("hours", 3.0)
+
+                    if strikes >= 3 and alt_acc:
+                        try:
+                            await self.gpt.switch_account(alt_acc.id)
+                            switched = True
+                        except Exception as switch_err:
+                            log.warning("failed auto-switch: %s", switch_err)
+                            switched = False
+
+                        if switched:
+                            text = (
+                                f"⚠️ <b>Consecutive Rate Limits Detected (3/3 strikes).</b>\n\n"
+                                f"Account was rate-limited until {resets_str} (~{hours}h).\n\n"
+                                f"🔄 <b>Automatically switched to least-used account:</b>\n"
+                                f"👉 <b>{esc(alt_acc.alias)}</b> ({esc(alt_acc.email or 'New Profile')})\n\n"
+                                f"<i>Ready to retry your prompt on this account.</i>"
+                            )
+                            kb = {
+                                "inline_keyboard": [
+                                    [_btn("🔄 Retry on New Account", "retry:image"), _btn("🆕 New chat", "menu:new")],
+                                    [_btn("👤 Accounts", "menu:accounts")],
+                                ]
+                            }
+                        else:
+                            text = (
+                                f"⚠️ <b>Rate Limit Reached (3/3 strikes).</b>\n\n"
+                                f"Account was rate-limited until {resets_str} (~{hours}h).\n"
+                                f"Auto-switch to <b>{esc(alt_acc.alias)}</b> failed."
+                            )
+                            kb = {
+                                "inline_keyboard": [
+                                    [_btn("👤 Accounts", "menu:accounts"), _btn("🏠 Menu", "menu:home")]
+                                ]
+                            }
+                        await self.tg.send_message(chat_id, text, reply_markup=kb)
+                        return
+
+                    elif strikes >= 3 and not alt_acc:
+                        text = (
+                            f"⚠️ <b>Rate Limit Reached (3/3 strikes).</b>\n\n"
+                            f"Account is rate-limited until {resets_str} (~{hours}h).\n"
+                            f"No alternative account is currently available.\n\n"
+                            f"<i>Add another account using /accounts add &lt;alias&gt;</i>"
+                        )
+                        kb = {
+                            "inline_keyboard": [
+                                [_btn("➕ Add Account", "acc:add"), _btn("👤 Accounts", "menu:accounts")],
+                                [_btn("🏠 Menu", "menu:home")],
+                            ]
+                        }
+                        await self.tg.send_message(chat_id, text, reply_markup=kb)
+                        return
+
+                    else:
+                        suggestion = (
+                            f"\n💡 <i>Least-used alternative available: <b>{esc(alt_acc.alias)}</b></i>\n"
+                            if alt_acc
+                            else ""
+                        )
+                        text = (
+                            f"⚠️ <b>ChatGPT Rate Limit (Strike {strikes}/3)</b>\n\n"
+                            f"Expected to reset around {resets_str} (~{hours}h).{suggestion}"
+                        )
+                        rows = []
+                        if alt_acc:
+                            rows.append([_btn(f"🔀 Switch to {alt_acc.alias}", f"acc:switch:{alt_acc.id}")])
+                        rows.append([_btn("🔄 Retry Anyway", "retry:image"), _btn("🆕 New chat", "menu:new")])
+                        rows.append([_btn("🏠 Menu", "menu:home")])
+                        await self.tg.send_message(chat_id, text, reply_markup={"inline_keyboard": rows})
+                        return
+
+                # Normal policy denial
                 text = (
                     "<b>Image denied.</b>\n\n"
                     "ChatGPT refused this prompt for policy reasons.\n"

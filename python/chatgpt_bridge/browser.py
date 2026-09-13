@@ -22,23 +22,26 @@ PROFILE_DIR = STATE_DIR / "profile"
 class BrowserManager:
     """Launch and manage a persistent Playwright Chromium context."""
 
-    def __init__(self, headless: bool = True) -> None:
+    def __init__(
+        self, headless: bool = True, profile_dir: Path | str | None = None
+    ) -> None:
         self.headless = headless
+        self.profile_dir = Path(profile_dir) if profile_dir else PROFILE_DIR
         self._playwright: Any = None
         self._context: Any = None
 
     async def start(self) -> None:
-        """Launch the persistent context at ``PROFILE_DIR``."""
+        """Launch the persistent context at ``self.profile_dir``."""
         if self._context is not None:
             return
-        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-        for lock in PROFILE_DIR.glob("Singleton*"):
+        self.profile_dir.mkdir(parents=True, exist_ok=True)
+        for lock in self.profile_dir.glob("Singleton*"):
             try:
                 lock.unlink()
             except Exception:
                 pass
         # Clear crash session files so Chromium opens cleanly without restore bubbles
-        sessions_dir = PROFILE_DIR / "Default" / "Sessions"
+        sessions_dir = self.profile_dir / "Default" / "Sessions"
         if sessions_dir.exists():
             for f in sessions_dir.glob("*"):
                 try:
@@ -46,7 +49,7 @@ class BrowserManager:
                 except Exception:
                     pass
 
-        pref_file = PROFILE_DIR / "Default" / "Preferences"
+        pref_file = self.profile_dir / "Default" / "Preferences"
         if pref_file.exists():
             try:
                 import json
@@ -62,7 +65,7 @@ class BrowserManager:
         height = int(os.environ.get("SCREEN_HEIGHT", "720"))
         self._playwright = await async_playwright().start()
         self._context = await self._playwright.chromium.launch_persistent_context(
-            user_data_dir=str(PROFILE_DIR),
+            user_data_dir=str(self.profile_dir),
             headless=self.headless,
             args=[
                 "--disable-blink-features=AutomationControlled",

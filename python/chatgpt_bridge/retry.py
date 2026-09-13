@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import datetime
 import random
 import re
+import time
 from dataclasses import dataclass, field
 
 REFUSAL_RE = re.compile(
@@ -63,6 +65,79 @@ def parse_rate_limit_wait(text: str) -> float | None:
     if not m:
         return None
     return min(float(m.group(1)) * 60.0, 600.0)
+
+
+def parse_rate_limit_info(text: str, current_time: float | None = None) -> dict:
+    """Extract detailed rate limit timeout (hours, minutes, absolute times) into seconds and reset timestamp."""
+    now = current_time if current_time is not None else time.time()
+    t = text.lower()
+
+    hours = 0.0
+    minutes = 0.0
+
+    # 1. Match hours (e.g. "in 2 hours", "3.5 hours")
+    m_h = re.search(r"(\d+(?:\.\d+)?)\s*hours?", t)
+    if m_h:
+        hours = float(m_h.group(1))
+
+    # 2. Match minutes (e.g. "in 45 minutes")
+    m_m = re.search(r"(\d+(?:\.\d+)?)\s*minutes?", t)
+    if m_m:
+        minutes = float(m_m.group(1))
+
+    total_sec = hours * 3600.0 + minutes * 60.0
+
+    # 3. Match absolute clock times like "after 6:30 pm", "after 18:30", "at 5:00 am"
+    m_time = re.search(r"(?:after|at)\s+(\d{1,2}):(\d{2})(?:\s*(am|pm))?", t)
+    if total_sec == 0 and m_time:
+        target_h = int(m_time.group(1))
+        target_m = int(m_time.group(2))
+        ampm = m_time.group(3)
+        if ampm:
+            if ampm == "pm" and target_h < 12:
+                target_h += 12
+            elif ampm == "am" and target_h == 12:
+                target_h = 0
+        now_dt = datetime.datetime.fromtimestamp(now)
+        target_dt = now_dt.replace(hour=target_h, minute=target_m, second=0, microsecond=0)
+        if target_dt <= now_dt:
+            target_dt += datetime.timedelta(days=1)
+        total_sec = (target_dt - now_dt).total_seconds()
+
+    if total_sec <= 0:
+        total_sec = 3600.0 * 3.0  # default 3 hours fallback
+
+    resets_at = now + total_sec
+    resets_dt = datetime.datetime.fromtimestamp(resets_at)
+    human_time = resets_dt.strftime("%H:%M")
+
+    return {
+        "wait_seconds": total_sec,
+        "resets_at": resets_at,
+        "resets_at_str": human_time,
+        "hours": round(total_sec / 3600.0, 1),
+    }
+
+
+_LEADING_GEN_IMAGE_RE = re.compile(
+    r"^(?:please\s+)?(?:generate|genrate|create|make)\s+(?:an?\s+)?image\s*(?:of|:|-)?\s*",
+    re.IGNORECASE,
+)
+
+
+def standardize_image_prompt(prompt: str) -> str:
+    """Format prompt with standard '(Generate Image -\\n...)' prefix.
+
+    If the user has written 'Generate image', 'generate an image of', etc. first,
+    strips those leading words first so it does not duplicate the instruction.
+    """
+    t = prompt.strip()
+    if t.lower().startswith("(generate image -\n") or t.lower().startswith("(genrate image -\n"):
+        return t
+    cleaned = _LEADING_GEN_IMAGE_RE.sub("", t).strip()
+    if not cleaned:
+        cleaned = t
+    return f"(Generate Image -\n{cleaned})"
 
 
 def auto_tweak_prompt(prompt: str, level: int = 1) -> str:

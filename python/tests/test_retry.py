@@ -101,3 +101,52 @@ def test_denied_error_kind():
     err = GenerationDeniedError("denied", kind="deterministic")
     assert isinstance(err, RuntimeError)
     assert err.kind == "deterministic"
+
+
+def test_standardize_image_prompt():
+    from chatgpt_bridge.retry import standardize_image_prompt
+
+    assert (
+        standardize_image_prompt("a cute kitten in a teacup")
+        == "(Generate Image -\na cute kitten in a teacup)"
+    )
+    assert (
+        standardize_image_prompt("generate image of a mountain sunset")
+        == "(Generate Image -\na mountain sunset)"
+    )
+    assert (
+        standardize_image_prompt("Generate an image of a red racecar")
+        == "(Generate Image -\na red racecar)"
+    )
+    assert (
+        standardize_image_prompt("Please generate image: cyberpunk cityscape")
+        == "(Generate Image -\ncyberpunk cityscape)"
+    )
+    assert (
+        standardize_image_prompt("create image - vintage portrait")
+        == "(Generate Image -\nvintage portrait)"
+    )
+    # Already standardized prompt should not be duplicated
+    assert (
+        standardize_image_prompt("(Generate Image -\na blue ocean)")
+        == "(Generate Image -\na blue ocean)"
+    )
+
+
+def test_parse_rate_limit_info():
+    from chatgpt_bridge.retry import parse_rate_limit_info
+
+    info_hours = parse_rate_limit_info("You have reached your limit. Try again in 2 hours.")
+    assert info_hours["wait_seconds"] == 7200.0
+    assert info_hours["hours"] == 2.0
+
+    info_mins = parse_rate_limit_info("Limit reached. Please try again in 30 minutes.")
+    assert info_mins["wait_seconds"] == 1800.0
+    assert info_mins["hours"] == 0.5
+
+    # Fixed base timestamp for clock time parsing: 2026-09-13 14:00:00 (2 PM)
+    base_ts = 1789286400.0  # arbitrary epoch
+    info_time = parse_rate_limit_info("Try again after 6:30 PM", current_time=base_ts)
+    assert info_time["resets_at"] > base_ts
+    assert "resets_at_str" in info_time
+

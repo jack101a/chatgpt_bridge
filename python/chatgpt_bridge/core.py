@@ -7,11 +7,12 @@ import logging
 import os
 import time
 
+from .account import AccountInfo, AccountManager
 from .browser import BrowserManager
 from .chat_pool import DEFAULT_MAX_CHATS, ChatPoolManager
 from .errors import AuthError, GenerationDeniedError, ShapeChangedError
 from .http_client import BackendClient
-from .retry import RetryConfig
+from .retry import RetryConfig, parse_rate_limit_info, standardize_image_prompt
 from .session import SessionManager
 from .ui_driver import UIDriver
 
@@ -33,6 +34,7 @@ class ChatGPT:
         max_retries: int | None = None,
         use_http: bool = True,
         idle_timeout_s: int | None = None,
+        account_manager: AccountManager | None = None,
     ) -> None:
         self.headless = headless
         self.auto_relogin = auto_relogin
@@ -47,12 +49,15 @@ class ChatGPT:
             else int(os.environ.get("BROWSER_IDLE_TIMEOUT_S", "300"))
         )
         self.use_http = use_http
-        self.browser = BrowserManager(headless=headless)
+        self.account_manager = account_manager or AccountManager()
+        active_acc = self.account_manager.get_active_account()
+        self.browser = BrowserManager(headless=headless, profile_dir=active_acc.profile_dir)
         self.session = SessionManager(self.browser)
         self.http = BackendClient(self.session)
         self.ui = UIDriver(self.browser, self.session)
         self.pool = ChatPoolManager(
             self.session,
+            state_path=active_acc.chat_pool_file,
             max_chats=max_chats if max_chats is not None else DEFAULT_MAX_CHATS,
         )
         self._started = False
@@ -116,6 +121,34 @@ class ChatGPT:
                     "or construct with auto_relogin=True."
                 )
         self._started = True
+        try:
+            active_acc = self.account_manager.get_active_account()
+            if not active_acc.email:
+                user_info = await self.session.get_user_info()
+                if user_info and user_info.get("email"):
+                    self.account_manager.update_identity(
+                        active_acc.id,
+                        email=user_info.get("email", ""),
+                        name=user_info.get("name", ""),
+                    )
+        except Exception:
+            pass
+
+    async def switch_account(self, account_id_or_alias: str) -> AccountInfo:
+        """Switch the active account, stopping current browser context and loading the new profile."""
+        await self.aclose()
+        acc = self.account_manager.set_active_account(account_id_or_alias)
+        self.browser = BrowserManager(headless=self.headless, profile_dir=acc.profile_dir)
+        self.session = SessionManager(self.browser)
+        self.http = BackendClient(self.session)
+        self.ui = UIDriver(self.browser, self.session)
+        self.pool = ChatPoolManager(
+            self.session,
+            state_path=acc.chat_pool_file,
+            max_chats=self.pool.max_chats,
+        )
+        self._current_conversation_id = None
+        return acc
 
     async def ask(
         self,
@@ -153,6 +186,7 @@ class ChatGPT:
         tweaked_prompt_2: str | None = None,
     ) -> dict:
         """Generate an image via the UI, continuing the current conversation."""
+        prompt = standardize_image_prompt(prompt)
         await self._ensure_started()
         cid = conversation_id or self._current_conversation_id
         if retry is None:
@@ -171,6 +205,8 @@ class ChatGPT:
                 conversation_id=cid,
                 **kwargs,
             )
+            active_acc = self.account_manager.get_active_account()
+            self.account_manager.record_generation_success(active_acc.id)
             self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
             await self._track(result.get("conversation_id"))
             return result
@@ -178,6 +214,15 @@ class ChatGPT:
             if exc.conversation_id:
                 self._current_conversation_id = exc.conversation_id
                 await self._track(exc.conversation_id)
+            if exc.kind == "rate_limit":
+                info = parse_rate_limit_info(str(exc))
+                active_acc = self.account_manager.get_active_account()
+                strikes, alt_acc = self.account_manager.record_rate_limit(
+                    active_acc.id, info["wait_seconds"], info["resets_at_str"]
+                )
+                setattr(exc, "strikes", strikes)
+                setattr(exc, "alt_account", alt_acc)
+                setattr(exc, "rate_limit_info", info)
             raise
         finally:
             self._touch_browser_activity()

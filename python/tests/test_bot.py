@@ -73,16 +73,18 @@ class _FakeSession:
 
 
 class _FakeGPT:
-    def __init__(self, ask_result=None, raise_exc=None):
+    def __init__(self, ask_result=None, raise_exc=None, account_manager=None):
         self._started = False
         self.use_http = True
         self.pool = _FakePool(["c1", "c2"])
         self.session = _FakeSession()
+        self.account_manager = account_manager
         self._ask_result = ask_result or {"text": "hi back", "conversation_id": "c3"}
         self._raise = raise_exc
         self.asks: list[str] = []
         self._current_conversation_id = None
         self.new_chat_calls = 0
+        self.switched_accounts: list[str] = []
 
     async def ask(self, prompt):
         self.asks.append(prompt)
@@ -90,7 +92,7 @@ class _FakeGPT:
             raise self._raise
         return self._ask_result
 
-    async def generate_image(self, prompt):
+    async def generate_image(self, prompt, **kwargs):
         if self._raise:
             raise self._raise
         return {"path": "/tmp/x.png", "prompt": prompt, "conversation_id": "c4"}
@@ -98,6 +100,16 @@ class _FakeGPT:
     def new_chat(self):
         self.new_chat_calls += 1
         self._current_conversation_id = None
+
+    async def switch_account(self, account_id):
+        self.switched_accounts.append(account_id)
+        if self.account_manager:
+            return self.account_manager.set_active_account(account_id)
+        class _Acc:
+            id = account_id
+            alias = account_id
+            email = "user@example.com"
+        return _Acc()
 
 
 ALLOWED = 42
@@ -667,7 +679,7 @@ def test_bot_image_command_full_flow(tmp_path):
 
     # 3. Follow-up "Done." with footer keyboard sent
     msgs = [m for m in tg.sent if m[0] == "msg"]
-    assert any(m[2] == "Done." and "menu:image" in str(m[3]) for m in msgs)
+    assert any(m[2] == "Done." and "retry:image" in str(m[3]) for m in msgs)
 
 
 # ---- new ux: image intent, image mode, and retries ----
@@ -798,3 +810,109 @@ def test_retry_softened_callback():
     _await(bot.handle_update(_callback("retry:softened")))
     assert len(gpt.tweaked) == 2
     assert gpt.tweaked[1] is not None
+
+
+# ---- multi-account and rate limit auto-switch ----
+
+def test_accounts_command_and_callbacks(tmp_path):
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. /accounts command lists accounts
+    _await(bot.handle_update(_update("/accounts")))
+    msgs = _msgs(tg)
+    assert any("👤 ChatGPT Accounts" in m[2] and "Primary" in m[2] for m in msgs)
+
+    # 2. Add an account via /accounts add
+    _await(bot.handle_update(_update("/accounts add Secondary")))
+    assert any("Created new account" in m[2] and "Secondary" in m[2] for m in _msgs(tg))
+    assert len(mgr.list_accounts()) == 2
+
+    # 3. Switch account via callback
+    acc2 = mgr.find_account("Secondary")
+    assert acc2 is not None
+    _await(bot.handle_update(_callback(f"acc:switch:{acc2.id}")))
+    assert gpt.switched_accounts == [acc2.id]
+    assert mgr.get_active_account().id == acc2.id
+
+
+def test_accounts_switch_and_remove_commands(tmp_path):
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    acc2 = mgr.add_account("TestAcc")
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    # Switch account via command
+    _await(bot.handle_update(_update(f"/accounts switch {acc2.id}")))
+    assert mgr.get_active_account().id == acc2.id
+    assert any("Switched active account" in m[2] for m in _msgs(tg))
+
+    # Remove account via command
+    _await(bot.handle_update(_update(f"/accounts remove {acc2.id}")))
+    assert len(mgr.list_accounts()) == 1
+    assert any("Removed account" in m[2] for m in _msgs(tg))
+
+
+def test_rate_limit_strike_1_suggests_switch():
+    from chatgpt_bridge.account import AccountInfo
+
+    alt = AccountInfo(id="acc_alt", alias="Secondary", email="sec@example.com")
+    exc = GenerationDeniedError("Rate limit reached. Try again in 2 hours.", kind="rate_limit")
+    setattr(exc, "strikes", 1)
+    setattr(exc, "alt_account", alt)
+    setattr(exc, "rate_limit_info", {"hours": 2.0, "resets_at_str": "18:30"})
+
+    gpt = _FakeGPT(raise_exc=exc)
+    tg, bot = _bot(gpt=gpt)
+
+    _await(bot.handle_update(_update("/image a fantasy landscape")))
+    msgs = _msgs(tg)
+    assert len(msgs) >= 1
+    assert "Strike 1/3" in msgs[-1][2]
+    assert "Secondary" in msgs[-1][2]
+    # Inline keyboard offers switch to alt
+    kb = msgs[-1][3]
+    assert f"acc:switch:{alt.id}" in str(kb)
+
+
+def test_rate_limit_strike_3_auto_switches_account():
+    from chatgpt_bridge.account import AccountInfo
+
+    alt = AccountInfo(id="acc_alt", alias="Secondary", email="sec@example.com")
+    exc = GenerationDeniedError("Rate limit reached. Try again in 2 hours.", kind="rate_limit")
+    setattr(exc, "strikes", 3)
+    setattr(exc, "alt_account", alt)
+    setattr(exc, "rate_limit_info", {"hours": 2.0, "resets_at_str": "18:30"})
+
+    gpt = _FakeGPT(raise_exc=exc)
+    tg, bot = _bot(gpt=gpt)
+
+    _await(bot.handle_update(_update("/image a cyberpunk city")))
+    assert gpt.switched_accounts == [alt.id]
+    msgs = _msgs(tg)
+    assert len(msgs) >= 1
+    assert "Automatically switched to least-used account" in msgs[-1][2]
+    assert "Secondary" in msgs[-1][2]
+    # Retry button is ready
+    assert "retry:image" in str(msgs[-1][3])
+
+
+def test_rate_limit_strike_3_no_alt_prompts_add():
+    exc = GenerationDeniedError("Rate limit reached.", kind="rate_limit")
+    setattr(exc, "strikes", 3)
+    setattr(exc, "alt_account", None)
+    setattr(exc, "rate_limit_info", {"hours": 3.0, "resets_at_str": "soon"})
+
+    gpt = _FakeGPT(raise_exc=exc)
+    tg, bot = _bot(gpt=gpt)
+
+    _await(bot.handle_update(_update("/image a mountain peak")))
+    msgs = _msgs(tg)
+    assert len(msgs) >= 1
+    assert "No alternative account is currently available" in msgs[-1][2]
+    assert "acc:add" in str(msgs[-1][3])

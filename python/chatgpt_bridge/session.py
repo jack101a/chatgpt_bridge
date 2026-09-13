@@ -38,6 +38,24 @@ class SessionManager:
         finally:
             await page.close()
 
+    async def get_user_info(self) -> dict:
+        """Parse user profile information (email, name, id) from session."""
+        ctx = await self.browser.context()
+        page = await ctx.new_page()
+        try:
+            resp = await page.request.get(
+                "https://chatgpt.com/api/auth/session",
+                timeout=15_000,
+            )
+            if resp.status != 200:
+                return {}
+            data = await resp.json()
+            return (data or {}).get("user") or {}
+        except Exception:
+            return {}
+        finally:
+            await page.close()
+
     async def get_access_token(self) -> str:
         """Parse the access token from the session endpoint JSON."""
         ctx = await self.browser.context()
