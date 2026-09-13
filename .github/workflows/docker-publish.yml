@@ -41,12 +41,13 @@ jobs:
           
           IMAGE_A="ghcr.io/${OWNER}/${REPO}"
           IMAGE_B="ghcr.io/${OWNER}/chatgpt-bridge"
+          IMAGE_C="ghcr.io/${OWNER}/chatgpt-bridge-app"
           
-          TAGS="${IMAGE_A}:latest,${IMAGE_B}:latest"
+          TAGS="${IMAGE_A}:latest,${IMAGE_B}:latest,${IMAGE_C}:latest"
           
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             VERSION="${{ github.ref_name }}"
-            TAGS="${TAGS},${IMAGE_A}:${VERSION},${IMAGE_B}:${VERSION}"
+            TAGS="${TAGS},${IMAGE_A}:${VERSION},${IMAGE_B}:${VERSION},${IMAGE_C}:${VERSION}"
           fi
           
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT

@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   chatgpt-bridge:
-    image: ghcr.io/jack101a/chatgpt_bridge:latest
+    image: ghcr.io/jack101a/chatgpt-bridge-app:latest
     container_name: chatgpt-bridge
     restart: unless-stopped
     ports:
