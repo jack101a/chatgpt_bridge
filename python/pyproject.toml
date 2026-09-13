@@ -26,5 +26,8 @@ dev = [
 where = ["."]
 include = ["chatgpt_bridge*"]
 
+[tool.setuptools.package-data]
+chatgpt_bridge = ["*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
