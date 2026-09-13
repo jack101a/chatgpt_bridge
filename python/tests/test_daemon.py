@@ -55,6 +55,22 @@ def test_image_ok(client):
     assert resp.json() == {"path": "/tmp/x.png", "prompt": "a fox"}
 
 
+def test_image_with_conversation_id_and_max_tries(monkeypatch):
+    calls = []
+
+    class _CaptureCore:
+        async def generate_image(self, prompt, timeout_s=180, **kwargs):
+            calls.append((prompt, timeout_s, kwargs))
+            return {"path": "/tmp/x.png", "prompt": prompt, "conversation_id": kwargs.get("conversation_id")}
+
+    monkeypatch.setattr(daemon, "_get_core", lambda: _CaptureCore())
+    client = TestClient(daemon.app)
+    resp = client.post("/image", json={"prompt": "a fox", "conversation_id": "c-123", "max_tries": 7})
+    assert resp.status_code == 200
+    assert resp.json()["conversation_id"] == "c-123"
+    assert calls == [("a fox", 180, {"max_retries": 7, "conversation_id": "c-123"})]
+
+
 def test_ask_error_maps_to_502(monkeypatch):
     monkeypatch.setattr(daemon, "_get_core", lambda: _FailingCore())
     client = TestClient(daemon.app)

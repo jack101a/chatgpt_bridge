@@ -46,6 +46,7 @@ class ImageRequest(BaseModel):
     prompt: str
     timeout_s: int = Field(default=180, ge=1)
     max_tries: int | None = None
+    conversation_id: str | None = None
 
 
 def _get_core() -> ChatGPT:
@@ -86,8 +87,26 @@ async def ask(req: AskRequest) -> dict:
 async def image(req: ImageRequest) -> dict:
     async with _lock:
         try:
-            return await _get_core().generate_image(req.prompt, timeout_s=req.timeout_s)
+            kwargs = {}
+            if req.max_tries is not None:
+                kwargs["max_retries"] = req.max_tries
+            if req.conversation_id is not None:
+                kwargs["conversation_id"] = req.conversation_id
+            return await _get_core().generate_image(
+                req.prompt, timeout_s=req.timeout_s, **kwargs
+            )
         except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, GenerationDeniedError, PlaywrightTimeoutError) as exc:
+            return _error_response(exc)
+
+
+@app.delete("/conversation/{conversation_id}")
+@app.post("/conversation/{conversation_id}/delete")
+async def delete_conversation(conversation_id: str) -> dict:
+    async with _lock:
+        try:
+            ok = await _get_core().delete_conversation(conversation_id)
+            return {"ok": ok, "conversation_id": conversation_id}
+        except Exception as exc:
             return _error_response(exc)
 
 

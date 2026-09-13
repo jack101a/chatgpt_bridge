@@ -13,6 +13,18 @@ def test_denial():
         )
         == "denial"
     )
+    assert (
+        classify_response(
+            "I cannot fulfill this request as it goes against our community guidelines."
+        )
+        == "denial"
+    )
+    assert (
+        classify_response(
+            "I cannot generate images of this nature."
+        )
+        == "denial"
+    )
 
 
 def test_deterministic_ip():
@@ -27,6 +39,36 @@ def test_deterministic_ip():
 def test_rate_limit():
     assert (
         classify_response("Rate limit reached — try again in 5 minutes.")
+        == "rate_limit"
+    )
+    assert (
+        classify_response(
+            "I was unable to generate the image because image generation is temporarily rate-limited."
+        )
+        == "rate_limit"
+    )
+    assert (
+        classify_response(
+            "I couldn’t generate the image because the image-generation limit is temporarily active. Please try again in about 7 minutes."
+        )
+        == "rate_limit"
+    )
+    assert (
+        classify_response(
+            "I’m unable to generate the image right now because the image-generation rate limit has been reached."
+        )
+        == "rate_limit"
+    )
+    assert (
+        classify_response(
+            "You have reached your limit of images for now. Try again later."
+        )
+        == "rate_limit"
+    )
+    assert (
+        classify_response(
+            "You've reached your limit for sending messages to ChatGPT."
+        )
         == "rate_limit"
     )
 

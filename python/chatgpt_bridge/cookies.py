@@ -129,8 +129,15 @@ def _parse_netscape(text: str) -> list[dict]:
     cookies: list[dict] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        if not stripped:
             continue
+        is_http_only = False
+        if stripped.startswith("#HttpOnly_"):
+            is_http_only = True
+            stripped = stripped[len("#HttpOnly_"):]
+        elif stripped.startswith("#"):
+            continue
+
         fields = stripped.split("\t")
         if len(fields) != 7:
             raise CookieFormatError(
@@ -153,7 +160,7 @@ def _parse_netscape(text: str) -> list[dict]:
                 "path": path,
                 "expires": expires_int,
                 "secure": secure.lower() == "true",
-                "httpOnly": False,
+                "httpOnly": is_http_only,
                 "sameSite": _DEFAULT_SAMESITE,
             }
         )
@@ -171,7 +178,7 @@ def load_cookie_file(path: str | Path) -> list[dict]:
     p = Path(path)
     text = p.read_text(encoding="utf-8")
     stripped = text.lstrip()
-    if stripped.startswith("{") or stripped.startswith("["):
+    if stripped.startswith(("{", "[")):
         return _parse_json(text)
     return _parse_netscape(text)
 
@@ -180,7 +187,8 @@ def cookies_valid(cookies: list[dict]) -> bool:
     """Return True iff a valid, unexpired session-token cookie is present."""
     now = time.time()
     for c in cookies:
-        if c.get("name") == SESSION_COOKIE:
+        name = c.get("name", "")
+        if name == SESSION_COOKIE or name.startswith(f"{SESSION_COOKIE}."):
             exp = c.get("expires", -1)
             if exp == -1 or exp > now:
                 return True

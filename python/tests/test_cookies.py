@@ -321,3 +321,27 @@ def test_samesite_none_secure_kept_as_none(tmp_path):
     )
     assert c["sameSite"] == "None"
     assert c["secure"] is True
+
+
+def test_load_netscape_http_only_cookies(tmp_path):
+    content = (
+        "# Netscape HTTP Cookie File\n"
+        "#HttpOnly_.chatgpt.com\tTRUE\t/\tTRUE\t-1\t__Secure-next-auth.session-token\ttok\n"
+        ".chatgpt.com\tTRUE\t/\tTRUE\t0\tother\tval\n"
+    )
+    p = tmp_path / "cookies.txt"
+    p.write_text(content, encoding="utf-8")
+
+    cookies = load_cookie_file(p)
+    assert len(cookies) == 2
+    assert cookies[0]["name"] == SESSION_COOKIE
+    assert cookies[0]["value"] == "tok"
+    assert cookies[0]["domain"] == ".chatgpt.com"
+    assert cookies[0]["httpOnly"] is True
+    assert cookies[1]["name"] == "other"
+    assert cookies[1]["httpOnly"] is False
+
+
+def test_cookies_valid_for_chunked_session_tokens():
+    cookies = [{"name": f"{SESSION_COOKIE}.0", "value": "x", "expires": -1}]
+    assert cookies_valid(cookies) is True

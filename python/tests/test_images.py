@@ -105,3 +105,51 @@ def test_save_image_remote_error_raises(tmp_path):
 
     with pytest.raises(BridgeTimeoutError):
         asyncio.run(save_image("https://x/img.png", tmp_path, _FakeCtx()))
+
+
+def test_chatgpt_generate_image_conversation_continuity():
+    from chatgpt_bridge.core import ChatGPT
+    from chatgpt_bridge.errors import GenerationDeniedError
+
+    gpt = ChatGPT(headless=True)
+    gpt._started = True
+
+    class _FakeUI:
+        def __init__(self):
+            self.calls = []
+
+        async def generate_image(self, prompt, timeout_s=180, retry=None, conversation_id=None):
+            self.calls.append((prompt, conversation_id))
+            return {"path": "/tmp/a.png", "prompt": prompt, "conversation_id": "c-999"}
+
+    gpt.ui = _FakeUI()
+    gpt.pool.record = lambda cid: None
+
+    res1 = asyncio.run(gpt.generate_image("prompt 1"))
+    assert res1["conversation_id"] == "c-999"
+    assert gpt._current_conversation_id == "c-999"
+
+    res2 = asyncio.run(gpt.generate_image("prompt 2"))
+    assert res2["conversation_id"] == "c-999"
+    assert gpt.ui.calls == [("prompt 1", None), ("prompt 2", "c-999")]
+
+
+def test_chatgpt_generate_image_denied_preserves_conversation_id():
+    from chatgpt_bridge.core import ChatGPT
+    from chatgpt_bridge.errors import GenerationDeniedError
+
+    gpt = ChatGPT(headless=True)
+    gpt._started = True
+
+    class _DenyingUI:
+        async def generate_image(self, prompt, timeout_s=180, retry=None, conversation_id=None):
+            raise GenerationDeniedError("denied", kind="denial", conversation_id="c-denied")
+
+    gpt.ui = _DenyingUI()
+    gpt.pool.record = lambda cid: None
+
+    with pytest.raises(GenerationDeniedError) as exc_info:
+        asyncio.run(gpt.generate_image("boundary prompt"))
+
+    assert exc_info.value.conversation_id == "c-denied"
+    assert gpt._current_conversation_id == "c-denied"

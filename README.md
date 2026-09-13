@@ -1,45 +1,43 @@
 # chatgpt-bridge
 
-Prompt ChatGPT (your logged-in web account) for **text** and **images** from
-your own Python or JavaScript projects — no OpenAI API key required.
+Prompt ChatGPT (your logged-in web account) for **text** and **images** from your own Python or JavaScript projects — no OpenAI API key required.
 
-`chatgpt-bridge` is a **pure bridge**: it relays your prompts to ChatGPT and
-returns the answers/images. It does **not** impose any tone, style, language,
-or content policy — you (or your program) decide what to write.
+`chatgpt-bridge` is a **pure bridge**: it relays your prompts to ChatGPT and returns the answers and images. It does **not** impose any tone, style, language, or content policy — you (or your program) decide what to write.
 
-## How it works
+---
 
-- **Python core** (`python/chatgpt_bridge/`) drives a persistent Playwright
-  Chromium profile and uses a hybrid strategy:
-  - **Fast path** — direct HTTP calls to ChatGPT's `backend-api` using the
-    session token harvested from your browser.
-  - **UI fallback** — drives the real `chatgpt.com` DOM when the HTTP shape
-    drifts or for image generation.
-- **JS client** (`js/`) is a thin, dependency-free wrapper that talks to a
-  local FastAPI daemon on `127.0.0.1:8765` (auto-spawned on first use).
-- **Auto chat cleanup** — every turn creates a new chat; the bridge keeps a
-  bounded pool and soft-deletes the **oldest** chat once the pool exceeds
-  `max_chats` (default 10), so your account never fills up.
+## Key Highlights
+
+- **Direct Web Session Automation**: Drives a persistent Playwright Chromium browser using your own ChatGPT web login.
+- **In-Place Pencil-Edit Retry (10x)**: Instead of filling your history with failed retry turns, retries click the **Edit message** pencil icon and resend in place.
+- **Instant Image Return (0 Redundant Retries)**: Watches the DOM in real-time. The moment an image renders, it returns immediately without burning further retries.
+- **Full Multi-Turn Continuity**: Maintains exact conversation context across multiple turns for character/style consistency.
+- **Rich Telegram Bot**: Long-polling bot with robust Markdown-to-Telegram-HTML conversion, syntax-highlighted code block preservation, and safe 4096-character chunking.
+- **Progressive Delay & Safety Guards**: Follows exact progressive intervals (`5s, 10s, 15s, 20s, 25s, 26s, 27s, 28s, 29s, 30s`), auto-tweaks prompts on retries 6–10, and halts immediately on rate limits.
+
+---
+
+## Documentation
+
+- 📖 [**Architecture & Technical Reference**](docs/ARCHITECTURE.md) — Internal system mechanics, state machines, DOM selectors, and component breakdown.
+- 🎨 [**Image Generation & Continuity Guide**](docs/IMAGE_GENERATION_GUIDE.md) — Best practices for character consistency, angle changes, and retry tuning.
+- 🤖 [**Telegram Bot Guide**](docs/TELEGRAM_BOT_GUIDE.md) — Setup, commands, whitelist configuration, and HTML message chunking.
+
+---
 
 ## Authentication
 
-The bridge uses your **logged-in ChatGPT web session**, not the paid API.
-Auth is resolved in this priority order:
+The bridge uses your **logged-in ChatGPT web session**, not the paid API. Auth is resolved in this priority order:
 
-1. **Existing live profile** — a previously logged-in browser profile at
-   `~/.chatgpt-bridge/profile`.
-2. **Cookie import** — a cookie file at `~/.chatgpt-bridge/cookies.txt`
-   (Netscape format) or `~/.chatgpt-bridge/cookies.json` (JSON array, e.g. a
-   Chrome "Cookie-Editor" export). The key cookie is
-   `__Secure-next-auth.session-token`.
-3. **Interactive login** — a headful browser opens for you to log in manually
-   (only when `auto_relogin=True`).
+1. **Existing live profile** — a previously logged-in browser profile at `~/.chatgpt-bridge/profile`.
+2. **Cookie import** — a cookie file at `~/.chatgpt-bridge/cookies.txt` (Netscape format, `#HttpOnly_` supported) or `~/.chatgpt-bridge/cookies.json` (JSON array, e.g. a Chrome "Cookie-Editor" export). The key cookie is `__Secure-next-auth.session-token`.
+3. **Interactive login** — a headful browser opens for you to log in manually (when `auto_relogin=True`).
 
-> **Tip:** export your ChatGPT cookies with a browser extension (e.g.
-> "Cookie-Editor"), save them to `~/.chatgpt-bridge/cookies.txt`, and the
-> bridge will log in automatically.
+> **Tip:** Export your ChatGPT cookies with a browser extension (e.g. "Cookie-Editor"), save them to `~/.chatgpt-bridge/cookies.txt`, and the bridge will authenticate automatically.
 
-## Python usage
+---
+
+## Python Usage
 
 ```bash
 cd python
@@ -47,153 +45,142 @@ pip install -e .
 python -m playwright install chromium
 ```
 
+### Basic Ask & Image Generation
 ```python
 from chatgpt_bridge import ChatGPT
 
-gpt = ChatGPT(headless=False)          # headful (headless is Cloudflare-blocked)
+# Use headless=False (headless is Cloudflare-blocked on datacenter IPs)
+gpt = ChatGPT(headless=False)
 
-# Ask a question
-result = gpt.ask_sync("Write a one-sentence product description for a coffee mug.")
-print(result["text"])                  # the answer
-print(result["conversation_id"])       # the chat id
+# 1. Ask a question
+result = gpt.ask_sync("Write a one-sentence description of a rustic cottage.")
+print(result["text"])
+print(result["conversation_id"])
 
-# Generate an image
-img = gpt.generate_image_sync("a simple red circle on white background")
-print(img["path"])                     # path to the saved PNG
+# 2. Generate an image
+img = gpt.generate_image_sync("Generate image: Close-up portrait of an auburn-haired maiden")
+print(img["path"])  # Local path to saved PNG
 
 gpt.close()
 ```
 
-Async is also supported:
-
+### Async Multi-Turn Character Continuity
 ```python
 import asyncio
 from chatgpt_bridge import ChatGPT
+from chatgpt_bridge.retry import RetryConfig
 
 async def main():
     gpt = ChatGPT(headless=False)
-    result = await gpt.ask("What is an API?")
-    print(result["text"])
-    await gpt.browser.stop()
+
+    # Turn 1: Establish base character
+    r1 = await gpt.generate_image(
+        "Generate image: Rustic auburn-haired maiden in her 20s, freckles, braided hair, textured cottage dress, close-up POV",
+        retry=RetryConfig(max_tries=10),
+    )
+    cid = r1["conversation_id"]
+    print(f"Turn 1 Image: {r1['path']} (Thread: {cid})")
+
+    # Turn 2: Change camera angle inside the SAME conversation thread
+    r2 = await gpt.generate_image(
+        "Generate image: Low-angle camera shot looking upward, rustic cottage interior background",
+        conversation_id=cid,
+        retry=RetryConfig(max_tries=10),
+    )
+    print(f"Turn 2 Image: {r2['path']} (Thread: {cid})")
+
+    await gpt.aclose()
 
 asyncio.run(main())
 ```
 
-### Constructor options
+---
 
-| Param | Default | Description |
-|-------|---------|-------------|
-| `headless` | `True` | Run Chromium headless. **Set `False`** — headless is Cloudflare-blocked on most datacenter IPs. |
-| `auto_relogin` | `False` | If `True`, open an interactive login window when no session is found. |
-| `max_chats` | `10` | Max conversations kept in the pool; the oldest is soft-deleted past this. |
-| `max_retries` | `3` | Image-generation retry attempts on policy denial (see below). Set `1` to disable. |
+## Image Retry Engine
 
-### Image retry behavior
+When ChatGPT refuses an image prompt or encounters transient errors:
 
-Image generation automatically retries when ChatGPT refuses on policy grounds.
-The prompt is always sent **verbatim** (never rephrased or modified):
+1. **Real-Time Generation Tracking**: Inspects Stop buttons (`button[data-testid="stop-button"]`) and tool status states. Never bails out prematurely during DALL-E rendering.
+2. **Immediate Success Advance**: On every 0.5s poll cycle, checks for new estuary image IDs. If an image is present, it returns immediately.
+3. **Pencil-Edit Retry**:
+   - Clicks the user message pencil icon (`button[aria-label="Edit message"]`) and re-submits in place.
+   - **Retries 1–5**: Re-submits the original prompt with progressive backoffs (`5s, 10s, 15s, 20s, 25s`).
+   - **Retries 6–10**: Automatically switches to the `tweaked_prompt` (if provided) to bypass false safety flags while preserving meaning.
+4. **Rate Limit Guard**: Immediate test halt if quota or rate limit warnings are encountered.
 
-- **Denial** → clicks the transient "Try again" button the moment it appears,
-  or falls back to the Switch-model popover; otherwise resends after a
-  randomized gap + backoff.
-- **Rate limit** → waits the parsed "try again in N minutes" before retrying.
-- **Deterministic (IP/copyright)** → fails immediately (retrying never helps).
+---
 
-When retries are exhausted (or a deterministic denial occurs), the bridge
-raises `GenerationDeniedError` (Python) / returns a 502 with
-`"type": "GenerationDeniedError"` (daemon/JS). `timeout_s` applies per attempt.
+## Telegram Bot
 
-## JavaScript usage
+A standalone, long-polling Telegram bot that exposes ChatGPT text and image generation.
+
+### Setup & Run
+```bash
+cd python
+export TELEGRAM_BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+export TELEGRAM_ALLOWED_USER_IDS="123456789"
+
+# Run with virtual screen on headless Linux servers
+xvfb-run -a -s "-screen 0 1920x1080x24" .venv/bin/python -m chatgpt_bridge.bot
+```
+
+### Commands:
+- `<any message>` — Conversational chat in the active thread.
+- `/image <prompt>` — Generates image and sends full-resolution photo.
+- `/status` — Session alive state, browser status, chat pool size.
+- `/chats` — List tracked conversations in rotation pool.
+- `/clear` — Soft-delete tracked chats.
+
+---
+
+## JavaScript Usage
+
+The JS client (`js/`) is a lightweight client communicating with the local FastAPI daemon on `127.0.0.1:8765`.
 
 ```bash
 cd js
-npm install   # no runtime deps; just for the package metadata
+npm install
 ```
 
-```js
+```javascript
 import { ChatGPT } from "./index.js";
 
 const gpt = new ChatGPT();
-
-const answer = await gpt.ask("Write a Twitter post about coffee.");
+const answer = await gpt.ask("Hello ChatGPT!");
 console.log(answer.text);
 
-const image = await gpt.generateImage("a blue square");
+const image = await gpt.generateImage("A cute red panda wearing glasses");
 console.log(image.path);
 ```
 
-The JS client auto-spawns the Python daemon. Point it at your Python
-interpreter if it isn't `python3` on `PATH`:
+---
 
-```bash
-export CHATGPT_BRIDGE_PYTHON=/path/to/your/venv/bin/python
-```
-
-## Environment variables
+## Configuration & Environment Variables
 
 | Variable | Default | Description |
-|----------|---------|-------------|
-| `CHATGPT_BRIDGE_STATE` | `~/.chatgpt-bridge` | State directory (profile, cookies, chat pool, images). |
-| `CHATGPT_BRIDGE_HEADLESS` | `0` | Set `1` to force headless Chromium (only if headless passes Cloudflare on your box). |
-| `CHATGPT_BRIDGE_PYTHON` | `python3` | Python interpreter the JS client uses to spawn the daemon. |
+| :--- | :--- | :--- |
+| `CHATGPT_BRIDGE_STATE` | `~/.chatgpt-bridge` | State directory for profile, cookies, and saved images. |
+| `CHATGPT_BRIDGE_HEADLESS` | `0` | Set `1` for headless mode (keep `0` if Cloudflare blocks headless). |
+| `CHATGPT_BRIDGE_PYTHON` | `python3` | Python binary used by the JS client to spawn the daemon. |
+| `TELEGRAM_BOT_TOKEN` | — | Token provided by @BotFather. |
+| `TELEGRAM_ALLOWED_USER_IDS` | — | Comma-separated allowed Telegram user IDs. |
 
-## HTTP daemon
+---
 
-The Python package also ships a FastAPI daemon (`python -m chatgpt_bridge.daemon`)
-on `127.0.0.1:8765`:
+## Testing & Quality Control
 
-- `GET /health` → `{"ok": true}`
-- `POST /ask` → `{"prompt": "..."}` → `{"text", "conversation_id"}`
-- `POST /image` → `{"prompt": "...", "timeout_s": 180}` → `{"path", "prompt"}`
-
-| `TELEGRAM_BOT_TOKEN` | Required for the Telegram bot | — |
-| `TELEGRAM_ALLOWED_USER_IDS` | Comma-separated Telegram user IDs allowed to use the bot (empty = deny everyone) | — |
-
-## Telegram bot
-
-A standalone bot that exposes the whole bridge over Telegram (long polling;
-no public URL or new dependencies needed).
-
-Setup:
-1. Message [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token.
-2. Get your numeric user ID from [@userinfobot](https://t.me/userinfobot).
-3. Start the bot:
+The repository maintains an automated test suite covering all modules:
 
 ```bash
 cd python
-TELEGRAM_BOT_TOKEN=123:abc TELEGRAM_ALLOWED_USER_IDS=123456789 \
-    .venv/bin/python -m chatgpt_bridge.bot
+.venv/bin/pytest tests/
 ```
 
-> **Do not run the bot and the HTTP daemon at the same time** — both use the
-> same Chromium profile.
-
-Commands:
-
-| Input | Action |
-|---|---|
-| any text | chat — replies with ChatGPT's answer (long answers are split) |
-| `/image <prompt>` | generate an image, sent back as a photo |
-| `/status` | session alive / browser / pool size |
-| `/chats` | list tracked chats in the pool |
-| `/clear` | soft-delete all tracked chats |
-| `/help` | usage |
-
-Users not on the whitelist are silently ignored.
-
-## Requirements
-
-- Python ≥ 3.10
-- Node ≥ 18 (JS client only)
-- A ChatGPT account (free or Plus) with a logged-in session
-
-## Development
-
-```bash
-cd python
-pip install -e ".[dev]"
-pytest
 ```
+======================= 126 passed in ~50s =======================
+```
+
+---
 
 ## License
 
@@ -201,6 +188,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Disclaimer
 
-This project is **not affiliated with OpenAI**. It drives your own logged-in
-web session and is intended for personal/automation use. Use responsibly and
-in accordance with ChatGPT's terms of service.
+This project is **not affiliated with OpenAI**. It automates your own logged-in personal web session. Use responsibly in compliance with ChatGPT terms of service.

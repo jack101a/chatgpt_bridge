@@ -24,6 +24,7 @@ import asyncio
 import html
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Mapping
@@ -80,6 +81,230 @@ def esc(text: str) -> str:
     return html.escape(text, quote=False)
 
 
+def markdown_to_telegram_html(text: str) -> str:
+    """Convert standard Markdown to Telegram-compatible HTML.
+
+    Converts code blocks, inline code, bold, italic, strikethrough, blockquotes,
+    headings, links, and bullet points into native Telegram HTML, escaping literal
+    HTML characters elsewhere.
+    """
+    if not text:
+        return ""
+
+    placeholders: dict[str, str] = {}
+
+    def repl_code_block(m: re.Match) -> str:
+        lang = (m.group("lang") or "").strip()
+        code = m.group("code") or ""
+        if code.endswith("\n"):
+            code = code[:-1]
+        escaped_code = html.escape(code, quote=False)
+        if lang:
+            tag = f'<pre><code class="language-{html.escape(lang, quote=True)}">{escaped_code}</code></pre>'
+        else:
+            tag = f"<pre><code>{escaped_code}</code></pre>"
+        key = f"\x00CB_{len(placeholders)}\x00"
+        placeholders[key] = tag
+        return key
+
+    # 1. Extract fenced code blocks (``` or ~~~), including unclosed ones at end
+    code_block_pattern = re.compile(
+        r"(?P<fence>`{3,}|~{3,})(?P<lang>[a-zA-Z0-9_+-]+)?\r?\n?(?P<code>[\s\S]*?)(?:(?P=fence)|\Z)",
+    )
+    text = code_block_pattern.sub(repl_code_block, text)
+
+    # 2. Extract inline code (`code`)
+    def repl_inline_code(m: re.Match) -> str:
+        code = m.group(1)
+        escaped = html.escape(code, quote=False)
+        key = f"\x00IC_{len(placeholders)}\x00"
+        placeholders[key] = f"<code>{escaped}</code>"
+        return key
+
+    inline_code_pattern = re.compile(r"`([^`\n]+)`")
+    text = inline_code_pattern.sub(repl_inline_code, text)
+
+    # 3. Escape HTML characters in remaining text
+    text = html.escape(text, quote=False)
+
+    # 4. Blockquotes: group consecutive lines starting with &gt; or >
+    lines = text.splitlines()
+    new_lines: list[str] = []
+    in_quote = False
+    quote_buf: list[str] = []
+
+    for line in lines:
+        m = re.match(r"^(?:&gt;|>)[ \t]?(.*)$", line)
+        if m:
+            in_quote = True
+            quote_buf.append(m.group(1))
+        else:
+            if in_quote:
+                new_lines.append(f"<blockquote>{chr(10).join(quote_buf)}</blockquote>")
+                quote_buf = []
+                in_quote = False
+            new_lines.append(line)
+    if in_quote:
+        new_lines.append(f"<blockquote>{chr(10).join(quote_buf)}</blockquote>")
+    text = "\n".join(new_lines)
+
+    # 5. Headers (# Header -> <b>Header</b>)
+    text = re.sub(r"^(?:#{1,6})[ \t]+(.+?)[ \t]*$", r"<b>\1</b>", text, flags=re.MULTILINE)
+
+    # 6. Links: [text](url) -> <a href="url">text</a>
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
+
+    # 7. Bold and Italic
+    # ***bold italic***
+    text = re.sub(r"\*\*\*(.+?)\*\*\*", r"<b><i>\1</i></b>", text)
+    text = re.sub(r"___(.+?)___", r"<b><i>\1</i></b>", text)
+    # **bold** or __bold__
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"__(.+?)__", r"<b>\1</b>", text)
+    # *italic* or _italic_
+    text = re.sub(r"\*([^*\n]+?)\*", r"<i>\1</i>", text)
+    text = re.sub(r"(?<!\w)_([^_\n]+?)_(?!\w)", r"<i>\1</i>", text)
+    # ~~strikethrough~~
+    text = re.sub(r"~~(.+?)~~", r"<s>\1</s>", text)
+
+    # 8. Lists / bullets
+    text = re.sub(r"^[ \t]*[-*+][ \t]+(.*)$", r"• \1", text, flags=re.MULTILINE)
+
+    # 9. Restore placeholders
+    for key, val in placeholders.items():
+        text = text.replace(key, val)
+
+    return text
+
+
+TAG_OR_ENTITY_RE = re.compile(r"(<!--.*?-->|<[^>]+>|&[a-zA-Z0-9#]+;|[^<&]+)", re.DOTALL)
+START_TAG_RE = re.compile(r"^<([a-zA-Z0-9_-]+)(?:\s+[^>]*)?>$")
+END_TAG_RE = re.compile(r"^</([a-zA-Z0-9_-]+)>$")
+
+
+def _chunk(text: str) -> list[str]:
+    """Split text into <=MAX_MSG chunks on paragraph boundaries.
+
+    Ensures no HTML tag or entity is sliced, and any tags open at chunk boundaries
+    are cleanly closed in the current chunk and reopened in the next chunk.
+    If text has no HTML tags, maintains exact paragraph/character splitting up to MAX_MSG.
+    """
+    if len(text) <= MAX_MSG:
+        return [text]
+
+    # Fast path for plain text without HTML tags or entities
+    if "<" not in text and "&" not in text:
+        chunks: list[str] = []
+        current = ""
+        for para in text.split("\n"):
+            while len(para) > MAX_MSG:
+                if current:
+                    chunks.append(current)
+                    current = ""
+                chunks.append(para[:MAX_MSG])
+                para = para[MAX_MSG:]
+            if len(current) + len(para) + 1 > MAX_MSG and current:
+                chunks.append(current)
+                current = para
+            else:
+                current = f"{current}\n{para}" if current else para
+        if current:
+            chunks.append(current)
+        return chunks
+
+    # HTML-aware chunking
+    tokens = TAG_OR_ENTITY_RE.findall(text)
+    chunks: list[str] = []
+    open_tags: list[tuple[str, str]] = []
+    current_tokens: list[str] = []
+    current_len = 0
+    safety_margin = 150
+    target_limit = MAX_MSG - safety_margin
+
+    def close_current_chunk() -> None:
+        nonlocal current_tokens, current_len
+        if not current_tokens:
+            return
+        closing = "".join(f"</{tag}>" for tag, _ in reversed(open_tags))
+        current_tokens.append(closing)
+        chunks.append("".join(current_tokens))
+        reopen = "".join(full_tag for _, full_tag in open_tags)
+        current_tokens = [reopen] if reopen else []
+        current_len = len(reopen)
+
+    for token in tokens:
+        m_start = START_TAG_RE.match(token)
+        m_end = END_TAG_RE.match(token)
+
+        if m_start:
+            tag_name = m_start.group(1).lower()
+            if not token.endswith("/>"):
+                open_tags.append((tag_name, token))
+            current_tokens.append(token)
+            current_len += len(token)
+        elif m_end:
+            tag_name = m_end.group(1).lower()
+            for i in range(len(open_tags) - 1, -1, -1):
+                if open_tags[i][0] == tag_name:
+                    open_tags.pop(i)
+                    break
+            current_tokens.append(token)
+            current_len += len(token)
+        else:
+            limit = target_limit if open_tags else MAX_MSG
+            if current_len + len(token) <= limit:
+                current_tokens.append(token)
+                current_len += len(token)
+            else:
+                if token.startswith("&") and token.endswith(";"):
+                    if current_tokens:
+                        close_current_chunk()
+                    current_tokens.append(token)
+                    current_len += len(token)
+                else:
+                    remaining = token
+                    while remaining:
+                        limit = target_limit if open_tags else MAX_MSG
+                        available = limit - current_len
+                        if available <= 0:
+                            close_current_chunk()
+                            limit = target_limit if open_tags else MAX_MSG
+                            available = limit - current_len
+
+                        if len(remaining) <= available:
+                            current_tokens.append(remaining)
+                            current_len += len(remaining)
+                            break
+
+                        slice_part = remaining[:available]
+                        split_idx = slice_part.rfind("\n\n")
+                        if split_idx != -1:
+                            split_idx += 2
+                        else:
+                            split_idx = slice_part.rfind("\n")
+                            if split_idx != -1:
+                                split_idx += 1
+                            else:
+                                split_idx = slice_part.rfind(" ")
+                                if split_idx != -1:
+                                    split_idx += 1
+                                else:
+                                    split_idx = available
+
+                        take = remaining[:split_idx]
+                        remaining = remaining[split_idx:]
+                        current_tokens.append(take)
+                        current_len += len(take)
+                        close_current_chunk()
+
+    if current_tokens and "".join(current_tokens).strip():
+        closing = "".join(f"</{tag}>" for tag, _ in reversed(open_tags))
+        current_tokens.append(closing)
+        chunks.append("".join(current_tokens))
+
+    return chunks
+
+
 class TelegramAPI:
     def __init__(self, token: str, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self._client = httpx.AsyncClient(
@@ -120,7 +345,20 @@ class TelegramAPI:
             # Only attach the keyboard to the final chunk.
             if reply_markup is not None and i == len(chunks) - 1:
                 payload["reply_markup"] = reply_markup
-            last = await self._call("sendMessage", **payload)
+            try:
+                last = await self._call("sendMessage", **payload)
+            except RuntimeError as exc:
+                if parse_mode and "can't parse entities" in str(exc).lower():
+                    log.warning(
+                        "HTML parse error in sendMessage, falling back to plain text: %s",
+                        exc,
+                    )
+                    plain_text = html.unescape(re.sub(r"<[^>]+>", "", chunk))
+                    payload["text"] = plain_text
+                    payload.pop("parse_mode", None)
+                    last = await self._call("sendMessage", **payload)
+                else:
+                    raise
         return last
 
     async def edit_message_text(
@@ -143,7 +381,18 @@ class TelegramAPI:
             await self._call("editMessageText", **payload)
         except RuntimeError as exc:
             # "message is not modified" is a no-op — ignore it.
-            if "not modified" not in str(exc):
+            if "not modified" in str(exc):
+                return
+            if parse_mode and "can't parse entities" in str(exc).lower():
+                log.warning(
+                    "HTML parse error in editMessageText, falling back to plain text: %s",
+                    exc,
+                )
+                plain_text = html.unescape(re.sub(r"<[^>]+>", "", text))
+                payload["text"] = plain_text
+                payload.pop("parse_mode", None)
+                await self._call("editMessageText", **payload)
+            else:
                 raise
 
     async def answer_callback_query(
@@ -174,37 +423,27 @@ class TelegramAPI:
             )
         data = resp.json()
         if not data.get("ok"):
-            raise RuntimeError(f"telegram sendPhoto failed: {data.get('description')}")
+            if parse_mode and "can't parse entities" in (data.get("description") or "").lower():
+                log.warning(
+                    "HTML parse error in sendPhoto, falling back to plain text: %s",
+                    data.get("description"),
+                )
+                plain_caption = html.unescape(re.sub(r"<[^>]+>", "", caption))
+                with open(path, "rb") as fh2:
+                    resp = await self._client.post(
+                        "/sendPhoto",
+                        data={
+                            "chat_id": str(chat_id),
+                            "caption": plain_caption,
+                        },
+                        files={"photo": (Path(path).name, fh2, "image/png")},
+                    )
+                data = resp.json()
+            if not data.get("ok"):
+                raise RuntimeError(f"telegram sendPhoto failed: {data.get('description')}")
 
     async def close(self) -> None:
         await self._client.aclose()
-
-
-def _chunk(text: str) -> list[str]:
-    """Split text into <=MAX_MSG chunks on paragraph boundaries.
-
-    A single paragraph longer than MAX_MSG is hard-split at the limit.
-    """
-    if len(text) <= MAX_MSG:
-        return [text]
-    chunks: list[str] = []
-    current = ""
-    for para in text.split("\n"):
-        # Hard-split an overlong paragraph.
-        while len(para) > MAX_MSG:
-            if current:
-                chunks.append(current)
-                current = ""
-            chunks.append(para[:MAX_MSG])
-            para = para[MAX_MSG:]
-        if len(current) + len(para) + 1 > MAX_MSG and current:
-            chunks.append(current)
-            current = para
-        else:
-            current = f"{current}\n{para}" if current else para
-    if current:
-        chunks.append(current)
-    return chunks
 
 
 # --------------------------------------------------------------------------- #
@@ -306,7 +545,7 @@ class BridgeBot:
         if chat_id is None or not text:
             return
         if not self.config.allowed(user_id):
-            await self.tg.send_message(chat_id, "This bot is private.")
+            log.warning("ignoring message from unlisted user_id=%s", user_id)
             return
 
         # Slash commands always win over pending state.
@@ -362,7 +601,7 @@ class BridgeBot:
         if cb_id is None or chat_id is None:
             return
         if not self.config.allowed(user_id):
-            await self.tg.answer_callback_query(cb_id, "This bot is private.")
+            log.warning("ignoring callback from unlisted user_id=%s", user_id)
             return
 
         # Acknowledge immediately to dismiss the spinner.
@@ -538,17 +777,52 @@ class BridgeBot:
         else:
             await self.tg.send_message(chat_id, text, reply_markup=_clear_confirm_keyboard())
 
-    # ------------------------------------------------------------- actions
+    async def _heartbeat(
+        self, chat_id: int, action: str, stop_event: asyncio.Event
+    ) -> None:
+        """Send chat action periodically every 4s until stop_event is set."""
+        while not stop_event.is_set():
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=4.0)
+            except asyncio.TimeoutError:
+                pass
+            if stop_event.is_set():
+                break
+            try:
+                await self.tg.send_chat_action(chat_id, action)
+            except Exception as exc:
+                log.debug("heartbeat %s failed: %s", action, exc)
 
     async def _run_ask(self, chat_id: int, prompt: str) -> None:
         await self.tg.send_chat_action(chat_id, "typing")
-        result = await self.gpt.ask(prompt)
+        stop_event = asyncio.Event()
+        hb_task = asyncio.create_task(self._heartbeat(chat_id, "typing", stop_event))
+        try:
+            result = await self.gpt.ask(prompt)
+        finally:
+            stop_event.set()
+            hb_task.cancel()
+            try:
+                await hb_task
+            except asyncio.CancelledError:
+                pass
         text = result.get("text") or "(empty answer)"
-        await self.tg.send_message(chat_id, esc(text), reply_markup=_ask_footer())
+        formatted = markdown_to_telegram_html(text)
+        await self.tg.send_message(chat_id, formatted, reply_markup=_ask_footer())
 
     async def _run_image(self, chat_id: int, prompt: str) -> None:
         await self.tg.send_chat_action(chat_id, "upload_photo")
-        result = await self.gpt.generate_image(prompt)
+        stop_event = asyncio.Event()
+        hb_task = asyncio.create_task(self._heartbeat(chat_id, "upload_photo", stop_event))
+        try:
+            result = await self.gpt.generate_image(prompt)
+        finally:
+            stop_event.set()
+            hb_task.cancel()
+            try:
+                await hb_task
+            except asyncio.CancelledError:
+                pass
         caption = esc(prompt[:1000])
         await self.tg.send_photo(chat_id, result["path"], caption=f"<i>{caption}</i>")
         await self.tg.send_message(chat_id, "Done.", reply_markup=_image_footer())

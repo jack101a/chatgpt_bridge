@@ -6,7 +6,7 @@ import asyncio
 
 from .browser import BrowserManager
 from .chat_pool import DEFAULT_MAX_CHATS, ChatPoolManager
-from .errors import AuthError, ShapeChangedError
+from .errors import AuthError, GenerationDeniedError, ShapeChangedError
 from .http_client import BackendClient
 from .retry import RetryConfig
 from .session import SessionManager
@@ -25,7 +25,7 @@ class ChatGPT:
         headless: bool = True,
         auto_relogin: bool = False,
         max_chats: int | None = None,
-        max_retries: int = 3,
+        max_retries: int = 10,
         use_http: bool = True,
     ) -> None:
         self.headless = headless
@@ -94,23 +94,56 @@ class ChatGPT:
         await self._track(result.get("conversation_id"))
         return result
 
-    async def generate_image(self, prompt: str, timeout_s: int = 180) -> dict:
+    async def generate_image(
+        self,
+        prompt: str,
+        timeout_s: int = 180,
+        max_retries: int | None = None,
+        conversation_id: str | None = None,
+        retry: RetryConfig | None = None,
+        tweaked_prompt: str | None = None,
+    ) -> dict:
         """Generate an image via the UI, continuing the current conversation."""
         await self._ensure_started()
-        cid = self._current_conversation_id
-        result = await self.ui.generate_image(
-            prompt,
-            timeout_s=timeout_s,
-            retry=RetryConfig(max_tries=self.max_retries),
-            conversation_id=cid,
-        )
-        self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
-        await self._track(result.get("conversation_id"))
-        return result
+        cid = conversation_id or self._current_conversation_id
+        if retry is None:
+            retries = max_retries if max_retries is not None else self.max_retries
+            retry = RetryConfig(max_tries=retries)
+        kwargs: dict = {}
+        if tweaked_prompt is not None:
+            kwargs["tweaked_prompt"] = tweaked_prompt
+        try:
+            result = await self.ui.generate_image(
+                prompt,
+                timeout_s=timeout_s,
+                retry=retry,
+                conversation_id=cid,
+                **kwargs,
+            )
+            self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
+            await self._track(result.get("conversation_id"))
+            return result
+        except GenerationDeniedError as exc:
+            if exc.conversation_id:
+                self._current_conversation_id = exc.conversation_id
+                await self._track(exc.conversation_id)
+            raise
 
     def new_chat(self) -> None:
         """Reset the current conversation so the next prompt starts fresh."""
         self._current_conversation_id = None
+        self.ui._active_cid = None
+
+    async def delete_conversation(self, conversation_id: str) -> bool:
+        """Delete a conversation by ID from ChatGPT history."""
+        await self._ensure_started()
+        res = await self.ui.delete_conversation(conversation_id)
+        if conversation_id == self._current_conversation_id:
+            self._current_conversation_id = None
+        return res
+
+    def delete_conversation_sync(self, conversation_id: str) -> bool:
+        return self._get_loop().run_until_complete(self.delete_conversation(conversation_id))
 
     async def _track(self, conversation_id: str | None) -> None:
         """Record a bridge-created conversation and prune the oldest past the limit."""
@@ -119,12 +152,26 @@ class ChatGPT:
         self.pool.record(conversation_id)
         await self.pool.prune()
 
+    async def aclose(self) -> None:
+        """Asynchronously stop UI page and browser."""
+        if self._started:
+            await self.ui.close_page()
+            await self.browser.stop()
+            self._started = False
+
     def close(self) -> None:
         """Synchronously stop the browser."""
         if self._started:
-            loop = self._get_loop()
-            loop.run_until_complete(self.browser.stop())
-            self._started = False
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+
+            if running_loop and running_loop.is_running():
+                running_loop.create_task(self.aclose())
+            else:
+                loop = self._get_loop()
+                loop.run_until_complete(self.aclose())
 
     # Sync sugar — all reuse one event loop (Playwright objects are loop-bound).
     def ask_sync(self, prompt: str, model: str | None = None, conversation_id: str | None = None) -> dict:
@@ -132,7 +179,18 @@ class ChatGPT:
             self.ask(prompt, model=model, conversation_id=conversation_id)
         )
 
-    def generate_image_sync(self, prompt: str, timeout_s: int = 180) -> dict:
+    def generate_image_sync(
+        self,
+        prompt: str,
+        timeout_s: int = 180,
+        max_retries: int | None = None,
+        conversation_id: str | None = None,
+    ) -> dict:
         return self._get_loop().run_until_complete(
-            self.generate_image(prompt, timeout_s=timeout_s)
+            self.generate_image(
+                prompt,
+                timeout_s=timeout_s,
+                max_retries=max_retries,
+                conversation_id=conversation_id,
+            )
         )

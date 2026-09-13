@@ -32,11 +32,46 @@ class BrowserManager:
         if self._context is not None:
             return
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        for lock in PROFILE_DIR.glob("Singleton*"):
+            try:
+                lock.unlink()
+            except Exception:
+                pass
+        # Clear crash session files so Chromium opens cleanly without restore bubbles
+        sessions_dir = PROFILE_DIR / "Default" / "Sessions"
+        if sessions_dir.exists():
+            for f in sessions_dir.glob("*"):
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+
+        pref_file = PROFILE_DIR / "Default" / "Preferences"
+        if pref_file.exists():
+            try:
+                import json
+                pref_data = json.loads(pref_file.read_text(encoding="utf-8"))
+                if "profile" in pref_data:
+                    pref_data["profile"]["exit_type"] = "Normal"
+                    pref_data["profile"]["exited_cleanly"] = True
+                pref_file.write_text(json.dumps(pref_data), encoding="utf-8")
+            except Exception:
+                pass
+
         self._playwright = await async_playwright().start()
         self._context = await self._playwright.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR),
             headless=self.headless,
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--window-size=1920,1080",
+                "--start-maximized",
+                "--disable-session-crashed-bubble",
+                "--hide-crash-restore-bubble",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
+            no_viewport=True,
         )
 
     async def context(self):

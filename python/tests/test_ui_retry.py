@@ -237,6 +237,7 @@ def test_generate_image_deterministic_raises_immediately():
     with pytest.raises(GenerationDeniedError) as ei:
         asyncio.run(d.generate_image("x", timeout_s=5, retry=RetryConfig(max_tries=3)))
     assert ei.value.kind == "deterministic"
+    assert ei.value.conversation_id == "conv-1"
 
 
 def test_generate_image_denial_then_success():
@@ -282,3 +283,63 @@ def test_generate_image_exhausted_raises():
     with pytest.raises(GenerationDeniedError) as ei:
         asyncio.run(d.generate_image("x", timeout_s=5, retry=RetryConfig(max_tries=2)))
     assert ei.value.kind == "denial"
+    assert ei.value.conversation_id == "conv-1"
+
+
+def test_generate_image_rate_limit_halts_immediately():
+    d = _driver([_FakePage({"text": "image generation is temporarily rate-limited"})])
+    with pytest.raises(GenerationDeniedError) as ei:
+        asyncio.run(d.generate_image("x", timeout_s=5, retry=RetryConfig(max_tries=5)))
+    assert ei.value.kind == "rate_limit"
+    assert ei.value.conversation_id == "conv-1"
+
+
+def test_generate_image_tweaks_prompt_on_retry_6():
+    edited_prompts = []
+
+    class _MockPage(_FakePage):
+        def __init__(self):
+            super().__init__({"text": "content policy violation"})
+
+    d = UIDriver.__new__(UIDriver)
+    d.browser = None
+    d.session = None
+
+    async def fake_page(cid=None):
+        return _MockPage()
+
+    async def fake_submit(page, prompt):
+        return None
+
+    async def fake_edit(page, new_prompt=None):
+        edited_prompts.append(new_prompt)
+        return True
+
+    async def fake_outcome(page, timeout_s, auto_retry=False):
+        return {"kind": "denial", "text": "content policy violation"}
+
+    async def fake_cid(p):
+        return "conv-1"
+
+    d._page = fake_page
+    d._submit_prompt = fake_submit
+    d._edit_message_retry = fake_edit
+    d._wait_for_outcome = fake_outcome
+    d._current_conversation_id = fake_cid
+
+    # Config with 6 tries and 0s delay for instant test
+    cfg = RetryConfig(max_tries=6, intervals=(0, 0, 0, 0, 0, 0))
+    with pytest.raises(GenerationDeniedError):
+        asyncio.run(
+            d.generate_image(
+                "base prompt",
+                timeout_s=1,
+                retry=cfg,
+                tweaked_prompt="tweaked prompt",
+            )
+        )
+
+    # Retries 1 to 5 should pass new_prompt=None (keep base prompt)
+    assert edited_prompts[:5] == [None, None, None, None, None]
+    # Retry 6 should pass new_prompt="tweaked prompt"
+    assert edited_prompts[5] == "tweaked prompt"

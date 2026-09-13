@@ -25,6 +25,9 @@ class DaemonUnreachableError(RuntimeError):
 class GenerationDeniedError(RuntimeError):
     """Image generation was denied or retries were exhausted."""
 
-    def __init__(self, message: str, kind: str = "unknown") -> None:
+    def __init__(
+        self, message: str, kind: str = "unknown", conversation_id: str | None = None
+    ) -> None:
         super().__init__(message)
         self.kind = kind
+        self.conversation_id = conversation_id

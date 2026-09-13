@@ -38,3 +38,4 @@ full_test_results.json
 *.swp
 .idea/
 .vscode/
+graphify-out/

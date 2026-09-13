@@ -9,7 +9,15 @@ import asyncio
 
 import pytest
 
-from chatgpt_bridge.bot import BotConfig, BridgeBot, MAX_MSG, MENU_TEXT, _chunk
+from chatgpt_bridge.bot import (
+    BotConfig,
+    BridgeBot,
+    MAX_MSG,
+    MENU_TEXT,
+    TelegramAPI,
+    _chunk,
+    markdown_to_telegram_html,
+)
 from chatgpt_bridge.errors import AuthError, BridgeTimeoutError, GenerationDeniedError
 
 
@@ -156,10 +164,10 @@ def test_config_empty_whitelist_denies_all():
 
 # ---- access control ----
 
-def test_unlisted_user_gets_private_reply():
+def test_unlisted_user_silently_ignored():
     tg, bot = _bot()
     _await(bot.handle_update(_update("hello", user_id=999)))
-    assert tg.sent == [("msg", 99, "This bot is private.", None)]
+    assert tg.sent == []
 
 
 def test_non_message_update_ignored():
@@ -413,3 +421,250 @@ def test_status_shows_no_current_chat():
     _await(bot.handle_update(_update("/status")))
     msg = _msgs(tg)[0][2]
     assert "none (fresh chat)" in msg
+
+
+# ---- markdown to html conversion & safety ----
+
+def test_markdown_to_telegram_html_code_blocks():
+    md = "```python\ndef foo():\n    return 42\n```\n```\nraw text\n```"
+    html_out = markdown_to_telegram_html(md)
+    assert '<pre><code class="language-python">def foo():\n    return 42</code></pre>' in html_out
+    assert '<pre><code>raw text</code></pre>' in html_out
+
+
+def test_markdown_to_telegram_html_formatting():
+    md = (
+        "# Heading 1\n"
+        "This is **bold**, *italic*, ~~strikethrough~~, and `inline code`.\n"
+        "> Quote line 1\n"
+        "> Quote line 2\n"
+        "- Item 1\n"
+        "* Item 2\n"
+        "[Link text](https://example.com)"
+    )
+    out = markdown_to_telegram_html(md)
+    assert "<b>Heading 1</b>" in out
+    assert "<b>bold</b>" in out
+    assert "<i>italic</i>" in out
+    assert "<s>strikethrough</s>" in out
+    assert "<code>inline code</code>" in out
+    assert "<blockquote>Quote line 1\nQuote line 2</blockquote>" in out
+    assert "• Item 1" in out
+    assert "• Item 2" in out
+    assert '<a href="https://example.com">Link text</a>' in out
+
+
+def test_markdown_to_telegram_html_entities():
+    md = "if x < 10 and y > 20: foo & bar"
+    out = markdown_to_telegram_html(md)
+    assert "x &lt; 10 and y &gt; 20: foo &amp; bar" in out
+
+
+def test_ask_formats_markdown_to_html():
+    gpt = _FakeGPT(ask_result={"text": "**Bold reply** and `code`", "conversation_id": "c1"})
+    tg, bot = _bot(gpt=gpt)
+    _await(bot.handle_update(_update("hello")))
+    msgs = _msgs(tg)
+    assert any("<b>Bold reply</b> and <code>code</code>" in m[2] for m in msgs)
+
+
+def test_chunk_preserves_html_tags_across_boundaries():
+    code_lines = "line = 1\n" * 500
+    html_text = f'<pre><code class="language-python">{code_lines}</code></pre>'
+    chunks = _chunk(html_text)
+    assert len(chunks) >= 2
+    for ch in chunks:
+        assert len(ch) <= MAX_MSG
+        assert ch.count("<pre>") == ch.count("</pre>")
+        assert ch.count("<code") == ch.count("</code>")
+
+
+def test_heartbeat_action_runs_during_ask():
+    tg, bot = _bot()
+    _await(bot.handle_update(_update("test heartbeat")))
+    actions = [a for a in tg.sent if a[0] == "action"]
+    assert len(actions) >= 1
+    assert actions[0][2] == "typing"
+
+
+def test_heartbeat_periodic_loop():
+    tg = _FakeTG()
+    bot = BridgeBot(tg, _cfg(), _FakeGPT())
+    stop_event = asyncio.Event()
+
+    async def run_test():
+        # Replace asyncio.wait_for with a fast timeout to test the periodic send loop
+        orig_wait_for = asyncio.wait_for
+
+        async def fast_wait_for(fut, timeout):
+            return await orig_wait_for(fut, timeout=0.01)
+
+        import chatgpt_bridge.bot as bmod
+        old_wf = bmod.asyncio.wait_for
+        bmod.asyncio.wait_for = fast_wait_for
+        try:
+            task = asyncio.create_task(bot._heartbeat(99, "typing", stop_event))
+            await asyncio.sleep(0.03)
+            stop_event.set()
+            await task
+        finally:
+            bmod.asyncio.wait_for = old_wf
+
+    asyncio.run(run_test())
+    actions = [a for a in tg.sent if a[0] == "action"]
+    assert len(actions) >= 1
+    assert actions[0][2] == "typing"
+
+
+def test_telegram_api_fallback_on_parse_error():
+    import json
+    import httpx
+
+    calls = []
+
+    def handler(request: httpx.Request):
+        body = json.loads(request.content.decode("utf-8"))
+        calls.append(body)
+        if body.get("parse_mode") == "HTML":
+            return httpx.Response(
+                200,
+                json={"ok": False, "description": "Bad Request: can't parse entities"},
+            )
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 1, "text": body["text"]}},
+        )
+
+    transport = httpx.MockTransport(handler)
+    api = TelegramAPI("token", transport=transport)
+    res = asyncio.run(api.send_message(123, "<b>unclosed tag"))
+    assert res["message_id"] == 1
+    assert len(calls) == 2
+    assert calls[0]["parse_mode"] == "HTML"
+    assert "parse_mode" not in calls[1]
+    assert calls[1]["text"] == "unclosed tag"
+
+
+def test_telegram_api_edit_fallback_on_parse_error():
+    import json
+    import httpx
+
+    calls = []
+
+    def handler(request: httpx.Request):
+        body = json.loads(request.content.decode("utf-8"))
+        calls.append(body)
+        if body.get("parse_mode") == "HTML":
+            return httpx.Response(
+                200,
+                json={"ok": False, "description": "Bad Request: can't parse entities"},
+            )
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+
+    transport = httpx.MockTransport(handler)
+    api = TelegramAPI("token", transport=transport)
+    asyncio.run(api.edit_message_text(123, 1, "<b>bad tag"))
+    assert len(calls) == 2
+    assert calls[0]["parse_mode"] == "HTML"
+    assert "parse_mode" not in calls[1]
+
+
+def test_telegram_api_send_photo_multipart(tmp_path):
+    import httpx
+
+    img_file = tmp_path / "test.png"
+    img_file.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + b"fake_png_bytes")
+
+    received = {}
+
+    def handler(request: httpx.Request):
+        received["url"] = str(request.url)
+        received["content_type"] = request.headers.get("content-type", "")
+        body = request.content
+        received["body_bytes"] = body
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "result": {"message_id": 99, "photo": [{"file_id": "photo_123"}]},
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    api = TelegramAPI("token123", transport=transport)
+    asyncio.run(
+        api.send_photo(777, img_file, caption="<i>A sunset</i>", parse_mode="HTML")
+    )
+
+    assert "/sendPhoto" in received["url"]
+    assert "multipart/form-data" in received["content_type"]
+    assert b"test.png" in received["body_bytes"]
+    assert b"777" in received["body_bytes"]
+    assert b"<i>A sunset</i>" in received["body_bytes"]
+    assert b"fake_png_bytes" in received["body_bytes"]
+
+
+def test_telegram_api_send_photo_fallback_on_parse_error(tmp_path):
+    import httpx
+
+    img_file = tmp_path / "test2.png"
+    img_file.write_bytes(b"\x89PNG\r\n\x1a\nfake_bytes")
+
+    calls = []
+
+    def handler(request: httpx.Request):
+        calls.append(request.content)
+        if len(calls) == 1:
+            # First attempt with parse_mode fails with entity error
+            return httpx.Response(
+                200,
+                json={
+                    "ok": False,
+                    "description": "Bad Request: can't parse entities in photo caption",
+                },
+            )
+        # Second attempt succeeds
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 100}},
+        )
+
+    transport = httpx.MockTransport(handler)
+    api = TelegramAPI("token123", transport=transport)
+    asyncio.run(
+        api.send_photo(777, img_file, caption="<b>unclosed tag", parse_mode="HTML")
+    )
+
+    assert len(calls) == 2
+    # Second attempt had parse_mode stripped and tags removed
+    assert b"unclosed tag" in calls[1]
+    assert b"parse_mode" not in calls[1]
+
+
+def test_bot_image_command_full_flow(tmp_path):
+    img_file = tmp_path / "bot_image.png"
+    img_file.write_bytes(b"\x89PNG\r\n\x1a\nfake_image_data")
+
+    class _ImageGPT(_FakeGPT):
+        async def generate_image(self, prompt):
+            return {"path": str(img_file), "prompt": prompt, "conversation_id": "c-img"}
+
+    tg, bot = _bot(gpt=_ImageGPT())
+    _await(bot.handle_update(_update("/image a glowing forest")))
+
+    # 1. Action sent
+    actions = [a for a in tg.sent if a[0] == "action"]
+    assert len(actions) >= 1
+    assert actions[0][2] == "upload_photo"
+
+    # 2. Photo sent
+    photos = [p for p in tg.sent if p[0] == "photo"]
+    assert len(photos) == 1
+    _, chat_id, path, caption = photos[0]
+    assert chat_id == 99
+    assert path == str(img_file)
+    assert caption == "<i>a glowing forest</i>"
+
+    # 3. Follow-up "Done." with footer keyboard sent
+    msgs = [m for m in tg.sent if m[0] == "msg"]
+    assert any(m[2] == "Done." and "menu:image" in str(m[3]) for m in msgs)
