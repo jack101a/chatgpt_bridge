@@ -668,3 +668,133 @@ def test_bot_image_command_full_flow(tmp_path):
     # 3. Follow-up "Done." with footer keyboard sent
     msgs = [m for m in tg.sent if m[0] == "msg"]
     assert any(m[2] == "Done." and "menu:image" in str(m[3]) for m in msgs)
+
+
+# ---- new ux: image intent, image mode, and retries ----
+
+def test_is_image_intent_detection():
+    from chatgpt_bridge.bot import is_image_intent
+
+    # Intent prompts
+    assert is_image_intent("draw a cute kitten")
+    assert is_image_intent("generate an image of a mountain lake")
+    assert is_image_intent("a realistic photo of an old bookstore")
+    assert is_image_intent("Close-up portrait of the same woman, but in 3/4 angle")
+    assert is_image_intent("Medium wide shot of her standing in a doorway")
+    assert is_image_intent("Low-angle shot looking upward towards the ceiling")
+
+    # Regular chat prompts
+    assert not is_image_intent("Hello, how are you today?")
+    assert not is_image_intent("Explain quantum entanglement in simple terms")
+    assert not is_image_intent("Write a python script to parse json")
+    assert not is_image_intent("draw conclusions from this research paper")
+
+
+def test_plain_text_with_image_intent_routes_to_image():
+    tg, bot = _bot()
+    # Plain text without /image, but with clear image intent
+    _await(bot.handle_update(_update("draw a cyberpunk sunset")))
+    photos = [p for p in tg.sent if p[0] == "photo"]
+    assert len(photos) == 1
+    assert photos[0][3] == "<i>draw a cyberpunk sunset</i>"
+
+
+def test_mode_command_and_toggling():
+    tg, bot = _bot()
+    # Toggle to image
+    _await(bot.handle_update(_update("/mode image")))
+    assert bot._user_modes.get(ALLOWED) == "image"
+    msg = _msgs(tg)[-1][2]
+    assert "Image Mode enabled" in msg
+
+    # Plain text without any image keywords is routed to image generation when in Image Mode!
+    _await(bot.handle_update(_update("a blue square")))
+    photos = [p for p in tg.sent if p[0] == "photo"]
+    assert len(photos) == 1
+    assert photos[0][3] == "<i>a blue square</i>"
+
+    # Switch back to chat mode
+    _await(bot.handle_update(_update("/mode chat")))
+    assert bot._user_modes.get(ALLOWED) == "chat"
+    msg = _msgs(tg)[-1][2]
+    assert "Chat Mode enabled" in msg
+
+
+def test_mode_callbacks():
+    tg, bot = _bot()
+    _await(bot.handle_update(_callback("mode:image")))
+    assert bot._user_modes.get(ALLOWED) == "image"
+
+    _await(bot.handle_update(_callback("mode:chat")))
+    assert bot._user_modes.get(ALLOWED) == "chat"
+
+
+def test_retry_command_and_callback():
+    class _TrackedGPT(_FakeGPT):
+        def __init__(self):
+            super().__init__()
+            self.generated: list[str] = []
+
+        async def generate_image(self, prompt, **kwargs):
+            self.generated.append(prompt)
+            return {"path": "/tmp/x.png", "prompt": prompt, "conversation_id": "c"}
+
+    gpt = _TrackedGPT()
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. Initial image
+    _await(bot.handle_update(_update("/image red rose")))
+    assert gpt.generated == ["red rose"]
+
+    # 2. Callback retry:image
+    _await(bot.handle_update(_callback("retry:image")))
+    assert gpt.generated == ["red rose", "red rose"]
+
+    # 3. Slash command /retry
+    _await(bot.handle_update(_update("/retry")))
+    assert gpt.generated == ["red rose", "red rose", "red rose"]
+
+
+def test_ask_to_image_callback():
+    class _TrackedGPT(_FakeGPT):
+        def __init__(self):
+            super().__init__()
+            self.generated: list[str] = []
+
+        async def generate_image(self, prompt, **kwargs):
+            self.generated.append(prompt)
+            return {"path": "/tmp/x.png", "prompt": prompt, "conversation_id": "c"}
+
+    gpt = _TrackedGPT()
+    tg, bot = _bot(gpt=gpt)
+
+    # User asks a normal question in chat
+    _await(bot.handle_update(_update("describe a fantasy castle in clouds")))
+    assert gpt.asks == ["describe a fantasy castle in clouds"]
+
+    # User taps "Generate as Image"
+    _await(bot.handle_update(_callback("ask:to_image")))
+    assert gpt.generated == ["describe a fantasy castle in clouds"]
+
+
+def test_retry_softened_callback():
+    class _TrackedGPT(_FakeGPT):
+        def __init__(self):
+            super().__init__()
+            self.tweaked: list[str | None] = []
+
+        async def generate_image(self, prompt, tweaked_prompt=None, **kwargs):
+            self.tweaked.append(tweaked_prompt)
+            return {"path": "/tmp/x.png", "prompt": prompt, "conversation_id": "c"}
+
+    gpt = _TrackedGPT()
+    tg, bot = _bot(gpt=gpt)
+
+    # Initial image
+    _await(bot.handle_update(_update("/image a warrior with sword in battle")))
+    assert gpt.tweaked == [None]
+
+    # Retry with auto-tweak softening
+    _await(bot.handle_update(_callback("retry:softened")))
+    assert len(gpt.tweaked) == 2
+    assert gpt.tweaked[1] is not None

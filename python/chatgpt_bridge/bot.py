@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import os
 import re
@@ -33,6 +34,7 @@ import httpx
 
 from .core import ChatGPT
 from .errors import AuthError, BridgeTimeoutError, GenerationDeniedError
+from .retry import auto_tweak_prompt
 
 API = "https://api.telegram.org"
 
@@ -428,38 +430,45 @@ class TelegramAPI:
         await self._call("sendChatAction", chat_id=chat_id, action=action)
 
     async def send_photo(
-        self, chat_id: int, path: str | Path, caption: str = "", parse_mode: str = "HTML"
+        self,
+        chat_id: int,
+        path: str | Path,
+        caption: str = "",
+        parse_mode: str = "HTML",
+        reply_markup: dict | None = None,
     ) -> None:
+        data: dict = {
+            "chat_id": str(chat_id),
+            "caption": caption,
+            "parse_mode": parse_mode,
+        }
+        if reply_markup is not None:
+            data["reply_markup"] = json.dumps(reply_markup)
         with open(path, "rb") as fh:
             resp = await self._client.post(
                 "/sendPhoto",
-                data={
-                    "chat_id": str(chat_id),
-                    "caption": caption,
-                    "parse_mode": parse_mode,
-                },
+                data=data,
                 files={"photo": (Path(path).name, fh, "image/png")},
             )
-        data = resp.json()
-        if not data.get("ok"):
-            if parse_mode and "can't parse entities" in (data.get("description") or "").lower():
+        data_resp = resp.json()
+        if not data_resp.get("ok"):
+            if parse_mode and "can't parse entities" in (data_resp.get("description") or "").lower():
                 log.warning(
                     "HTML parse error in sendPhoto, falling back to plain text: %s",
-                    data.get("description"),
+                    data_resp.get("description"),
                 )
                 plain_caption = html.unescape(re.sub(r"<[^>]+>", "", caption))
+                data["caption"] = plain_caption
+                data.pop("parse_mode", None)
                 with open(path, "rb") as fh2:
                     resp = await self._client.post(
                         "/sendPhoto",
-                        data={
-                            "chat_id": str(chat_id),
-                            "caption": plain_caption,
-                        },
+                        data=data,
                         files={"photo": (Path(path).name, fh2, "image/png")},
                     )
-                data = resp.json()
-            if not data.get("ok"):
-                raise RuntimeError(f"telegram sendPhoto failed: {data.get('description')}")
+                data_resp = resp.json()
+            if not data_resp.get("ok"):
+                raise RuntimeError(f"telegram sendPhoto failed: {data_resp.get('description')}")
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -473,12 +482,18 @@ def _btn(label: str, data: str) -> dict:
     return {"text": label, "callback_data": data}
 
 
-def _menu_keyboard() -> dict:
+def _menu_keyboard(mode: str = "chat") -> dict:
+    mode_btn = (
+        _btn("🎨 Switch to Image Mode", "mode:image")
+        if mode == "chat"
+        else _btn("💬 Switch to Chat Mode", "mode:chat")
+    )
     return {
         "inline_keyboard": [
+            [mode_btn, _btn("🆕 New chat", "menu:new")],
             [_btn("❓ Ask", "menu:ask"), _btn("🎨 Image", "menu:image")],
             [_btn("📊 Status", "menu:status"), _btn("💬 Chats", "menu:chats")],
-            [_btn("🆕 New chat", "menu:new"), _btn("🗑 Clear all chats", "menu:clear")],
+            [_btn("🗑 Clear all chats", "menu:clear")],
         ]
     }
 
@@ -490,7 +505,8 @@ def _home_keyboard() -> dict:
 def _ask_footer() -> dict:
     return {
         "inline_keyboard": [
-            [_btn("🔁 Ask again", "menu:ask"), _btn("🏠 Menu", "menu:home")]
+            [_btn("🎨 Generate as Image", "ask:to_image"), _btn("🔁 Ask again", "menu:ask")],
+            [_btn("🆕 New chat", "menu:new"), _btn("🏠 Menu", "menu:home")],
         ]
     }
 
@@ -498,7 +514,8 @@ def _ask_footer() -> dict:
 def _image_footer() -> dict:
     return {
         "inline_keyboard": [
-            [_btn("🎨 Another image", "menu:image"), _btn("🏠 Menu", "menu:home")]
+            [_btn("🔄 Retry (10x)", "retry:image"), _btn("🎨 Another image", "menu:image")],
+            [_btn("🆕 New chat", "menu:new"), _btn("🏠 Menu", "menu:home")],
         ]
     }
 
@@ -516,6 +533,32 @@ def _clear_confirm_keyboard() -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Image intent detection
+# --------------------------------------------------------------------------- #
+
+_IMAGE_INTENT_PATTERNS = [
+    r"^(?:can\s+you\s+)?(?:please\s+)?(?:draw|paint|sketch|render|generate|create|make)\s+(?:me\s+)?(?:an?\s+)?(?:image|photo|picture|portrait|painting|illustration|art|drawing|sketch|render)\s+of\b",
+    r"^(?:can\s+you\s+)?(?:please\s+)?(?:draw|paint|sketch|render)\s+(?:a|an|the|me\s+a)\s+(?!conclusion\b)[a-zA-Z0-9_\s-]+\b",
+    r"^(?:generate|create|make)\s+(?:an?\s+)?(?:image|photo|picture|portrait|illustration|drawing|render)\b",
+    r"^(?:an?\s+)?(?:realistic|candid|cinematic|detailed|vintage|modern|macro|studio|aerial|color|colour|b&w|analog|digital)?\s*(?:photo|picture|image|portrait|illustration|drawing|painting|render)\s+of\b",
+    r"^(?:(?:close[\s-]*up|macro|medium|wide|low[\s-]*angle|high[\s-]*angle|aerial|cinematic|full[\s-]*body)\s*)+(?:shot|view|angle|perspective|portrait|of)?\b",
+    r"\b(?:same\s+(?:woman|girl|man|person|character|scene|subject)|from\s+another\s+angle|in\s+a\s+3/4\s+side\s+profile|from\s+behind|photorealistic|hyperrealistic|cinematic\s+lighting|8k\s+resolution)\b",
+    r"\b(?:realistic\s+photo|candid\s+photo|dslr\s+shot|film\s+grain)\b",
+]
+_COMPILED_IMAGE_INTENT = [re.compile(p, re.IGNORECASE) for p in _IMAGE_INTENT_PATTERNS]
+
+
+def is_image_intent(text: str) -> bool:
+    """Detect whether user text is intended as an image generation prompt."""
+    t = text.strip()
+    if not t:
+        return False
+    if "with your words" in t.lower() or "with words" in t.lower():
+        return False
+    return any(p.search(t) for p in _COMPILED_IMAGE_INTENT)
+
+
+# --------------------------------------------------------------------------- #
 # Handlers
 # --------------------------------------------------------------------------- #
 
@@ -525,9 +568,11 @@ MENU_TEXT = (
 )
 
 COMMANDS = [
-    {"command": "ask", "description": "Ask ChatGPT a question"},
-    {"command": "image", "description": "Generate an image"},
+    {"command": "mode", "description": "Toggle Chat / Image mode"},
+    {"command": "retry", "description": "Retry last image (10x denial retry)"},
     {"command": "new", "description": "Start a fresh chat"},
+    {"command": "image", "description": "Generate an image"},
+    {"command": "ask", "description": "Ask ChatGPT a question"},
     {"command": "status", "description": "Show session and bridge health"},
     {"command": "chats", "description": "List tracked conversations"},
     {"command": "clear", "description": "Delete all tracked conversations"},
@@ -547,6 +592,11 @@ class BridgeBot:
         self._lock = asyncio.Lock()
         # pending action per user: {user_id: ("ask"|"image", timestamp)}
         self._pending: dict[int, tuple[str, float]] = {}
+        # active mode per user: {user_id: "chat"|"image"}
+        self._user_modes: dict[int, str] = {}
+        # last prompts for easy 1-click retry:
+        self._last_prompt: dict[int, str] = {}
+        self._last_image_prompt: dict[int, str] = {}
 
     # ------------------------------------------------------------- dispatch
 
@@ -576,8 +626,16 @@ class BridgeBot:
         pending = self._take_pending(user_id)
         if pending == "image":
             await self._locked(chat_id, self._run_image(chat_id, text))
+            return
+        elif pending == "ask":
+            await self._locked(chat_id, self._run_ask(chat_id, text))
+            return
+
+        # Auto-detect mode and image intent
+        user_mode = self._user_modes.get(user_id, "chat") if user_id else "chat"
+        if user_mode == "image" or is_image_intent(text):
+            await self._locked(chat_id, self._run_image(chat_id, text))
         else:
-            # Default: plain text is an Ask prompt.
             await self._locked(chat_id, self._run_ask(chat_id, text))
 
     async def _dispatch_command(self, chat_id: int, user_id: int | None, text: str) -> None:
@@ -594,6 +652,10 @@ class BridgeBot:
                 await self._locked(chat_id, self._run_ask(chat_id, prompt))
             else:
                 await self._prime(chat_id, user_id, "ask")
+        elif cmd == "/mode":
+            await self._locked(chat_id, self._cmd_mode(chat_id, user_id, text))
+        elif cmd == "/retry":
+            await self._locked(chat_id, self._cmd_retry(chat_id, user_id))
         elif cmd == "/status":
             await self._locked(chat_id, self._show_status(chat_id))
         elif cmd == "/chats":
@@ -605,10 +667,13 @@ class BridgeBot:
         elif cmd == "/new":
             await self._locked(chat_id, self._cmd_new(chat_id))
         elif cmd in ("/start", "/menu", "/help"):
-            await self._show_menu(chat_id)
+            await self._show_menu(chat_id, user_id=user_id)
         else:
-            # Unknown command → treat as ask prompt.
-            await self._locked(chat_id, self._run_ask(chat_id, text))
+            # Unknown command → check image intent or ask prompt.
+            if is_image_intent(text):
+                await self._locked(chat_id, self._run_image(chat_id, text))
+            else:
+                await self._locked(chat_id, self._run_ask(chat_id, text))
 
     async def _handle_callback(self, cb: dict) -> None:
         cb_id = cb.get("id")
@@ -627,7 +692,44 @@ class BridgeBot:
         await self.tg.answer_callback_query(cb_id)
 
         if data == "menu:home":
-            await self._show_menu(chat_id, edit=message.get("message_id"))
+            await self._show_menu(chat_id, user_id=user_id, edit=message.get("message_id"))
+        elif data == "mode:image":
+            if user_id:
+                self._user_modes[user_id] = "image"
+            await self.tg.answer_callback_query(cb_id, "Switched to Image Mode")
+            await self._show_menu(chat_id, user_id=user_id, edit=message.get("message_id"))
+        elif data == "mode:chat":
+            if user_id:
+                self._user_modes[user_id] = "chat"
+            await self.tg.answer_callback_query(cb_id, "Switched to Chat Mode")
+            await self._show_menu(chat_id, user_id=user_id, edit=message.get("message_id"))
+        elif data == "retry:image":
+            prompt = self._last_image_prompt.get(chat_id) or self._last_prompt.get(chat_id)
+            if prompt:
+                await self._locked(chat_id, self._run_image(chat_id, prompt))
+            else:
+                await self.tg.send_message(
+                    chat_id, "No recent prompt found to retry.", reply_markup=_home_keyboard()
+                )
+        elif data == "retry:softened":
+            prompt = self._last_image_prompt.get(chat_id) or self._last_prompt.get(chat_id)
+            if prompt:
+                tweaked = auto_tweak_prompt(prompt, level=1)
+                await self._locked(
+                    chat_id, self._run_image(chat_id, prompt, tweaked_prompt=tweaked)
+                )
+            else:
+                await self.tg.send_message(
+                    chat_id, "No recent prompt found to retry.", reply_markup=_home_keyboard()
+                )
+        elif data == "ask:to_image":
+            prompt = self._last_prompt.get(chat_id)
+            if prompt:
+                await self._locked(chat_id, self._run_image(chat_id, prompt))
+            else:
+                await self.tg.send_message(
+                    chat_id, "No recent prompt found.", reply_markup=_home_keyboard()
+                )
         elif data == "menu:ask":
             await self._prime(chat_id, user_id, "ask", edit=message.get("message_id"))
         elif data == "menu:image":
@@ -645,7 +747,7 @@ class BridgeBot:
         elif data == "cb:cancel":
             self._clear_pending(user_id)
             await self.tg.answer_callback_query(cb_id, "Cancelled")
-            await self._show_menu(chat_id, edit=message.get("message_id"))
+            await self._show_menu(chat_id, user_id=user_id, edit=message.get("message_id"))
         else:
             # Unknown callback — ignore (future-proofing).
             pass
@@ -694,13 +796,57 @@ class BridgeBot:
 
     # ------------------------------------------------------------- renders
 
-    async def _show_menu(self, chat_id: int, edit: int | None = None) -> None:
+    async def _show_menu(
+        self, chat_id: int, user_id: int | None = None, edit: int | None = None
+    ) -> None:
+        mode = self._user_modes.get(user_id, "chat") if user_id else "chat"
+        kb = _menu_keyboard(mode)
         if edit is not None:
             await self.tg.edit_message_text(
-                chat_id, edit, MENU_TEXT, reply_markup=_menu_keyboard()
+                chat_id, edit, MENU_TEXT, reply_markup=kb
             )
         else:
-            await self.tg.send_message(chat_id, MENU_TEXT, reply_markup=_menu_keyboard())
+            await self.tg.send_message(chat_id, MENU_TEXT, reply_markup=kb)
+
+    async def _cmd_mode(self, chat_id: int, user_id: int | None, text: str) -> None:
+        """Toggle between Chat Mode and Image Mode."""
+        arg = text[len("/mode"):].strip().lower()
+        current = self._user_modes.get(user_id, "chat") if user_id else "chat"
+        if arg in ("image", "img", "photo", "art"):
+            new_mode = "image"
+        elif arg in ("chat", "text", "ask"):
+            new_mode = "chat"
+        else:
+            new_mode = "image" if current == "chat" else "chat"
+        if user_id:
+            self._user_modes[user_id] = new_mode
+        if new_mode == "image":
+            msg = (
+                "🎨 <b>Image Mode enabled.</b>\n\n"
+                "All prompts sent now will be generated as images with automatic 10x denial retries.\n"
+                "Use <code>/mode chat</code> or the menu to switch back."
+            )
+        else:
+            msg = (
+                "💬 <b>Chat Mode enabled.</b>\n\n"
+                "Text prompts will be answered as standard ChatGPT conversations.\n"
+                "Image prompts (e.g. <i>'photo of...'</i>, <i>'draw...'</i>) are still automatically detected."
+            )
+        await self.tg.send_message(chat_id, msg, reply_markup=_home_keyboard())
+
+    async def _cmd_retry(self, chat_id: int, user_id: int | None) -> None:
+        """Retry the last image generation with 10x denial retries."""
+        prompt = self._last_image_prompt.get(chat_id) or self._last_prompt.get(chat_id)
+        if not prompt:
+            await self.tg.send_message(
+                chat_id, "No recent prompt found to retry.", reply_markup=_home_keyboard()
+            )
+            return
+        await self.tg.send_message(
+            chat_id,
+            f"🔄 <b>Retrying image generation (10x denial retries)...</b>\n\n<i>{esc(prompt[:200])}</i>",
+        )
+        await self._run_image(chat_id, prompt)
 
     async def _show_status(self, chat_id: int, edit: int | None = None) -> None:
         alive = await self.gpt.session.is_alive()
@@ -813,6 +959,7 @@ class BridgeBot:
                 log.debug("heartbeat %s failed: %s", action, exc)
 
     async def _run_ask(self, chat_id: int, prompt: str) -> None:
+        self._last_prompt[chat_id] = prompt
         await self.tg.send_chat_action(chat_id, "typing")
         stop_event = asyncio.Event()
         hb_task = asyncio.create_task(self._heartbeat(chat_id, "typing", stop_event))
@@ -829,12 +976,19 @@ class BridgeBot:
         formatted = markdown_to_telegram_html(text)
         await self.tg.send_message(chat_id, formatted, reply_markup=_ask_footer())
 
-    async def _run_image(self, chat_id: int, prompt: str) -> None:
+    async def _run_image(
+        self, chat_id: int, prompt: str, tweaked_prompt: str | None = None
+    ) -> None:
+        self._last_image_prompt[chat_id] = prompt
+        self._last_prompt[chat_id] = prompt
         await self.tg.send_chat_action(chat_id, "upload_photo")
         stop_event = asyncio.Event()
         hb_task = asyncio.create_task(self._heartbeat(chat_id, "upload_photo", stop_event))
         try:
-            result = await self.gpt.generate_image(prompt)
+            kwargs: dict = {}
+            if tweaked_prompt:
+                kwargs["tweaked_prompt"] = tweaked_prompt
+            result = await self.gpt.generate_image(prompt, **kwargs)
         finally:
             stop_event.set()
             hb_task.cancel()
@@ -843,7 +997,19 @@ class BridgeBot:
             except asyncio.CancelledError:
                 pass
         caption = esc(prompt[:1000])
-        await self.tg.send_photo(chat_id, result["path"], caption=f"<i>{caption}</i>")
+        try:
+            await self.tg.send_photo(
+                chat_id,
+                result["path"],
+                caption=f"<i>{caption}</i>",
+                reply_markup=_image_footer(),
+            )
+        except TypeError:
+            await self.tg.send_photo(
+                chat_id,
+                result["path"],
+                caption=f"<i>{caption}</i>",
+            )
         await self.tg.send_message(chat_id, "Done.", reply_markup=_image_footer())
 
     async def _do_clear(self, chat_id: int, edit: int | None = None) -> None:
@@ -877,11 +1043,12 @@ class BridgeBot:
                 text = (
                     "<b>Image denied.</b>\n\n"
                     "ChatGPT refused this prompt for policy reasons.\n"
-                    "<i>Try rephrasing, or ask for something simpler.</i>"
+                    "<i>Tap Auto-Tweak to soften wording and retry, or try a new prompt:</i>"
                 )
                 kb = {
                     "inline_keyboard": [
-                        [_btn("🎨 Try again", "menu:image"), _btn("🏠 Menu", "menu:home")]
+                        [_btn("⚡ Auto-Tweak & Retry (10x)", "retry:softened"), _btn("🎨 Try again", "menu:image")],
+                        [_btn("🆕 New chat", "menu:new"), _btn("🏠 Menu", "menu:home")],
                     ]
                 }
                 await self.tg.send_message(chat_id, text, reply_markup=kb)
