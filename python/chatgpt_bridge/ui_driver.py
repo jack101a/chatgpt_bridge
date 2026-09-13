@@ -859,9 +859,13 @@ class UIDriver:
 
 
 def _images_dir():
+    import os
     from pathlib import Path
 
-    return Path("~/.chatgpt-bridge/images").expanduser()
+    state_dir = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
+    d = state_dir / "images"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _extract_file_id(src: str) -> str:

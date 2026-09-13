@@ -8,9 +8,12 @@ from .browser import BrowserManager
 from .cookies import load_cookie_file
 from .errors import AuthError
 
+import os
+
+STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
 # Default cookie file locations checked during login flow.
-COOKIE_TXT = Path("~/.chatgpt-bridge/cookies.txt").expanduser()
-COOKIE_JSON = Path("~/.chatgpt-bridge/cookies.json").expanduser()
+COOKIE_TXT = STATE_DIR / "cookies.txt"
+COOKIE_JSON = STATE_DIR / "cookies.json"
 
 
 class SessionManager:

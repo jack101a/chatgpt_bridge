@@ -643,6 +643,8 @@ class BridgeBot:
             log.warning("ignoring message from unlisted user_id=%s", user_id)
             return
 
+        log.info("Received message from user_id=%s, chat_id=%s: %r", user_id, chat_id, text[:100])
+
         # 1. Did the user send a document (file upload)?
         if document:
             caption = (message.get("caption") or "").strip()
@@ -741,6 +743,8 @@ class BridgeBot:
         if not self.config.allowed(user_id):
             log.warning("ignoring callback from unlisted user_id=%s", user_id)
             return
+
+        log.info("Received callback from user_id=%s, chat_id=%s: data=%r", user_id, chat_id, data)
 
         # Acknowledge immediately to dismiss the spinner.
         await self.tg.answer_callback_query(cb_id)
@@ -1088,7 +1092,9 @@ class BridgeBot:
                 if acc.is_logged_in:
                     btn_label = f"✓ {acc.alias}" if is_act else f"Switch: {acc.alias}"
                     row.append(_btn(btn_label, f"acc:switch:{acc.id}"))
-                row.append(_btn(f"🔑 Login: {acc.alias}", f"acc:login:{acc.id}"))
+                    row.append(_btn(f"🔑 Relogin {acc.alias}", f"acc:login:{acc.id}"))
+                else:
+                    row.append(_btn(f"🔑 Login: {acc.alias}", f"acc:login:{acc.id}"))
                 if len(accounts) > 1 and not is_act:
                     row.append(_btn("🗑", f"acc:del:{acc.id}"))
                 account_rows.append(row)
