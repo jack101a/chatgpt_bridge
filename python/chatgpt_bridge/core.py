@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
+from pathlib import Path
 
 from .account import AccountInfo, AccountManager
 from .browser import BrowserManager
@@ -203,15 +205,43 @@ class ChatGPT:
         try:
             ctx = await bm.context()
             await ctx.add_cookies(cookie_list)
-            sm = SessionManager(bm)
-            alive = await sm.is_alive()
-            if not alive:
-                raise AuthError(
-                    "ChatGPT session verification failed (session endpoint did not return an authenticated user)."
+            page = await ctx.new_page()
+            user_info = {}
+            try:
+                resp = await page.request.get(
+                    "https://chatgpt.com/api/auth/session",
+                    timeout=15_000,
                 )
-            info = await sm.get_user_info()
-            email = info.get("email", "")
-            name = info.get("name", "")
+                if resp.status == 200:
+                    data = await resp.json()
+                    user_info = (data or {}).get("user") or {}
+            except Exception as direct_err:
+                log.debug("direct session check failed: %s", direct_err)
+
+            # If direct API check didn't return user, navigate to chatgpt.com to let Cloudflare/session settle
+            if not user_info:
+                try:
+                    await page.goto("https://chatgpt.com", wait_until="domcontentloaded", timeout=20_000)
+                    resp = await page.request.get(
+                        "https://chatgpt.com/api/auth/session",
+                        timeout=15_000,
+                    )
+                    if resp.status == 200:
+                        data = await resp.json()
+                        user_info = (data or {}).get("user") or {}
+                except Exception as nav_err:
+                    log.warning("navigation session check error: %s", nav_err)
+
+            await page.close()
+
+            if not user_info:
+                raise AuthError(
+                    "ChatGPT session verification failed (session endpoint did not return an authenticated user). "
+                    "Please ensure you were logged in when exporting cookies."
+                )
+
+            email = user_info.get("email", "")
+            name = user_info.get("name", "")
             self.account_manager.update_identity(acc.id, email=email, name=name)
             acc.is_authenticated = True
             self.account_manager._save()
