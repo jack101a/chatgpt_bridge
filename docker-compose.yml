@@ -15,7 +15,7 @@ services:
       - HOST=0.0.0.0
       - SCREEN_WIDTH=1280
       - SCREEN_HEIGHT=720
-      - MAX_RETRIES=4
+      - MAX_RETRIES=10
       - BROWSER_IDLE_TIMEOUT_S=300
       # Optional: Telegram bot credentials (leave empty if using API only)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}

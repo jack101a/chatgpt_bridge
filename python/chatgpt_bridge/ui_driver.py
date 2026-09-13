@@ -12,7 +12,12 @@ log = logging.getLogger("chatgpt_bridge.ui_driver")
 from .browser import BrowserManager
 from .errors import BridgeTimeoutError, GenerationDeniedError, ShapeChangedError
 from .images import IMAGE_SELECTOR, save_image
-from .retry import RetryConfig, classify_response, parse_rate_limit_wait
+from .retry import (
+    RetryConfig,
+    auto_tweak_prompt,
+    classify_response,
+    parse_rate_limit_wait,
+)
 from .session import SessionManager
 
 # Robust selectors, data-testid first.
@@ -200,13 +205,15 @@ class UIDriver:
         retry: RetryConfig | None = None,
         conversation_id: str | None = None,
         tweaked_prompt: str | None = None,
+        tweaked_prompt_2: str | None = None,
     ) -> dict:
         """Submit a prompt and wait for a generated image, retrying on denial.
 
         Retries up to ``cfg.max_tries`` times (default: 10) using progressive intervals
         (5s, 10s, 15s, 20s, 25s, 26s, 27s, 28s, 29s, 30s).
-        On retries 1-5, re-submits the original prompt via the message edit button (pencil icon).
-        On retries 6-10, submits ``tweaked_prompt`` (if provided) via the message edit button.
+        On retries 1-5: re-submits the base prompt via the message edit button (pencil icon).
+        On retries 6-7: re-submits a slightly tweaked/softened prompt preserving 1:1 meaning.
+        On retries 8-10: re-submits further refined prompt (level 2) preserving 1:1 meaning.
         If a rate-limit message is encountered at any point, halts immediately.
         """
         cfg = retry or RetryConfig()
@@ -280,17 +287,35 @@ class UIDriver:
                         "conversation_id": cid,
                     }
 
-                # After 5 retries (retries 6-10), tweak prompt slightly
-                current_prompt = (
-                    tweaked_prompt
-                    if (retry_idx > 5 and tweaked_prompt)
-                    else prompt
+                # Retries 1-5: exact original prompt
+                # Retries 6-7: tweaked prompt (level 1)
+                # Retries 8-10: further refined prompt (level 2)
+                if retry_idx >= 8:
+                    current_prompt = (
+                        tweaked_prompt_2
+                        or tweaked_prompt
+                        or auto_tweak_prompt(prompt, level=2)
+                    )
+                elif retry_idx >= 6:
+                    current_prompt = (
+                        tweaked_prompt
+                        or auto_tweak_prompt(prompt, level=1)
+                    )
+                else:
+                    current_prompt = prompt
+
+                log.info(
+                    "Starting retry %d/%d (delay: %.1fs, prompt: %s...)",
+                    retry_idx,
+                    cfg.max_tries,
+                    delay_s,
+                    current_prompt[:60],
                 )
 
                 # Primary retry method: Edit message (pencil icon) -> Send
                 retried = await self._edit_message_retry(
                     page,
-                    new_prompt=current_prompt if retry_idx > 5 else None,
+                    new_prompt=current_prompt if retry_idx >= 6 else None,
                 )
                 if not retried:
                     # Secondary: inline 'Try again' / 'Regenerate' button

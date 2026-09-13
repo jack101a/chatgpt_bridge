@@ -63,8 +63,10 @@ class AskRequest(BaseModel):
 class ImageRequest(BaseModel):
     prompt: str = Field(..., description="Image prompt description")
     timeout_s: int = Field(default=180, ge=1, description="Timeout in seconds for generation")
-    max_tries: int | None = Field(default=None, description="Max retries on refusal (defaults to server config, e.g. 4)")
+    max_tries: int | None = Field(default=None, description="Max retries on refusal (defaults to server config, e.g. 10)")
     conversation_id: str | None = Field(default=None, description="Optional conversation ID for continuity")
+    tweaked_prompt: str | None = Field(default=None, description="Optional softer prompt for retries 6-7")
+    tweaked_prompt_2: str | None = Field(default=None, description="Optional further refined prompt for retries 8-10")
 
 
 def _get_core() -> ChatGPT:
@@ -130,6 +132,10 @@ async def image(req: ImageRequest) -> dict:
                 kwargs["max_retries"] = req.max_tries
             if req.conversation_id is not None:
                 kwargs["conversation_id"] = req.conversation_id
+            if req.tweaked_prompt is not None:
+                kwargs["tweaked_prompt"] = req.tweaked_prompt
+            if req.tweaked_prompt_2 is not None:
+                kwargs["tweaked_prompt_2"] = req.tweaked_prompt_2
             result = await _get_core().generate_image(
                 req.prompt, timeout_s=req.timeout_s, **kwargs
             )

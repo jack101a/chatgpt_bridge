@@ -39,7 +39,7 @@ class ChatGPT:
         self.max_retries = (
             max_retries
             if max_retries is not None
-            else int(os.environ.get("MAX_RETRIES", "4"))
+            else int(os.environ.get("MAX_RETRIES", "10"))
         )
         self.idle_timeout_s = (
             idle_timeout_s
@@ -150,6 +150,7 @@ class ChatGPT:
         conversation_id: str | None = None,
         retry: RetryConfig | None = None,
         tweaked_prompt: str | None = None,
+        tweaked_prompt_2: str | None = None,
     ) -> dict:
         """Generate an image via the UI, continuing the current conversation."""
         await self._ensure_started()
@@ -160,6 +161,8 @@ class ChatGPT:
         kwargs: dict = {}
         if tweaked_prompt is not None:
             kwargs["tweaked_prompt"] = tweaked_prompt
+        if tweaked_prompt_2 is not None:
+            kwargs["tweaked_prompt_2"] = tweaked_prompt_2
         try:
             result = await self.ui.generate_image(
                 prompt,
