@@ -50,9 +50,15 @@ log = logging.getLogger("chatgpt_bridge.bot")
 # --------------------------------------------------------------------------- #
 
 class BotConfig:
-    def __init__(self, token: str, allowed_user_ids: frozenset[int]) -> None:
+    def __init__(
+        self,
+        token: str,
+        allowed_user_ids: frozenset[int],
+        allow_all: bool = False,
+    ) -> None:
         self.token = token
         self.allowed_user_ids = allowed_user_ids
+        self.allow_all = allow_all
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "BotConfig":
@@ -63,11 +69,24 @@ class BotConfig:
                 "TELEGRAM_BOT_TOKEN is required — create a bot via @BotFather."
             )
         raw = (env.get("TELEGRAM_ALLOWED_USER_IDS") or "").strip()
-        ids = frozenset(int(x) for x in raw.split(",") if x.strip())
-        return cls(token=token, allowed_user_ids=ids)
+        allow_all = raw == "*"
+        ids = (
+            frozenset()
+            if allow_all
+            else frozenset(
+                int(x)
+                for x in raw.split(",")
+                if x.strip() and x.strip().isdigit()
+            )
+        )
+        return cls(token=token, allowed_user_ids=ids, allow_all=allow_all)
 
     def allowed(self, user_id: int | None) -> bool:
-        if not self.allowed_user_ids or user_id is None:
+        if user_id is None:
+            return False
+        if self.allow_all:
+            return True
+        if not self.allowed_user_ids:
             return False
         return user_id in self.allowed_user_ids
 
@@ -933,8 +952,12 @@ def main() -> None:
         level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
     )
     config = BotConfig.from_env()
-    if not config.allowed_user_ids:
+    if config.allow_all:
+        log.info("TELEGRAM_ALLOWED_USER_IDS is '*' — bot will accept messages from all users")
+    elif not config.allowed_user_ids:
         log.warning("TELEGRAM_ALLOWED_USER_IDS is empty — bot will ignore everyone")
+    else:
+        log.info("Allowed user IDs: %s", sorted(config.allowed_user_ids))
     asyncio.run(run(config))
 
 
