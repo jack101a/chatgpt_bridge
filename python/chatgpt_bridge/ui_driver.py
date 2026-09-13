@@ -12,7 +12,12 @@ log = logging.getLogger("chatgpt_bridge.ui_driver")
 from .browser import BrowserManager
 from .errors import BridgeTimeoutError, GenerationDeniedError, ShapeChangedError
 from .images import IMAGE_SELECTOR, save_image
-from .retry import RetryConfig, classify_response, parse_rate_limit_wait
+from .retry import (
+    RetryConfig,
+    auto_tweak_prompt,
+    classify_response,
+    parse_rate_limit_wait,
+)
 from .session import SessionManager
 
 # Robust selectors, data-testid first.
@@ -200,13 +205,15 @@ class UIDriver:
         retry: RetryConfig | None = None,
         conversation_id: str | None = None,
         tweaked_prompt: str | None = None,
+        tweaked_prompt_2: str | None = None,
     ) -> dict:
         """Submit a prompt and wait for a generated image, retrying on denial.
 
         Retries up to ``cfg.max_tries`` times (default: 10) using progressive intervals
         (5s, 10s, 15s, 20s, 25s, 26s, 27s, 28s, 29s, 30s).
-        On retries 1-5, re-submits the original prompt via the message edit button (pencil icon).
-        On retries 6-10, submits ``tweaked_prompt`` (if provided) via the message edit button.
+        On retries 1-5: re-submits the base prompt via the message edit button (pencil icon).
+        On retries 6-7: re-submits a slightly tweaked/softened prompt preserving 1:1 meaning.
+        On retries 8-10: re-submits further refined prompt (level 2) preserving 1:1 meaning.
         If a rate-limit message is encountered at any point, halts immediately.
         """
         cfg = retry or RetryConfig()
@@ -280,17 +287,35 @@ class UIDriver:
                         "conversation_id": cid,
                     }
 
-                # After 5 retries (retries 6-10), tweak prompt slightly
-                current_prompt = (
-                    tweaked_prompt
-                    if (retry_idx > 5 and tweaked_prompt)
-                    else prompt
+                # Retries 1-5: exact original prompt
+                # Retries 6-7: tweaked prompt (level 1)
+                # Retries 8-10: further refined prompt (level 2)
+                if retry_idx >= 8:
+                    current_prompt = (
+                        tweaked_prompt_2
+                        or tweaked_prompt
+                        or auto_tweak_prompt(prompt, level=2)
+                    )
+                elif retry_idx >= 6:
+                    current_prompt = (
+                        tweaked_prompt
+                        or auto_tweak_prompt(prompt, level=1)
+                    )
+                else:
+                    current_prompt = prompt
+
+                log.info(
+                    "Starting retry %d/%d (delay: %.1fs, prompt: %s...)",
+                    retry_idx,
+                    cfg.max_tries,
+                    delay_s,
+                    current_prompt[:60],
                 )
 
                 # Primary retry method: Edit message (pencil icon) -> Send
                 retried = await self._edit_message_retry(
                     page,
-                    new_prompt=current_prompt if retry_idx > 5 else None,
+                    new_prompt=current_prompt if retry_idx >= 6 else None,
                 )
                 if not retried:
                     # Secondary: inline 'Try again' / 'Regenerate' button
@@ -625,16 +650,20 @@ class UIDriver:
                     await asyncio.sleep(0.2)
 
             send = page.locator(
-                'button:has-text("Send"), button:has-text("Save"), button[aria-label*="Send"], button[data-testid*="send"], [data-testid="send-button"]'
+                '#composer-submit-button, button[data-testid="send-button"], button:has-text("Send"), button:has-text("Save"), button[aria-label*="Send"]'
             ).first
-            if await send.count() > 0:
+            for _ in range(15):
+                if await send.count() > 0 and await send.is_visible():
+                    dis = await send.get_attribute("disabled")
+                    aria_dis = await send.get_attribute("aria-disabled")
+                    if dis is None and aria_dis != "true":
+                        break
+                await asyncio.sleep(0.1)
+            if await send.count() > 0 and await send.is_visible():
                 try:
-                    await send.evaluate("b => b.click()")
+                    await send.click()
                 except Exception:
-                    try:
-                        await send.click(force=True)
-                    except TypeError:
-                        await send.click()
+                    await page.keyboard.press("Enter")
                 return True
             # Fallback to Enter key inside edit box
             await page.keyboard.press("Enter")
@@ -755,17 +784,26 @@ class UIDriver:
         # Type characters: fill() doesn't fire the input events the
         # contenteditable ProseMirror composer needs.
         await page.keyboard.type(prompt, delay=10)
-        await asyncio.sleep(0.2)
-        await page.keyboard.press("Enter")
         await asyncio.sleep(0.3)
+        # In modern ChatGPT, the send button is #composer-submit-button / [data-testid="send-button"].
+        # Wait briefly for React/ProseMirror to mark the button as enabled.
         send_btn = page.locator(
-            'button[data-testid="composer-send-button"], button[data-testid="send-button"], button[aria-label*="Send"]'
+            '#composer-submit-button, button[data-testid="send-button"], button[data-testid="composer-send-button"], button[aria-label*="Send"]'
         ).first
+        for _ in range(15):
+            if await send_btn.count() > 0 and await send_btn.is_visible():
+                dis = await send_btn.get_attribute("disabled")
+                aria_dis = await send_btn.get_attribute("aria-disabled")
+                if dis is None and aria_dis != "true":
+                    break
+            await asyncio.sleep(0.1)
         if await send_btn.count() > 0 and await send_btn.is_visible():
             try:
-                await send_btn.click(force=True)
+                await send_btn.click()
             except Exception:
-                pass
+                await page.keyboard.press("Enter")
+        else:
+            await page.keyboard.press("Enter")
 
     async def _wait_for_answer(self, page, timeout_s: int = 120) -> str:
         """Poll assistant turns until the answer is stable and generation has completed."""

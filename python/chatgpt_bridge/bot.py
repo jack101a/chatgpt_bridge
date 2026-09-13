@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import os
 import re
@@ -31,8 +32,15 @@ from typing import Mapping
 
 import httpx
 
+from .cookies import (
+    cookies_valid,
+    is_cookie_content,
+    looks_like_cookie_or_token,
+    parse_cookie_text,
+)
 from .core import ChatGPT
 from .errors import AuthError, BridgeTimeoutError, GenerationDeniedError
+from .retry import auto_tweak_prompt
 
 API = "https://api.telegram.org"
 
@@ -428,38 +436,57 @@ class TelegramAPI:
         await self._call("sendChatAction", chat_id=chat_id, action=action)
 
     async def send_photo(
-        self, chat_id: int, path: str | Path, caption: str = "", parse_mode: str = "HTML"
+        self,
+        chat_id: int,
+        path: str | Path,
+        caption: str = "",
+        parse_mode: str = "HTML",
+        reply_markup: dict | None = None,
     ) -> None:
+        data: dict = {
+            "chat_id": str(chat_id),
+            "caption": caption,
+            "parse_mode": parse_mode,
+        }
+        if reply_markup is not None:
+            data["reply_markup"] = json.dumps(reply_markup)
         with open(path, "rb") as fh:
             resp = await self._client.post(
                 "/sendPhoto",
-                data={
-                    "chat_id": str(chat_id),
-                    "caption": caption,
-                    "parse_mode": parse_mode,
-                },
+                data=data,
                 files={"photo": (Path(path).name, fh, "image/png")},
             )
-        data = resp.json()
-        if not data.get("ok"):
-            if parse_mode and "can't parse entities" in (data.get("description") or "").lower():
+        data_resp = resp.json()
+        if not data_resp.get("ok"):
+            if parse_mode and "can't parse entities" in (data_resp.get("description") or "").lower():
                 log.warning(
                     "HTML parse error in sendPhoto, falling back to plain text: %s",
-                    data.get("description"),
+                    data_resp.get("description"),
                 )
                 plain_caption = html.unescape(re.sub(r"<[^>]+>", "", caption))
+                data["caption"] = plain_caption
+                data.pop("parse_mode", None)
                 with open(path, "rb") as fh2:
                     resp = await self._client.post(
                         "/sendPhoto",
-                        data={
-                            "chat_id": str(chat_id),
-                            "caption": plain_caption,
-                        },
+                        data=data,
                         files={"photo": (Path(path).name, fh2, "image/png")},
                     )
-                data = resp.json()
-            if not data.get("ok"):
-                raise RuntimeError(f"telegram sendPhoto failed: {data.get('description')}")
+                data_resp = resp.json()
+            if not data_resp.get("ok"):
+                raise RuntimeError(f"telegram sendPhoto failed: {data_resp.get('description')}")
+
+    async def get_file(self, file_id: str) -> dict:
+        """Fetch file metadata from Telegram Bot API."""
+        return await self._call("getFile", file_id=file_id)
+
+    async def download_file(self, file_path: str) -> bytes:
+        """Download raw binary/text file payload from Telegram Bot API."""
+        url = f"https://api.telegram.org/file/bot{self.token}/{file_path}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.content
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -473,12 +500,14 @@ def _btn(label: str, data: str) -> dict:
     return {"text": label, "callback_data": data}
 
 
-def _menu_keyboard() -> dict:
+def _menu_keyboard(mode: str = "chat", max_retries: int = 10) -> dict:
+    mode_label = "🎨 Switch to Image Mode" if mode == "chat" else "💬 Switch to Chat Mode"
+    mode_target = "mode:image" if mode == "chat" else "mode:chat"
     return {
         "inline_keyboard": [
-            [_btn("❓ Ask", "menu:ask"), _btn("🎨 Image", "menu:image")],
-            [_btn("📊 Status", "menu:status"), _btn("💬 Chats", "menu:chats")],
-            [_btn("🆕 New chat", "menu:new"), _btn("🗑 Clear all chats", "menu:clear")],
+            [_btn("🎨 Generate Image", "menu:image"), _btn("🆕 New chat", "menu:new")],
+            [_btn("👤 Accounts", "menu:accounts"), _btn(f"⚙️ Retries ({max_retries}x)", "menu:retries")],
+            [_btn("📊 Status", "menu:status"), _btn(mode_label, mode_target)],
         ]
     }
 
@@ -490,15 +519,16 @@ def _home_keyboard() -> dict:
 def _ask_footer() -> dict:
     return {
         "inline_keyboard": [
-            [_btn("🔁 Ask again", "menu:ask"), _btn("🏠 Menu", "menu:home")]
+            [_btn("🎨 Generate as Image", "ask:to_image"), _btn("🔁 Ask again", "menu:ask")],
+            [_btn("🆕 New chat", "menu:new"), _btn("🏠 Menu", "menu:home")],
         ]
     }
 
 
-def _image_footer() -> dict:
+def _image_footer(retries: int = 10) -> dict:
     return {
         "inline_keyboard": [
-            [_btn("🎨 Another image", "menu:image"), _btn("🏠 Menu", "menu:home")]
+            [_btn(f"🔄 Retry ({retries}x)", "retry:image"), _btn("🆕 New chat", "menu:new")],
         ]
     }
 
@@ -515,6 +545,41 @@ def _clear_confirm_keyboard() -> dict:
     }
 
 
+def _accounts_keyboard_quick() -> dict:
+    return {
+        "inline_keyboard": [
+            [_btn("👤 View Accounts", "menu:accounts"), _btn("📊 Status", "menu:status")],
+            [_btn("🏠 Menu", "menu:home")],
+        ]
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Image intent detection
+# --------------------------------------------------------------------------- #
+
+_IMAGE_INTENT_PATTERNS = [
+    r"^(?:can\s+you\s+)?(?:please\s+)?(?:draw|paint|sketch|render|generate|create|make)\s+(?:me\s+)?(?:an?\s+)?(?:image|photo|picture|portrait|painting|illustration|art|drawing|sketch|render)\s+of\b",
+    r"^(?:can\s+you\s+)?(?:please\s+)?(?:draw|paint|sketch|render)\s+(?:a|an|the|me\s+a)\s+(?!conclusion\b)[a-zA-Z0-9_\s-]+\b",
+    r"^(?:generate|create|make)\s+(?:an?\s+)?(?:image|photo|picture|portrait|illustration|drawing|render)\b",
+    r"^(?:an?\s+)?(?:realistic|candid|cinematic|detailed|vintage|modern|macro|studio|aerial|color|colour|b&w|analog|digital)?\s*(?:photo|picture|image|portrait|illustration|drawing|painting|render)\s+of\b",
+    r"^(?:(?:close[\s-]*up|macro|medium|wide|low[\s-]*angle|high[\s-]*angle|aerial|cinematic|full[\s-]*body)\s*)+(?:shot|view|angle|perspective|portrait|of)?\b",
+    r"\b(?:same\s+(?:woman|girl|man|person|character|scene|subject)|from\s+another\s+angle|in\s+a\s+3/4\s+side\s+profile|from\s+behind|photorealistic|hyperrealistic|cinematic\s+lighting|8k\s+resolution)\b",
+    r"\b(?:realistic\s+photo|candid\s+photo|dslr\s+shot|film\s+grain)\b",
+]
+_COMPILED_IMAGE_INTENT = [re.compile(p, re.IGNORECASE) for p in _IMAGE_INTENT_PATTERNS]
+
+
+def is_image_intent(text: str) -> bool:
+    """Detect whether user text is intended as an image generation prompt."""
+    t = text.strip()
+    if not t:
+        return False
+    if "with your words" in t.lower() or "with words" in t.lower():
+        return False
+    return any(p.search(t) for p in _COMPILED_IMAGE_INTENT)
+
+
 # --------------------------------------------------------------------------- #
 # Handlers
 # --------------------------------------------------------------------------- #
@@ -525,13 +590,13 @@ MENU_TEXT = (
 )
 
 COMMANDS = [
-    {"command": "ask", "description": "Ask ChatGPT a question"},
-    {"command": "image", "description": "Generate an image"},
-    {"command": "new", "description": "Start a fresh chat"},
-    {"command": "status", "description": "Show session and bridge health"},
-    {"command": "chats", "description": "List tracked conversations"},
-    {"command": "clear", "description": "Delete all tracked conversations"},
-    {"command": "http", "description": "Toggle fast HTTP path on/off"},
+    {"command": "image", "description": "Generate an image (10x auto-retries)"},
+    {"command": "new", "description": "Start a fresh chat (FIFO 10-chat pool)"},
+    {"command": "status", "description": "Show account status & rate limits"},
+    {"command": "accounts", "description": "Manage & switch ChatGPT accounts"},
+    {"command": "retries", "description": "View / set max generation retries"},
+    {"command": "retry", "description": "Retry last image"},
+    {"command": "mode", "description": "Toggle Chat / Image mode"},
     {"command": "menu", "description": "Show the main menu"},
     {"command": "help", "description": "Show help"},
 ]
@@ -545,8 +610,18 @@ class BridgeBot:
         self.config = config
         self.gpt = gpt
         self._lock = asyncio.Lock()
-        # pending action per user: {user_id: ("ask"|"image", timestamp)}
+        # pending action per user: {user_id: ("ask"|"image"|..., timestamp)}
         self._pending: dict[int, tuple[str, float]] = {}
+        # active mode per user: {user_id: "chat"|"image"}
+        self._user_modes: dict[int, str] = {}
+        # last prompts for easy 1-click retry:
+        self._last_prompt: dict[int, str] = {}
+        self._last_image_prompt: dict[int, str] = {}
+        # pending cookies cache for account selection
+        self._pending_cookies: dict[int, str] = {}
+        # buffer for split multi-chunk cookie messages
+        self._cookie_buffer: dict[int, str] = {}
+        self._cookie_buffer_time: dict[int, float] = {}
 
     # ------------------------------------------------------------- dispatch
 
@@ -557,27 +632,60 @@ class BridgeBot:
 
         message = update.get("message") or {}
         text = (message.get("text") or "").strip()
+        document = message.get("document")
         chat = message.get("chat") or {}
         user = message.get("from") or {}
         chat_id = chat.get("id")
         user_id = user.get("id")
-        if chat_id is None or not text:
+        if chat_id is None:
             return
         if not self.config.allowed(user_id):
             log.warning("ignoring message from unlisted user_id=%s", user_id)
             return
 
-        # Slash commands always win over pending state.
+        # 1. Did the user send a document (file upload)?
+        if document:
+            caption = (message.get("caption") or "").strip()
+            await self._handle_document_upload(chat_id, user_id, document, caption)
+            return
+
+        if not text:
+            return
+
+        # 2. Slash commands always win over pending state.
         if text.startswith("/"):
             await self._dispatch_command(chat_id, user_id, text)
             return
 
-        # Pending action (tap-to-prime) consumes this message as the prompt.
+        # 3. Pending action consumes this message.
         pending = self._take_pending(user_id)
-        if pending == "image":
+        if pending:
+            if pending == "image":
+                await self._locked(chat_id, self._run_image(chat_id, text))
+                return
+            elif pending == "ask":
+                await self._locked(chat_id, self._run_ask(chat_id, text))
+                return
+            elif pending == "add_account":
+                await self._locked(chat_id, self._create_account_from_prompt(chat_id, text))
+                return
+            elif pending.startswith("login_account:"):
+                acc_id = pending[len("login_account:"):].strip()
+                # Maintain pending state so subsequent chunks or retries stay in login mode
+                self._set_pending(user_id, f"login_account:{acc_id}")
+                await self._handle_cookie_submission(chat_id, user_id, text, account_id_hint=acc_id)
+                return
+
+        # 4. Check if raw cookie text / JSON / token was pasted directly
+        if looks_like_cookie_or_token(text):
+            await self._handle_cookie_submission(chat_id, user_id, text)
+            return
+
+        # 5. Auto-detect mode and image intent
+        user_mode = self._user_modes.get(user_id, "chat") if user_id else "chat"
+        if user_mode == "image" or is_image_intent(text):
             await self._locked(chat_id, self._run_image(chat_id, text))
         else:
-            # Default: plain text is an Ask prompt.
             await self._locked(chat_id, self._run_ask(chat_id, text))
 
     async def _dispatch_command(self, chat_id: int, user_id: int | None, text: str) -> None:
@@ -594,8 +702,16 @@ class BridgeBot:
                 await self._locked(chat_id, self._run_ask(chat_id, prompt))
             else:
                 await self._prime(chat_id, user_id, "ask")
+        elif cmd == "/accounts":
+            await self._locked(chat_id, self._cmd_accounts(chat_id, user_id, text))
+        elif cmd == "/mode":
+            await self._locked(chat_id, self._cmd_mode(chat_id, user_id, text))
+        elif cmd == "/retry":
+            await self._locked(chat_id, self._cmd_retry(chat_id, user_id))
         elif cmd == "/status":
             await self._locked(chat_id, self._show_status(chat_id))
+        elif cmd == "/retries":
+            await self._locked(chat_id, self._cmd_retries(chat_id, text))
         elif cmd == "/chats":
             await self._locked(chat_id, self._show_chats(chat_id))
         elif cmd == "/clear":
@@ -605,10 +721,13 @@ class BridgeBot:
         elif cmd == "/new":
             await self._locked(chat_id, self._cmd_new(chat_id))
         elif cmd in ("/start", "/menu", "/help"):
-            await self._show_menu(chat_id)
+            await self._show_menu(chat_id, user_id=user_id)
         else:
-            # Unknown command → treat as ask prompt.
-            await self._locked(chat_id, self._run_ask(chat_id, text))
+            # Unknown command → check image intent or ask prompt.
+            if is_image_intent(text):
+                await self._locked(chat_id, self._run_image(chat_id, text))
+            else:
+                await self._locked(chat_id, self._run_ask(chat_id, text))
 
     async def _handle_callback(self, cb: dict) -> None:
         cb_id = cb.get("id")
@@ -627,11 +746,86 @@ class BridgeBot:
         await self.tg.answer_callback_query(cb_id)
 
         if data == "menu:home":
-            await self._show_menu(chat_id, edit=message.get("message_id"))
+            await self._show_menu(chat_id, user_id=user_id, edit=message.get("message_id"))
+        elif data == "menu:retries":
+            await self._show_retries(chat_id, edit=message.get("message_id"))
+        elif data.startswith("set:retries:"):
+            n_str = data.split(":")[2]
+            try:
+                n = int(n_str)
+                self.gpt.max_retries = n
+                await self.tg.answer_callback_query(cb_id, f"Max retries set to {n}x")
+                await self._show_retries(chat_id, edit=message.get("message_id"))
+            except Exception as exc:
+                await self.tg.answer_callback_query(cb_id, f"Error: {exc}", show_alert=True)
+        elif data == "mode:image":
+            if user_id:
+                self._user_modes[user_id] = "image"
+            await self.tg.answer_callback_query(cb_id, "Switched to Image Mode")
+            await self._show_menu(chat_id, user_id=user_id, edit=message.get("message_id"))
+        elif data == "mode:chat":
+            if user_id:
+                self._user_modes[user_id] = "chat"
+            await self.tg.answer_callback_query(cb_id, "Switched to Chat Mode")
+            await self._show_menu(chat_id, user_id=user_id, edit=message.get("message_id"))
+        elif data == "retry:image":
+            prompt = self._last_image_prompt.get(chat_id) or self._last_prompt.get(chat_id)
+            if prompt:
+                await self._locked(chat_id, self._run_image(chat_id, prompt))
+            else:
+                await self.tg.send_message(
+                    chat_id, "No recent prompt found to retry.", reply_markup=_home_keyboard()
+                )
+        elif data == "retry:softened":
+            prompt = self._last_image_prompt.get(chat_id) or self._last_prompt.get(chat_id)
+            if prompt:
+                tweaked = auto_tweak_prompt(prompt, level=1)
+                await self._locked(
+                    chat_id, self._run_image(chat_id, prompt, tweaked_prompt=tweaked)
+                )
+            else:
+                await self.tg.send_message(
+                    chat_id, "No recent prompt found to retry.", reply_markup=_home_keyboard()
+                )
+        elif data == "ask:to_image":
+            prompt = self._last_prompt.get(chat_id)
+            if prompt:
+                await self._locked(chat_id, self._run_image(chat_id, prompt))
+            else:
+                await self.tg.send_message(
+                    chat_id, "No recent prompt found.", reply_markup=_home_keyboard()
+                )
         elif data == "menu:ask":
             await self._prime(chat_id, user_id, "ask", edit=message.get("message_id"))
         elif data == "menu:image":
             await self._prime(chat_id, user_id, "image", edit=message.get("message_id"))
+        elif data == "menu:accounts":
+            await self._locked(chat_id, self._show_accounts(chat_id, edit=message.get("message_id")))
+        elif data.startswith("acc:switch:"):
+            acc_id = data[len("acc:switch:"):].strip()
+            await self._locked(chat_id, self._switch_account_callback(chat_id, cb_id, acc_id, edit=message.get("message_id")))
+        elif data.startswith("acc:login:"):
+            acc_id = data[len("acc:login:"):].strip()
+            await self._start_login_prompt(chat_id, user_id, acc_id)
+        elif data.startswith("acc:del:"):
+            acc_id = data[len("acc:del:"):].strip()
+            mgr = getattr(self.gpt, "account_manager", None)
+            if mgr:
+                try:
+                    mgr.remove_account(acc_id)
+                    await self.tg.answer_callback_query(cb_id, "Account removed")
+                    await self._show_accounts(chat_id, edit=message.get("message_id"))
+                except Exception as exc:
+                    await self.tg.answer_callback_query(cb_id, f"Error: {exc}", show_alert=True)
+        elif data.startswith("acc:apply_cookies:"):
+            acc_id = data[len("acc:apply_cookies:"):].strip()
+            cookie_text = self._pending_cookies.pop(user_id, "") if user_id else ""
+            if cookie_text:
+                await self._handle_cookie_submission(chat_id, user_id, cookie_text, account_id_hint=acc_id)
+            else:
+                await self.tg.answer_callback_query(cb_id, "No pending cookies found", show_alert=True)
+        elif data == "acc:add":
+            await self._prime(chat_id, user_id, "add_account", edit=message.get("message_id"))
         elif data == "menu:status":
             await self._locked(chat_id, self._show_status(chat_id, edit=message.get("message_id")))
         elif data == "menu:chats":
@@ -645,7 +839,7 @@ class BridgeBot:
         elif data == "cb:cancel":
             self._clear_pending(user_id)
             await self.tg.answer_callback_query(cb_id, "Cancelled")
-            await self._show_menu(chat_id, edit=message.get("message_id"))
+            await self._show_menu(chat_id, user_id=user_id, edit=message.get("message_id"))
         else:
             # Unknown callback — ignore (future-proofing).
             pass
@@ -665,6 +859,10 @@ class BridgeBot:
         del self._pending[user_id]
         return action
 
+    def _set_pending(self, user_id: int | None, action: str) -> None:
+        if user_id is not None:
+            self._pending[user_id] = (action, time.monotonic())
+
     def _clear_pending(self, user_id: int | None) -> None:
         if user_id is not None:
             self._pending.pop(user_id, None)
@@ -683,6 +881,11 @@ class BridgeBot:
                 "<b>Image</b>\n\n"
                 "Describe the image you want. Generation can take 1–5 minutes."
             )
+        elif action == "add_account":
+            text = (
+                "<b>Add Account</b>\n\n"
+                "Send the alias name for the new account (e.g. <code>Backup</code> or <code>Personal</code>)."
+            )
         else:
             text = "<b>Ask</b>\n\nSend your question as the next message."
         if edit is not None:
@@ -694,43 +897,511 @@ class BridgeBot:
 
     # ------------------------------------------------------------- renders
 
-    async def _show_menu(self, chat_id: int, edit: int | None = None) -> None:
+    async def _show_menu(
+        self, chat_id: int, user_id: int | None = None, edit: int | None = None
+    ) -> None:
+        mode = self._user_modes.get(user_id, "chat") if user_id else "chat"
+        retries = getattr(self.gpt, "max_retries", 10)
+        kb = _menu_keyboard(mode, max_retries=retries)
         if edit is not None:
             await self.tg.edit_message_text(
-                chat_id, edit, MENU_TEXT, reply_markup=_menu_keyboard()
+                chat_id, edit, MENU_TEXT, reply_markup=kb
             )
         else:
-            await self.tg.send_message(chat_id, MENU_TEXT, reply_markup=_menu_keyboard())
+            await self.tg.send_message(chat_id, MENU_TEXT, reply_markup=kb)
 
-    async def _show_status(self, chat_id: int, edit: int | None = None) -> None:
-        alive = await self.gpt.session.is_alive()
-        pool = self.gpt.pool
-        session_line = "logged in" if alive else "<b>not logged in</b>"
-        http_line = "on" if getattr(self.gpt, "use_http", True) else "off"
-        current = getattr(self.gpt, "_current_conversation_id", None)
-        current_line = f"<code>{esc(current)}</code>" if current else "none (fresh chat)"
-        lines = [
-            "<b>Status</b>",
-            "",
-            f"Session: {session_line}",
-            f"Browser: {'running' if self.gpt._started else 'not started'}",
-            f"Chats tracked: {len(pool._ids)}",
-            f"Fast HTTP path: {http_line}",
-            f"Current chat: {current_line}",
-        ]
-        if not alive:
-            lines.append("")
-            lines.append("<i>Log in from the host machine, then check again.</i>")
-        text = "\n".join(lines)
+    async def _cmd_mode(self, chat_id: int, user_id: int | None, text: str) -> None:
+        """Toggle between Chat Mode and Image Mode."""
+        arg = text[len("/mode"):].strip().lower()
+        current = self._user_modes.get(user_id, "chat") if user_id else "chat"
+        if arg in ("image", "img", "photo", "art"):
+            new_mode = "image"
+        elif arg in ("chat", "text", "ask"):
+            new_mode = "chat"
+        else:
+            new_mode = "image" if current == "chat" else "chat"
+        if user_id:
+            self._user_modes[user_id] = new_mode
+        retries = getattr(self.gpt, "max_retries", 10)
+        if new_mode == "image":
+            msg = (
+                "🎨 <b>Image Mode enabled.</b>\n\n"
+                f"All prompts sent now will be generated as images with automatic {retries}x denial retries.\n"
+                "Use <code>/mode chat</code> or the menu to switch back."
+            )
+        else:
+            msg = (
+                "💬 <b>Chat Mode enabled.</b>\n\n"
+                "Text prompts will be answered as standard ChatGPT conversations.\n"
+                "Image prompts (e.g. <i>'photo of...'</i>, <i>'draw...'</i>) are still automatically detected."
+            )
+        await self.tg.send_message(chat_id, msg, reply_markup=_home_keyboard())
+
+    async def _cmd_retry(self, chat_id: int, user_id: int | None) -> None:
+        """Retry the last image generation with denial retries."""
+        prompt = self._last_image_prompt.get(chat_id) or self._last_prompt.get(chat_id)
+        if not prompt:
+            await self.tg.send_message(
+                chat_id, "No recent prompt found to retry.", reply_markup=_home_keyboard()
+            )
+            return
+        retries = getattr(self.gpt, "max_retries", 10)
+        await self.tg.send_message(
+            chat_id,
+            f"🔄 <b>Retrying image generation ({retries}x denial retries)...</b>\n\n<i>{esc(prompt[:200])}</i>",
+        )
+        await self._run_image(chat_id, prompt)
+
+    async def _cmd_retries(self, chat_id: int, text: str) -> None:
+        """View or update max generation retry count."""
+        parts = text.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            val = max(1, min(30, int(parts[1])))
+            self.gpt.max_retries = val
+            await self.tg.send_message(
+                chat_id,
+                f"✅ <b>Max generation retries updated to: {val}x</b>\n\n"
+                f"• Direct prompt retries: 1–5\n"
+                f"• Prompt rephrase retries: 6–{val}\n\n"
+                "<i>Denial errors and transient failures will now retry up to this limit.</i>",
+                reply_markup=_home_keyboard(),
+            )
+        else:
+            await self._show_retries(chat_id)
+
+    async def _show_retries(self, chat_id: int, edit: int | None = None) -> None:
+        current = getattr(self.gpt, "max_retries", 10)
+        text = (
+            f"🔁 <b>Image Generation Retry Settings</b>\n\n"
+            f"Current Max Retries: <b>{current}x</b>\n\n"
+            "When ChatGPT refuses, times out, or fails to generate an image:\n"
+            "• <b>Tries 1–5:</b> Direct automatic retries.\n"
+            "• <b>Tries 6+:</b> Intelligent prompt rephrasing (preserves 1:1 visual intent).\n\n"
+            "Select a retry limit below or type <code>/retries &lt;number&gt;</code> (e.g. <code>/retries 10</code>):"
+        )
         kb = {
             "inline_keyboard": [
-                [_btn("🔄 Refresh", "menu:status"), _btn("🏠 Menu", "menu:home")]
+                [
+                    _btn(f"{'🔘' if current == 3 else '⚪'} 3x", "set:retries:3"),
+                    _btn(f"{'🔘' if current == 5 else '⚪'} 5x", "set:retries:5"),
+                    _btn(f"{'🔘' if current == 10 else '⚪'} 10x", "set:retries:10"),
+                    _btn(f"{'🔘' if current == 15 else '⚪'} 15x", "set:retries:15"),
+                ],
+                [_btn("📊 Status", "menu:status"), _btn("🏠 Menu", "menu:home")],
             ]
         }
         if edit is not None:
             await self.tg.edit_message_text(chat_id, edit, text, reply_markup=kb)
         else:
             await self.tg.send_message(chat_id, text, reply_markup=kb)
+
+    async def _show_status(self, chat_id: int, edit: int | None = None) -> None:
+        alive = await self.gpt.session.is_alive()
+        pool = self.gpt.pool
+        mgr = getattr(self.gpt, "account_manager", None)
+        active_acc = mgr.get_active_account() if mgr else None
+
+        session_line = "logged in" if alive else "<b>not logged in</b>"
+        http_line = "on" if getattr(self.gpt, "use_http", True) else "off"
+        current = getattr(self.gpt, "_current_conversation_id", None)
+        current_line = f"<code>{esc(current)}</code>" if current else "none (fresh chat)"
+        retries = getattr(self.gpt, "max_retries", 10)
+
+        lines = [
+            "<b>Status</b>",
+            "",
+        ]
+        if active_acc:
+            lines.append(f"Account: <b>{esc(active_acc.alias)}</b> (<code>{esc(active_acc.id)}</code>)")
+            if active_acc.email:
+                lines.append(f"Identity: <code>{esc(active_acc.email)}</code>")
+            if active_acc.is_rate_limited():
+                rem_m = int(active_acc.remaining_rate_limit_seconds() / 60)
+                lines.append(f"Rate Limit: ⚠️ <b>Limited</b> (~{rem_m}m left, resets {active_acc.rate_limit_resets_at_str}) [Strikes: {active_acc.consecutive_rate_limits}/3]")
+            else:
+                lines.append("Rate Limit: 🟢 Normal")
+            lines.append("")
+
+        lines.extend([
+            f"Session: {session_line}",
+            f"Browser: {'running' if self.gpt._started else 'not started'}",
+            f"Chats tracked: {len(pool._ids)}",
+            f"Fast HTTP path: {http_line}",
+            f"Current chat: {current_line}",
+            f"Max Retries: <b>{retries}x</b>",
+        ])
+        if not alive:
+            lines.append("")
+            lines.append("<i>Log in from the host machine, then check again.</i>")
+        text = "\n".join(lines)
+        kb = {
+            "inline_keyboard": [
+                [_btn(f"⚙️ Retries ({retries}x)", "menu:retries"), _btn("👤 Accounts", "menu:accounts")],
+                [_btn("🔄 Refresh", "menu:status"), _btn("🏠 Menu", "menu:home")],
+            ]
+        }
+        if edit is not None:
+            await self.tg.edit_message_text(chat_id, edit, text, reply_markup=kb)
+        else:
+            await self.tg.send_message(chat_id, text, reply_markup=kb)
+
+    async def _show_accounts(self, chat_id: int, edit: int | None = None) -> None:
+        mgr = getattr(self.gpt, "account_manager", None)
+        if not mgr:
+            text = "<b>Accounts:</b> Multi-account manager is not enabled."
+            kb = _home_keyboard()
+        else:
+            accounts = mgr.list_accounts()
+            active = mgr.get_active_account()
+            lines = [
+                f"<b>👤 ChatGPT Accounts</b> ({len(accounts)} configured)",
+                "",
+            ]
+            account_rows = []
+            for acc in accounts:
+                is_act = acc.id == active.id
+                if not acc.is_logged_in:
+                    badge = "⚠️ Not Logged In"
+                elif is_act:
+                    badge = "🟢 Active"
+                elif acc.is_rate_limited():
+                    badge = "⏳ Rate-limited"
+                else:
+                    badge = "⚪ Ready"
+                email_info = f" (<code>{esc(acc.email)}</code>)" if acc.email else " <i>(Needs login)</i>"
+                lines.append(f"• <b>{esc(acc.alias)}</b>{email_info} — {badge}")
+                lines.append(f"  ID: <code>{esc(acc.id)}</code> | Generations: {acc.total_generations}")
+                if acc.is_rate_limited():
+                    rem_m = int(acc.remaining_rate_limit_seconds() / 60)
+                    lines.append(f"  <i>Limit resets ~{acc.rate_limit_resets_at_str} (~{rem_m}m left)</i>")
+                elif not acc.is_logged_in:
+                    lines.append("  <i>⚠️ Needs login — tap 'Login' button below to provide cookies</i>")
+
+                row = []
+                if acc.is_logged_in:
+                    btn_label = f"✓ {acc.alias}" if is_act else f"Switch: {acc.alias}"
+                    row.append(_btn(btn_label, f"acc:switch:{acc.id}"))
+                row.append(_btn(f"🔑 Login: {acc.alias}", f"acc:login:{acc.id}"))
+                if len(accounts) > 1 and not is_act:
+                    row.append(_btn("🗑", f"acc:del:{acc.id}"))
+                account_rows.append(row)
+
+            lines.append("")
+            lines.append("<i>To add an account: tap '➕ Add Account' or run /accounts add &lt;alias&gt;</i>")
+            text = "\n".join(lines)
+
+            account_rows.append([_btn("➕ Add Account", "acc:add"), _btn("🔄 Refresh", "menu:accounts")])
+            account_rows.append([_btn("🏠 Menu", "menu:home")])
+            kb = {"inline_keyboard": account_rows}
+
+        if edit is not None:
+            await self.tg.edit_message_text(chat_id, edit, text, reply_markup=kb)
+        else:
+            await self.tg.send_message(chat_id, text, reply_markup=kb)
+
+    async def _cmd_accounts(self, chat_id: int, user_id: int | None, text: str) -> None:
+        mgr = getattr(self.gpt, "account_manager", None)
+        if not mgr:
+            await self.tg.send_message(chat_id, "Multi-account manager is not enabled.", reply_markup=_home_keyboard())
+            return
+
+        parts = text.split()
+        if len(parts) == 1:
+            await self._show_accounts(chat_id)
+            return
+
+        subcmd = parts[1].lower()
+        if subcmd == "switch" and len(parts) >= 3:
+            target = parts[2]
+            try:
+                acc = await self.gpt.switch_account(target)
+                status_text = "🟢 (Logged In)" if acc.is_logged_in else "⚠️ (Not Logged In — send cookies to authenticate)"
+                await self.tg.send_message(
+                    chat_id,
+                    f"🟢 <b>Switched active account to:</b> <b>{esc(acc.alias)}</b> (<code>{esc(acc.id)}</code>) {status_text}",
+                    reply_markup=_accounts_keyboard_quick(),
+                )
+            except Exception as exc:
+                await self.tg.send_message(chat_id, f"❌ Failed to switch: {esc(str(exc))}")
+        elif subcmd == "add" and len(parts) >= 3:
+            alias = " ".join(parts[2:]).strip()
+            try:
+                acc = mgr.add_account(alias)
+                target_uid = user_id if user_id is not None else chat_id
+                self._set_pending(target_uid, f"login_account:{acc.id}")
+                await self.tg.send_message(
+                    chat_id,
+                    f"✅ <b>Created Account slot:</b> <b>{esc(acc.alias)}</b> (<code>{esc(acc.id)}</code>)\n\n"
+                    "👉 <b>Now send your ChatGPT cookies to log in:</b>\n"
+                    "• 📄 <b>Upload file:</b> Send your <code>cookies.json</code> or <code>cookies.txt</code>\n"
+                    "• 📋 <b>Or paste:</b> Paste your exported cookie JSON or Netscape text here\n\n"
+                    "<i>(Export cookies from chatgpt.com in Chrome/Firefox using Cookie-Editor)</i>",
+                    reply_markup=_accounts_keyboard_quick(),
+                )
+            except Exception as exc:
+                await self.tg.send_message(chat_id, f"❌ Failed to add account: {esc(str(exc))}")
+        elif subcmd == "login" and len(parts) >= 3:
+            target = parts[2]
+            await self._start_login_prompt(chat_id, user_id, target)
+        elif subcmd == "remove" and len(parts) >= 3:
+            target = parts[2]
+            try:
+                removed = mgr.remove_account(target)
+                if removed:
+                    await self.tg.send_message(
+                        chat_id,
+                        f"🗑 Removed account <code>{esc(target)}</code>.",
+                        reply_markup=_accounts_keyboard_quick(),
+                    )
+                else:
+                    await self.tg.send_message(chat_id, f"Account <code>{esc(target)}</code> not found.")
+            except Exception as exc:
+                await self.tg.send_message(chat_id, f"❌ Cannot remove account: {esc(str(exc))}")
+        else:
+            await self._show_accounts(chat_id)
+
+    async def _switch_account_callback(
+        self, chat_id: int, cb_id: str, acc_id: str, edit: int | None = None
+    ) -> None:
+        try:
+            acc = await self.gpt.switch_account(acc_id)
+            status_note = f" ({acc.email})" if acc.email else " (Needs login)"
+            await self.tg.answer_callback_query(cb_id, f"Switched to {acc.alias}{status_note}")
+            await self._show_accounts(chat_id, edit=edit)
+        except Exception as exc:
+            log.exception("failed to switch account via callback")
+            await self.tg.answer_callback_query(cb_id, f"Error: {exc}", show_alert=True)
+
+    async def _create_account_from_prompt(self, chat_id: int, alias: str) -> None:
+        mgr = getattr(self.gpt, "account_manager", None)
+        if not mgr:
+            await self.tg.send_message(chat_id, "Account manager is not enabled.", reply_markup=_home_keyboard())
+            return
+        try:
+            acc = mgr.add_account(alias.strip())
+            user_id = chat_id
+            self._set_pending(user_id, f"login_account:{acc.id}")
+            await self.tg.send_message(
+                chat_id,
+                f"✅ <b>Account '{esc(acc.alias)}' created!</b>\n\n"
+                "👉 <b>Now send your ChatGPT cookies to log in:</b>\n"
+                "• 📄 <b>Upload file:</b> Send your <code>cookies.json</code> or <code>cookies.txt</code>\n"
+                "• 📋 <b>Or paste:</b> Paste your exported cookie JSON or Netscape text here\n\n"
+                "<i>(Export cookies from chatgpt.com in Chrome/Firefox using Cookie-Editor)</i>",
+                reply_markup=_accounts_keyboard_quick(),
+            )
+        except Exception as exc:
+            await self.tg.send_message(
+                chat_id,
+                f"❌ Failed to create account: {esc(str(exc))}",
+                reply_markup=_accounts_keyboard_quick(),
+            )
+
+    async def _start_login_prompt(
+        self, chat_id: int, user_id: int | None, acc_id_or_alias: str
+    ) -> None:
+        mgr = getattr(self.gpt, "account_manager", None)
+        if not mgr:
+            return
+        acc = mgr.find_account(acc_id_or_alias)
+        if not acc:
+            await self.tg.send_message(
+                chat_id, f"Account '{esc(acc_id_or_alias)}' not found.", reply_markup=_home_keyboard()
+            )
+            return
+        target_uid = user_id if user_id is not None else chat_id
+        self._set_pending(target_uid, f"login_account:{acc.id}")
+        await self.tg.send_message(
+            chat_id,
+            f"🔑 <b>Log in ChatGPT Account: {esc(acc.alias)}</b>\n\n"
+            "Please send your ChatGPT session cookies for this account:\n"
+            "• 📄 <b>Upload file:</b> Send your <code>cookies.json</code> or <code>cookies.txt</code>\n"
+            "• 📋 <b>Or paste:</b> Paste your exported cookie JSON or Netscape text directly here\n\n"
+            "<i>(Tip: Log into chatgpt.com in Chrome/Firefox, open Cookie-Editor, and click Export)</i>",
+            reply_markup=_accounts_keyboard_quick(),
+        )
+
+    async def _handle_document_upload(
+        self, chat_id: int, user_id: int | None, document: dict, caption: str
+    ) -> None:
+        file_id = document.get("file_id")
+        file_name = document.get("file_name", "").lower()
+        if not file_id:
+            return
+
+        try:
+            file_meta = await self.tg.get_file(file_id)
+            file_path = file_meta.get("file_path") or (file_meta.get("result") or {}).get("file_path")
+            if not file_path:
+                raise RuntimeError("Telegram API returned empty file_path")
+            raw_bytes = await self.tg.download_file(file_path)
+            content_text = raw_bytes.decode("utf-8", errors="replace")
+        except Exception as exc:
+            log.warning("failed to download document: %s", exc)
+            await self.tg.send_message(
+                chat_id,
+                f"❌ Failed to download file: <code>{esc(str(exc))}</code>",
+                reply_markup=_home_keyboard(),
+            )
+            return
+
+        pending = self._take_pending(user_id) if user_id else None
+        target_acc_id = None
+        if pending and pending.startswith("login_account:"):
+            target_acc_id = pending[len("login_account:"):].strip()
+
+        if is_cookie_content(content_text) or file_name.endswith((".json", ".txt")):
+            await self._handle_cookie_submission(
+                chat_id, user_id, content_text, account_id_hint=target_acc_id
+            )
+        else:
+            await self.tg.send_message(
+                chat_id,
+                "📄 Received file, but it does not appear to contain ChatGPT cookies or tokens.\n"
+                "<i>Please upload your cookies.json or cookies.txt file.</i>",
+                reply_markup=_home_keyboard(),
+            )
+
+    async def _handle_cookie_submission(
+        self,
+        chat_id: int,
+        user_id: int | None,
+        cookie_text: str,
+        account_id_hint: str | None = None,
+    ) -> None:
+        mgr = getattr(self.gpt, "account_manager", None)
+        if not mgr:
+            await self.tg.send_message(
+                chat_id, "Account manager is not enabled.", reply_markup=_home_keyboard()
+            )
+            return
+
+        target_acc = None
+        if account_id_hint:
+            target_acc = mgr.find_account(account_id_hint)
+
+        if not target_acc:
+            unauth = [a for a in mgr.list_accounts() if not a.is_logged_in]
+            if len(unauth) == 1:
+                target_acc = unauth[0]
+            elif not unauth:
+                target_acc = mgr.get_active_account()
+            else:
+                if user_id:
+                    self._pending_cookies[user_id] = cookie_text
+                rows = [
+                    [_btn(f"🔑 Log in to: {a.alias}", f"acc:apply_cookies:{a.id}")]
+                    for a in unauth
+                ]
+                rows.append([_btn("➕ New Account", "acc:add"), _btn("🏠 Menu", "menu:home")])
+                await self.tg.send_message(
+                    chat_id,
+                    "🍪 <b>ChatGPT Cookies Received!</b>\n\n"
+                    "Select which account you want to authenticate with these cookies:",
+                    reply_markup={"inline_keyboard": rows},
+                )
+                return
+
+        # Multi-chunk buffering for Telegram message splits
+        raw_to_parse = cookie_text
+        if user_id:
+            buffered = self._cookie_buffer.get(user_id, "")
+            if buffered:
+                candidate_direct = buffered + cookie_text
+                candidate_nl = buffered + "\n" + cookie_text
+                chosen = None
+                for cand in (candidate_direct, candidate_nl):
+                    try:
+                        c_list = parse_cookie_text(cand)
+                        if cookies_valid(c_list):
+                            chosen = cand
+                            break
+                    except Exception:
+                        pass
+
+                if chosen:
+                    raw_to_parse = chosen
+                    self._cookie_buffer.pop(user_id, None)
+                    self._cookie_buffer_time.pop(user_id, None)
+                else:
+                    self._cookie_buffer[user_id] = candidate_direct
+                    ts = asyncio.get_running_loop().time()
+                    self._cookie_buffer_time[user_id] = ts
+                    await asyncio.sleep(1.2)
+                    if self._cookie_buffer_time.get(user_id) != ts:
+                        return
+                    final_buf = self._cookie_buffer.pop(user_id, candidate_direct)
+                    self._cookie_buffer_time.pop(user_id, None)
+                    for cand in (final_buf, final_buf.replace("\n", "")):
+                        try:
+                            c_list = parse_cookie_text(cand)
+                            if cookies_valid(c_list):
+                                raw_to_parse = cand
+                                break
+                        except Exception:
+                            pass
+                    else:
+                        raw_to_parse = final_buf
+            else:
+                try:
+                    c_list = parse_cookie_text(cookie_text)
+                    if not cookies_valid(c_list):
+                        self._cookie_buffer[user_id] = cookie_text
+                        ts = asyncio.get_running_loop().time()
+                        self._cookie_buffer_time[user_id] = ts
+                        await asyncio.sleep(1.2)
+                        if self._cookie_buffer_time.get(user_id) != ts:
+                            return
+                        raw_to_parse = self._cookie_buffer.pop(user_id, cookie_text)
+                        self._cookie_buffer_time.pop(user_id, None)
+                except Exception:
+                    self._cookie_buffer[user_id] = cookie_text
+                    ts = asyncio.get_running_loop().time()
+                    self._cookie_buffer_time[user_id] = ts
+                    await asyncio.sleep(1.2)
+                    if self._cookie_buffer_time.get(user_id) != ts:
+                        return
+                    raw_to_parse = self._cookie_buffer.pop(user_id, cookie_text)
+                    self._cookie_buffer_time.pop(user_id, None)
+
+        await self.tg.send_chat_action(chat_id, "typing")
+        try:
+            async with self._lock:
+                res = await self.gpt.login_account(target_acc.id, raw_to_parse)
+            email = res.get("email") or target_acc.email
+            name = res.get("name") or target_acc.name or target_acc.alias
+            self._clear_pending(user_id)
+            if user_id:
+                self._cookie_buffer.pop(user_id, None)
+                self._cookie_buffer_time.pop(user_id, None)
+            await self.tg.send_message(
+                chat_id,
+                "🎉 <b>ChatGPT Login Successful!</b>\n\n"
+                f"• <b>Account:</b> <b>{esc(target_acc.alias)}</b>\n"
+                f"• <b>User:</b> <b>{esc(name)}</b>\n"
+                f"• <b>Email:</b> <code>{esc(email)}</code>\n"
+                "• <b>Status:</b> 🟢 Ready & Logged In\n\n"
+                "<i>This ChatGPT account is now authenticated and ready.</i>",
+                reply_markup=_accounts_keyboard_quick(),
+            )
+        except Exception as exc:
+            log.exception("login_account failed")
+            if user_id:
+                self._cookie_buffer.pop(user_id, None)
+                self._cookie_buffer_time.pop(user_id, None)
+                self._set_pending(user_id, f"login_account:{target_acc.id}")
+            await self.tg.send_message(
+                chat_id,
+                "❌ <b>ChatGPT Login Failed</b>\n\n"
+                f"<code>{esc(str(exc))}</code>\n\n"
+                "<i>💡 Tip: Ensure you are actively logged in on chatgpt.com before exporting. If you were logged out or on the login page, the session token is revoked.</i>",
+                reply_markup={
+                    "inline_keyboard": [
+                        [_btn(f"🔑 Try Again: {target_acc.alias}", f"acc:login:{target_acc.id}")],
+                        [_btn("👤 Accounts", "menu:accounts"), _btn("🏠 Menu", "menu:home")],
+                    ]
+                },
+            )
 
     async def _cmd_http(self, chat_id: int, text: str) -> None:
         """Toggle the fast HTTP path on/off (``/http on``, ``/http off``, ``/http``)."""
@@ -813,6 +1484,18 @@ class BridgeBot:
                 log.debug("heartbeat %s failed: %s", action, exc)
 
     async def _run_ask(self, chat_id: int, prompt: str) -> None:
+        if looks_like_cookie_or_token(prompt):
+            log.warning("blocked cookie/auth data from being sent to ChatGPT ask API")
+            await self.tg.send_message(
+                chat_id,
+                "⚠️ <b>Authentication Data Detected</b>\n\n"
+                "This message looks like ChatGPT cookie or session data rather than a chat question, so it was <b>not</b> sent to ChatGPT.\n\n"
+                "👉 To log in with these cookies, send them after tapping <b>[🔑 Login]</b> in <code>/accounts</code>, or upload your <code>cookies.json</code> file.",
+                reply_markup=_accounts_keyboard_quick(),
+            )
+            return
+
+        self._last_prompt[chat_id] = prompt
         await self.tg.send_chat_action(chat_id, "typing")
         stop_event = asyncio.Event()
         hb_task = asyncio.create_task(self._heartbeat(chat_id, "typing", stop_event))
@@ -829,12 +1512,19 @@ class BridgeBot:
         formatted = markdown_to_telegram_html(text)
         await self.tg.send_message(chat_id, formatted, reply_markup=_ask_footer())
 
-    async def _run_image(self, chat_id: int, prompt: str) -> None:
+    async def _run_image(
+        self, chat_id: int, prompt: str, tweaked_prompt: str | None = None
+    ) -> None:
+        self._last_image_prompt[chat_id] = prompt
+        self._last_prompt[chat_id] = prompt
         await self.tg.send_chat_action(chat_id, "upload_photo")
         stop_event = asyncio.Event()
         hb_task = asyncio.create_task(self._heartbeat(chat_id, "upload_photo", stop_event))
         try:
-            result = await self.gpt.generate_image(prompt)
+            kwargs: dict = {}
+            if tweaked_prompt:
+                kwargs["tweaked_prompt"] = tweaked_prompt
+            result = await self.gpt.generate_image(prompt, **kwargs)
         finally:
             stop_event.set()
             hb_task.cancel()
@@ -842,9 +1532,22 @@ class BridgeBot:
                 await hb_task
             except asyncio.CancelledError:
                 pass
+        retries = getattr(self.gpt, "max_retries", 10)
         caption = esc(prompt[:1000])
-        await self.tg.send_photo(chat_id, result["path"], caption=f"<i>{caption}</i>")
-        await self.tg.send_message(chat_id, "Done.", reply_markup=_image_footer())
+        try:
+            await self.tg.send_photo(
+                chat_id,
+                result["path"],
+                caption=f"<i>{caption}</i>",
+                reply_markup=_image_footer(retries),
+            )
+        except TypeError:
+            await self.tg.send_photo(
+                chat_id,
+                result["path"],
+                caption=f"<i>{caption}</i>",
+            )
+            await self.tg.send_message(chat_id, "Done.", reply_markup=_image_footer(retries))
 
     async def _do_clear(self, chat_id: int, edit: int | None = None) -> None:
         pool = self.gpt.pool
@@ -874,14 +1577,93 @@ class BridgeBot:
                 await coro
             except GenerationDeniedError as exc:
                 kind = getattr(exc, "kind", "unknown")
+                if kind == "rate_limit":
+                    strikes = getattr(exc, "strikes", 1)
+                    alt_acc = getattr(exc, "alt_account", None)
+                    info = getattr(exc, "rate_limit_info", {})
+                    resets_str = info.get("resets_at_str") or "soon"
+                    hours = info.get("hours", 3.0)
+
+                    if strikes >= 3 and alt_acc:
+                        try:
+                            await self.gpt.switch_account(alt_acc.id)
+                            switched = True
+                        except Exception as switch_err:
+                            log.warning("failed auto-switch: %s", switch_err)
+                            switched = False
+
+                        if switched:
+                            text = (
+                                f"⚠️ <b>Consecutive Rate Limits Detected (3/3 strikes).</b>\n\n"
+                                f"Account was rate-limited until {resets_str} (~{hours}h).\n\n"
+                                f"🔄 <b>Automatically switched to least-used account:</b>\n"
+                                f"👉 <b>{esc(alt_acc.alias)}</b> ({esc(alt_acc.email or 'New Profile')})\n\n"
+                                f"<i>Ready to retry your prompt on this account.</i>"
+                            )
+                            kb = {
+                                "inline_keyboard": [
+                                    [_btn("🔄 Retry on New Account", "retry:image"), _btn("🆕 New chat", "menu:new")],
+                                    [_btn("👤 Accounts", "menu:accounts")],
+                                ]
+                            }
+                        else:
+                            text = (
+                                f"⚠️ <b>Rate Limit Reached (3/3 strikes).</b>\n\n"
+                                f"Account was rate-limited until {resets_str} (~{hours}h).\n"
+                                f"Auto-switch to <b>{esc(alt_acc.alias)}</b> failed."
+                            )
+                            kb = {
+                                "inline_keyboard": [
+                                    [_btn("👤 Accounts", "menu:accounts"), _btn("🏠 Menu", "menu:home")]
+                                ]
+                            }
+                        await self.tg.send_message(chat_id, text, reply_markup=kb)
+                        return
+
+                    elif strikes >= 3 and not alt_acc:
+                        text = (
+                            f"⚠️ <b>Rate Limit Reached (3/3 strikes).</b>\n\n"
+                            f"Account is rate-limited until {resets_str} (~{hours}h).\n"
+                            f"No alternative account is currently available.\n\n"
+                            f"<i>Add another account using /accounts add &lt;alias&gt;</i>"
+                        )
+                        kb = {
+                            "inline_keyboard": [
+                                [_btn("➕ Add Account", "acc:add"), _btn("👤 Accounts", "menu:accounts")],
+                                [_btn("🏠 Menu", "menu:home")],
+                            ]
+                        }
+                        await self.tg.send_message(chat_id, text, reply_markup=kb)
+                        return
+
+                    else:
+                        suggestion = (
+                            f"\n💡 <i>Least-used alternative available: <b>{esc(alt_acc.alias)}</b></i>\n"
+                            if alt_acc
+                            else ""
+                        )
+                        text = (
+                            f"⚠️ <b>ChatGPT Rate Limit (Strike {strikes}/3)</b>\n\n"
+                            f"Expected to reset around {resets_str} (~{hours}h).{suggestion}"
+                        )
+                        rows = []
+                        if alt_acc:
+                            rows.append([_btn(f"🔀 Switch to {alt_acc.alias}", f"acc:switch:{alt_acc.id}")])
+                        rows.append([_btn("🔄 Retry Anyway", "retry:image"), _btn("🆕 New chat", "menu:new")])
+                        rows.append([_btn("🏠 Menu", "menu:home")])
+                        await self.tg.send_message(chat_id, text, reply_markup={"inline_keyboard": rows})
+                        return
+
+                # Normal policy denial
                 text = (
                     "<b>Image denied.</b>\n\n"
                     "ChatGPT refused this prompt for policy reasons.\n"
-                    "<i>Try rephrasing, or ask for something simpler.</i>"
+                    "<i>Tap Auto-Tweak to soften wording and retry, or try a new prompt:</i>"
                 )
                 kb = {
                     "inline_keyboard": [
-                        [_btn("🎨 Try again", "menu:image"), _btn("🏠 Menu", "menu:home")]
+                        [_btn("⚡ Auto-Tweak & Retry (10x)", "retry:softened"), _btn("🎨 Try again", "menu:image")],
+                        [_btn("🆕 New chat", "menu:new"), _btn("🏠 Menu", "menu:home")],
                     ]
                 }
                 await self.tg.send_message(chat_id, text, reply_markup=kb)

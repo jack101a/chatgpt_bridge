@@ -345,3 +345,50 @@ def test_load_netscape_http_only_cookies(tmp_path):
 def test_cookies_valid_for_chunked_session_tokens():
     cookies = [{"name": f"{SESSION_COOKIE}.0", "value": "x", "expires": -1}]
     assert cookies_valid(cookies) is True
+
+
+def test_parse_header_string():
+    from chatgpt_bridge.cookies import parse_cookie_text, cookies_valid
+
+    # Format 1: With "Cookie:" prefix (e.g. copied from DevTools headers or cURL)
+    raw = f"Cookie: {SESSION_COOKIE}=token123; _puid=user456; __cf_bm=cf789"
+    cookies = parse_cookie_text(raw)
+    assert len(cookies) == 3
+    assert cookies[0]["name"] == SESSION_COOKIE
+    assert cookies[0]["value"] == "token123"
+    assert cookies_valid(cookies) is True
+
+    # Format 2: Semicolon separated without "Cookie:" prefix (e.g. Cookie-Editor Header String)
+    raw2 = f"{SESSION_COOKIE}=tokenabc; cf_clearance=clear123"
+    cookies2 = parse_cookie_text(raw2)
+    assert len(cookies2) == 2
+    assert cookies2[0]["name"] == SESSION_COOKIE
+    assert cookies2[0]["value"] == "tokenabc"
+
+
+def test_parse_flat_json_map():
+    from chatgpt_bridge.cookies import parse_cookie_text, cookies_valid
+
+    # Format 3: Flat dictionary {cookieName: cookieValue}
+    raw = json.dumps({
+        SESSION_COOKIE: "flat_token_xyz",
+        "_puid": "uid_123",
+    })
+    cookies = parse_cookie_text(raw)
+    assert len(cookies) == 2
+    assert any(c["name"] == SESSION_COOKIE and c["value"] == "flat_token_xyz" for c in cookies)
+    assert cookies_valid(cookies) is True
+
+
+def test_parse_raw_jwt_session_token():
+    from chatgpt_bridge.cookies import parse_cookie_text, is_cookie_content, cookies_valid
+
+    # Format 4: Direct JWT session token paste
+    raw_jwt = "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..sample_jwt_session_token_from_chatgpt_cookie_editor_or_storage_tab_long_value"
+    assert is_cookie_content(raw_jwt) is True
+
+    cookies = parse_cookie_text(raw_jwt)
+    assert len(cookies) == 1
+    assert cookies[0]["name"] == SESSION_COOKIE
+    assert cookies[0]["value"] == raw_jwt
+    assert cookies_valid(cookies) is True

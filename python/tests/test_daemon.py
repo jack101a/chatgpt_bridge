@@ -52,7 +52,11 @@ def test_ask_with_conversation_id(client):
 def test_image_ok(client):
     resp = client.post("/image", json={"prompt": "a fox"})
     assert resp.status_code == 200
-    assert resp.json() == {"path": "/tmp/x.png", "prompt": "a fox"}
+    assert resp.json() == {
+        "path": "/tmp/x.png",
+        "prompt": "a fox",
+        "image_url": "/images/x.png",
+    }
 
 
 def test_image_with_conversation_id_and_max_tries(monkeypatch):
@@ -101,5 +105,64 @@ def test_write_daemon_json(tmp_path, monkeypatch):
     import json
 
     data = json.loads((tmp_path / "daemon.json").read_text())
-    assert data["port"] == 8765
+    assert data["port"] == daemon.PORT
     assert data["pid"] > 0
+
+
+def test_status_endpoint(monkeypatch):
+    class _StatusCore:
+        class _Session:
+            async def is_alive(self):
+                return True
+
+        class _Pool:
+            _ids = ["c1", "c2"]
+
+        session = _Session()
+        pool = _Pool()
+        _started = True
+        _current_conversation_id = "c2"
+        max_retries = 4
+        idle_timeout_s = 300
+
+    monkeypatch.setattr(daemon, "_get_core", lambda: _StatusCore())
+    client = TestClient(daemon.app)
+    resp = client.get("/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["authenticated"] is True
+    assert data["browser_started"] is True
+    assert data["chats_tracked"] == 2
+    assert data["max_retries"] == 4
+
+
+def test_reset_conversation(monkeypatch):
+    reset_called = False
+
+    class _ResetCore:
+        def new_chat(self):
+            nonlocal reset_called
+            reset_called = True
+
+    monkeypatch.setattr(daemon, "_get_core", lambda: _ResetCore())
+    client = TestClient(daemon.app)
+    resp = client.post("/conversations/new")
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "message": "Conversation thread reset"}
+    assert reset_called is True
+
+
+def test_get_image_endpoint(tmp_path, monkeypatch):
+    test_img = tmp_path / "images" / "test1234.png"
+    test_img.parent.mkdir(parents=True, exist_ok=True)
+    test_img.write_bytes(b"\x89PNG\r\n\x1a\nfakeimage")
+
+    monkeypatch.setattr(daemon, "IMAGES_DIR", tmp_path / "images")
+    client = TestClient(daemon.app)
+    resp = client.get("/images/test1234.png")
+    assert resp.status_code == 200
+    assert resp.content == b"\x89PNG\r\n\x1a\nfakeimage"
+
+    resp_404 = client.get("/images/nonexistent.png")
+    assert resp_404.status_code == 404

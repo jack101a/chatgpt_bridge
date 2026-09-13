@@ -27,6 +27,7 @@ class _FakeTG:
         self.edited: list[tuple] = []
         self.answered: list[tuple] = []
         self.commands: list[dict] | None = None
+        self.downloaded_content = b""
 
     async def send_message(self, chat_id, text, parse_mode="HTML", reply_markup=None):
         # Mirror the real TelegramAPI.send_message chunking behavior.
@@ -48,6 +49,12 @@ class _FakeTG:
 
     async def send_photo(self, chat_id, path, caption="", parse_mode="HTML"):
         self.sent.append(("photo", chat_id, path, caption))
+
+    async def get_file(self, file_id: str) -> dict:
+        return {"file_id": file_id, "file_path": f"documents/{file_id}"}
+
+    async def download_file(self, file_path: str) -> bytes:
+        return self.downloaded_content
 
 
 class _FakePool:
@@ -73,16 +80,19 @@ class _FakeSession:
 
 
 class _FakeGPT:
-    def __init__(self, ask_result=None, raise_exc=None):
+    def __init__(self, ask_result=None, raise_exc=None, account_manager=None):
         self._started = False
         self.use_http = True
         self.pool = _FakePool(["c1", "c2"])
         self.session = _FakeSession()
+        self.account_manager = account_manager
         self._ask_result = ask_result or {"text": "hi back", "conversation_id": "c3"}
         self._raise = raise_exc
         self.asks: list[str] = []
         self._current_conversation_id = None
         self.new_chat_calls = 0
+        self.switched_accounts: list[str] = []
+        self.logged_in_accounts: list[str] = []
 
     async def ask(self, prompt):
         self.asks.append(prompt)
@@ -90,7 +100,7 @@ class _FakeGPT:
             raise self._raise
         return self._ask_result
 
-    async def generate_image(self, prompt):
+    async def generate_image(self, prompt, **kwargs):
         if self._raise:
             raise self._raise
         return {"path": "/tmp/x.png", "prompt": prompt, "conversation_id": "c4"}
@@ -98,6 +108,27 @@ class _FakeGPT:
     def new_chat(self):
         self.new_chat_calls += 1
         self._current_conversation_id = None
+
+    async def switch_account(self, account_id):
+        self.switched_accounts.append(account_id)
+        if self.account_manager:
+            return self.account_manager.set_active_account(account_id)
+        class _Acc:
+            id = account_id
+            alias = account_id
+            email = "user@example.com"
+        return _Acc()
+
+    async def login_account(self, account_id: str, cookies) -> dict:
+        self.logged_in_accounts.append(account_id)
+        if self.account_manager:
+            acc = self.account_manager.find_account(account_id)
+            if acc:
+                acc.is_authenticated = True
+                acc.email = "authed@chatgpt.com"
+                acc.name = "Authed User"
+                self.account_manager._save()
+        return {"email": "authed@chatgpt.com", "name": "Authed User", "account_id": account_id}
 
 
 ALLOWED = 42
@@ -129,6 +160,21 @@ def _callback(data, user_id=ALLOWED, chat_id=99, message_id=5):
             "data": data,
             "from": {"id": user_id},
             "message": {"chat": {"id": chat_id}, "message_id": message_id},
+        }
+    }
+
+
+def _doc_update(file_id="doc_123", file_name="cookies.json", caption="", user_id=ALLOWED, chat_id=99):
+    return {
+        "message": {
+            "from": {"id": user_id},
+            "chat": {"id": chat_id},
+            "document": {
+                "file_id": file_id,
+                "file_name": file_name,
+                "mime_type": "application/json",
+            },
+            "caption": caption,
         }
     }
 
@@ -667,4 +713,441 @@ def test_bot_image_command_full_flow(tmp_path):
 
     # 3. Follow-up "Done." with footer keyboard sent
     msgs = [m for m in tg.sent if m[0] == "msg"]
-    assert any(m[2] == "Done." and "menu:image" in str(m[3]) for m in msgs)
+    assert any(m[2] == "Done." and "retry:image" in str(m[3]) for m in msgs)
+
+
+# ---- new ux: image intent, image mode, and retries ----
+
+def test_is_image_intent_detection():
+    from chatgpt_bridge.bot import is_image_intent
+
+    # Intent prompts
+    assert is_image_intent("draw a cute kitten")
+    assert is_image_intent("generate an image of a mountain lake")
+    assert is_image_intent("a realistic photo of an old bookstore")
+    assert is_image_intent("Close-up portrait of the same woman, but in 3/4 angle")
+    assert is_image_intent("Medium wide shot of her standing in a doorway")
+    assert is_image_intent("Low-angle shot looking upward towards the ceiling")
+
+    # Regular chat prompts
+    assert not is_image_intent("Hello, how are you today?")
+    assert not is_image_intent("Explain quantum entanglement in simple terms")
+    assert not is_image_intent("Write a python script to parse json")
+    assert not is_image_intent("draw conclusions from this research paper")
+
+
+def test_plain_text_with_image_intent_routes_to_image():
+    tg, bot = _bot()
+    # Plain text without /image, but with clear image intent
+    _await(bot.handle_update(_update("draw a cyberpunk sunset")))
+    photos = [p for p in tg.sent if p[0] == "photo"]
+    assert len(photos) == 1
+    assert photos[0][3] == "<i>draw a cyberpunk sunset</i>"
+
+
+def test_mode_command_and_toggling():
+    tg, bot = _bot()
+    # Toggle to image
+    _await(bot.handle_update(_update("/mode image")))
+    assert bot._user_modes.get(ALLOWED) == "image"
+    msg = _msgs(tg)[-1][2]
+    assert "Image Mode enabled" in msg
+
+    # Plain text without any image keywords is routed to image generation when in Image Mode!
+    _await(bot.handle_update(_update("a blue square")))
+    photos = [p for p in tg.sent if p[0] == "photo"]
+    assert len(photos) == 1
+    assert photos[0][3] == "<i>a blue square</i>"
+
+    # Switch back to chat mode
+    _await(bot.handle_update(_update("/mode chat")))
+    assert bot._user_modes.get(ALLOWED) == "chat"
+    msg = _msgs(tg)[-1][2]
+    assert "Chat Mode enabled" in msg
+
+
+def test_mode_callbacks():
+    tg, bot = _bot()
+    _await(bot.handle_update(_callback("mode:image")))
+    assert bot._user_modes.get(ALLOWED) == "image"
+
+    _await(bot.handle_update(_callback("mode:chat")))
+    assert bot._user_modes.get(ALLOWED) == "chat"
+
+
+def test_retry_command_and_callback():
+    class _TrackedGPT(_FakeGPT):
+        def __init__(self):
+            super().__init__()
+            self.generated: list[str] = []
+
+        async def generate_image(self, prompt, **kwargs):
+            self.generated.append(prompt)
+            return {"path": "/tmp/x.png", "prompt": prompt, "conversation_id": "c"}
+
+    gpt = _TrackedGPT()
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. Initial image
+    _await(bot.handle_update(_update("/image red rose")))
+    assert gpt.generated == ["red rose"]
+
+    # 2. Callback retry:image
+    _await(bot.handle_update(_callback("retry:image")))
+    assert gpt.generated == ["red rose", "red rose"]
+
+    # 3. Slash command /retry
+    _await(bot.handle_update(_update("/retry")))
+    assert gpt.generated == ["red rose", "red rose", "red rose"]
+
+
+def test_ask_to_image_callback():
+    class _TrackedGPT(_FakeGPT):
+        def __init__(self):
+            super().__init__()
+            self.generated: list[str] = []
+
+        async def generate_image(self, prompt, **kwargs):
+            self.generated.append(prompt)
+            return {"path": "/tmp/x.png", "prompt": prompt, "conversation_id": "c"}
+
+    gpt = _TrackedGPT()
+    tg, bot = _bot(gpt=gpt)
+
+    # User asks a normal question in chat
+    _await(bot.handle_update(_update("describe a fantasy castle in clouds")))
+    assert gpt.asks == ["describe a fantasy castle in clouds"]
+
+    # User taps "Generate as Image"
+    _await(bot.handle_update(_callback("ask:to_image")))
+    assert gpt.generated == ["describe a fantasy castle in clouds"]
+
+
+def test_retry_softened_callback():
+    class _TrackedGPT(_FakeGPT):
+        def __init__(self):
+            super().__init__()
+            self.tweaked: list[str | None] = []
+
+        async def generate_image(self, prompt, tweaked_prompt=None, **kwargs):
+            self.tweaked.append(tweaked_prompt)
+            return {"path": "/tmp/x.png", "prompt": prompt, "conversation_id": "c"}
+
+    gpt = _TrackedGPT()
+    tg, bot = _bot(gpt=gpt)
+
+    # Initial image
+    _await(bot.handle_update(_update("/image a warrior with sword in battle")))
+    assert gpt.tweaked == [None]
+
+    # Retry with auto-tweak softening
+    _await(bot.handle_update(_callback("retry:softened")))
+    assert len(gpt.tweaked) == 2
+    assert gpt.tweaked[1] is not None
+
+
+# ---- multi-account and rate limit auto-switch ----
+
+def test_accounts_command_and_callbacks(tmp_path):
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. /accounts command lists accounts
+    _await(bot.handle_update(_update("/accounts")))
+    msgs = _msgs(tg)
+    assert any("👤 ChatGPT Accounts" in m[2] and "Primary" in m[2] for m in msgs)
+
+    # 2. Add an account via /accounts add
+    _await(bot.handle_update(_update("/accounts add Secondary")))
+    assert any("Created Account slot" in m[2] and "Secondary" in m[2] for m in _msgs(tg))
+    assert len(mgr.list_accounts()) == 2
+
+    # 3. Switch account via callback
+    acc2 = mgr.find_account("Secondary")
+    assert acc2 is not None
+    _await(bot.handle_update(_callback(f"acc:switch:{acc2.id}")))
+    assert gpt.switched_accounts == [acc2.id]
+    assert mgr.get_active_account().id == acc2.id
+
+
+def test_accounts_switch_and_remove_commands(tmp_path):
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    acc2 = mgr.add_account("TestAcc")
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    # Switch account via command
+    _await(bot.handle_update(_update(f"/accounts switch {acc2.id}")))
+    assert mgr.get_active_account().id == acc2.id
+    assert any("Switched active account" in m[2] for m in _msgs(tg))
+
+    # Remove account via command
+    _await(bot.handle_update(_update(f"/accounts remove {acc2.id}")))
+    assert len(mgr.list_accounts()) == 1
+    assert any("Removed account" in m[2] for m in _msgs(tg))
+
+
+def test_rate_limit_strike_1_suggests_switch():
+    from chatgpt_bridge.account import AccountInfo
+
+    alt = AccountInfo(id="acc_alt", alias="Secondary", email="sec@example.com")
+    exc = GenerationDeniedError("Rate limit reached. Try again in 2 hours.", kind="rate_limit")
+    setattr(exc, "strikes", 1)
+    setattr(exc, "alt_account", alt)
+    setattr(exc, "rate_limit_info", {"hours": 2.0, "resets_at_str": "18:30"})
+
+    gpt = _FakeGPT(raise_exc=exc)
+    tg, bot = _bot(gpt=gpt)
+
+    _await(bot.handle_update(_update("/image a fantasy landscape")))
+    msgs = _msgs(tg)
+    assert len(msgs) >= 1
+    assert "Strike 1/3" in msgs[-1][2]
+    assert "Secondary" in msgs[-1][2]
+    # Inline keyboard offers switch to alt
+    kb = msgs[-1][3]
+    assert f"acc:switch:{alt.id}" in str(kb)
+
+
+def test_rate_limit_strike_3_auto_switches_account():
+    from chatgpt_bridge.account import AccountInfo
+
+    alt = AccountInfo(id="acc_alt", alias="Secondary", email="sec@example.com")
+    exc = GenerationDeniedError("Rate limit reached. Try again in 2 hours.", kind="rate_limit")
+    setattr(exc, "strikes", 3)
+    setattr(exc, "alt_account", alt)
+    setattr(exc, "rate_limit_info", {"hours": 2.0, "resets_at_str": "18:30"})
+
+    gpt = _FakeGPT(raise_exc=exc)
+    tg, bot = _bot(gpt=gpt)
+
+    _await(bot.handle_update(_update("/image a cyberpunk city")))
+    assert gpt.switched_accounts == [alt.id]
+    msgs = _msgs(tg)
+    assert len(msgs) >= 1
+    assert "Automatically switched to least-used account" in msgs[-1][2]
+    assert "Secondary" in msgs[-1][2]
+    # Retry button is ready
+    assert "retry:image" in str(msgs[-1][3])
+
+
+def test_rate_limit_strike_3_no_alt_prompts_add():
+    exc = GenerationDeniedError("Rate limit reached.", kind="rate_limit")
+    setattr(exc, "strikes", 3)
+    setattr(exc, "alt_account", None)
+    setattr(exc, "rate_limit_info", {"hours": 3.0, "resets_at_str": "soon"})
+
+    gpt = _FakeGPT(raise_exc=exc)
+    tg, bot = _bot(gpt=gpt)
+
+    _await(bot.handle_update(_update("/image a mountain peak")))
+    msgs = _msgs(tg)
+    assert len(msgs) >= 1
+    assert "No alternative account is currently available" in msgs[-1][2]
+    assert "acc:add" in str(msgs[-1][3])
+
+
+def test_cookie_file_upload_authenticates_account(tmp_path):
+    import json
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    primary = mgr.find_account("default")
+    assert primary is not None
+    primary.is_authenticated = True
+    mgr._save()
+
+    acc2 = mgr.add_account("WorkAccount")
+    assert not acc2.is_logged_in
+
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    cookie_data = json.dumps([
+        {"name": "__Secure-next-auth.session-token", "value": "test-session-val"},
+        {"name": "_puid", "value": "test-puid-val"},
+    ]).encode("utf-8")
+    tg.downloaded_content = cookie_data
+
+    # User uploads cookies.json file
+    _await(bot.handle_update(_doc_update(file_id="doc_cookies_1", file_name="cookies.json")))
+    assert acc2.id in gpt.logged_in_accounts
+    assert acc2.is_logged_in
+    msgs = _msgs(tg)
+    assert any("ChatGPT Login Successful!" in m[2] and "WorkAccount" in m[2] for m in msgs)
+
+
+def test_cookie_paste_authenticates_account(tmp_path):
+    import json
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    primary = mgr.find_account("default")
+    assert primary is not None
+    primary.is_authenticated = True
+    mgr._save()
+
+    acc2 = mgr.add_account("Backup")
+    assert not acc2.is_logged_in
+
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    cookie_str = json.dumps([
+        {"name": "__Secure-next-auth.session-token", "value": "test-token-value"}
+    ])
+
+    # User pastes raw cookie json string
+    _await(bot.handle_update(_update(cookie_str)))
+    assert acc2.id in gpt.logged_in_accounts
+    assert acc2.is_logged_in
+    msgs = _msgs(tg)
+    assert any("ChatGPT Login Successful!" in m[2] for m in msgs)
+
+
+def test_accounts_login_command_and_prompt(tmp_path):
+    import json
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    acc2 = mgr.add_account("WorkAcc")
+
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. User runs /accounts login WorkAcc
+    _await(bot.handle_update(_update(f"/accounts login {acc2.id}")))
+    msgs = _msgs(tg)
+    assert any("Log in ChatGPT Account:" in m[2] and "WorkAcc" in m[2] for m in msgs)
+
+    # 2. User then pastes cookies
+    cookie_str = json.dumps([{"name": "__Secure-next-auth.session-token", "value": "xyz"}])
+    _await(bot.handle_update(_update(cookie_str)))
+    assert acc2.id in gpt.logged_in_accounts
+    assert acc2.is_logged_in
+
+
+def test_accounts_login_callback_and_submission(tmp_path):
+    import json
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    acc2 = mgr.add_account("DevAcc")
+
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. User clicks login callback
+    _await(bot.handle_update(_callback(f"acc:login:{acc2.id}")))
+    msgs = _msgs(tg)
+    assert any("Log in ChatGPT Account:" in m[2] and "DevAcc" in m[2] for m in msgs)
+
+    # 2. User submits cookies
+    cookie_str = json.dumps([{"name": "__Secure-next-auth.session-token", "value": "dev-token"}])
+    _await(bot.handle_update(_update(cookie_str)))
+    assert acc2.id in gpt.logged_in_accounts
+    assert acc2.is_logged_in
+
+
+def test_cookie_paste_multiple_unauthenticated_picker(tmp_path):
+    import json
+    from chatgpt_bridge.account import AccountManager
+
+    mgr = AccountManager(state_dir=tmp_path)
+    # default account is unauthenticated
+    acc2 = mgr.add_account("SecondAcc")
+    # now 2 accounts are unauthenticated
+
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    cookie_str = json.dumps([{"name": "__Secure-next-auth.session-token", "value": "picker-token"}])
+    # User pastes cookies without prior prompt -> bot asks which account to log in to
+    _await(bot.handle_update(_update(cookie_str)))
+    msgs = _msgs(tg)
+    assert any("Select which account you want to authenticate" in m[2] for m in msgs)
+
+    # User clicks button for SecondAcc
+    _await(bot.handle_update(_callback(f"acc:apply_cookies:{acc2.id}")))
+    assert acc2.id in gpt.logged_in_accounts
+    assert acc2.is_logged_in
+    msgs = _msgs(tg)
+    assert any("ChatGPT Login Successful!" in m[2] and "SecondAcc" in m[2] for m in msgs)
+
+
+def test_retries_command_and_callbacks():
+    gpt = _FakeGPT()
+    gpt.max_retries = 10
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. /retries shows current settings and inline options
+    _await(bot.handle_update(_update("/retries")))
+    msgs = _msgs(tg)
+    assert any("Image Generation Retry Settings" in m[2] and "10x" in m[2] for m in msgs)
+
+    # 2. Update via callback
+    _await(bot.handle_update(_callback("set:retries:5")))
+    assert gpt.max_retries == 5
+
+    # 3. Update via command
+    _await(bot.handle_update(_update("/retries 15")))
+    assert gpt.max_retries == 15
+    msgs2 = _msgs(tg)
+    assert any("Max generation retries updated to: 15x" in m[2] for m in msgs2)
+
+
+def test_cookie_data_never_sent_to_chatgpt_ask():
+    gpt = _FakeGPT()
+    tg, bot = _bot(gpt=gpt)
+
+    # 1. User accidentally pastes cookie data directly in chat -> intercepted by cookie handler, never goes to ask
+    cookie_chunk = '{"domain": ".chatgpt.com", "expirationDate": 1789299999, "name": "other_cookie", "path": "/"}'
+    _await(bot.handle_update(_update(cookie_chunk)))
+    assert len(gpt.asks) == 0
+
+    # 2. User accidentally sends cookie data with /ask -> blocked by safety guard in _run_ask
+    _await(bot.handle_update(_update(f"/ask {cookie_chunk}")))
+    assert len(gpt.asks) == 0
+    msgs = _msgs(tg)
+    assert any("Authentication Data Detected" in m[2] for m in msgs)
+
+
+def test_multichunk_cookie_buffering_stitches_rapid_splits(tmp_path):
+    from chatgpt_bridge.account import AccountManager
+    mgr = AccountManager(state_dir=tmp_path / "state")
+    acc = mgr.add_account("AccMulti")
+    gpt = _FakeGPT(account_manager=mgr)
+    tg, bot = _bot(gpt=gpt)
+
+    bot._set_pending(ALLOWED, f"login_account:{acc.id}")
+
+    full_json = (
+        '[\n'
+        '  {"name": "foo", "value": "bar", "domain": ".chatgpt.com"},\n'
+        '  {"name": "__Secure-next-auth.session-token", "value": "secret_jwt_token_12345", "domain": ".chatgpt.com"}\n'
+        ']'
+    )
+    # Split into 3 arbitrary non-JSON chunks
+    chunk1 = full_json[:30]
+    chunk2 = full_json[30:70]
+    chunk3 = full_json[70:]
+
+    async def run_splits():
+        t1 = asyncio.create_task(bot.handle_update(_update(chunk1, user_id=ALLOWED)))
+        await asyncio.sleep(0.05)
+        t2 = asyncio.create_task(bot.handle_update(_update(chunk2, user_id=ALLOWED)))
+        await asyncio.sleep(0.05)
+        t3 = asyncio.create_task(bot.handle_update(_update(chunk3, user_id=ALLOWED)))
+        await asyncio.gather(t1, t2, t3)
+
+    _await(run_splits())
+
+    assert len(gpt.logged_in_accounts) == 1
+    assert gpt.logged_in_accounts[0] == acc.id
+    msgs = _msgs(tg)
+    assert any("ChatGPT Login Successful!" in m[2] for m in msgs)

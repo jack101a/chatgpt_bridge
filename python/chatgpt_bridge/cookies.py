@@ -112,9 +112,25 @@ def _parse_json(text: str) -> list[dict]:
 
     if isinstance(data, list):
         cookies = data
-    elif isinstance(data, dict) and isinstance(data.get("cookies"), list):
-        # Chrome-extension wrapper object {"url": ..., "cookies": [...]}.
-        cookies = data["cookies"]
+    elif isinstance(data, dict):
+        if isinstance(data.get("cookies"), list):
+            # Chrome-extension wrapper object {"url": ..., "cookies": [...]}.
+            cookies = data["cookies"]
+        elif isinstance(data.get("data"), list):
+            cookies = data["data"]
+        elif any(k == SESSION_COOKIE or k.startswith(f"{SESSION_COOKIE}.") for k in data.keys()):
+            # Flat key-value dict {SESSION_COOKIE: "...", ...}
+            cookies = []
+            for k, v in data.items():
+                if isinstance(v, dict):
+                    cookies.append({"name": k, **v})
+                elif isinstance(v, (str, int, float, bool)):
+                    cookies.append({"name": k, "value": str(v)})
+        else:
+            raise CookieFormatError(
+                "JSON cookie file must be an array of cookies or a "
+                '{"url": ..., "cookies": [...]} wrapper object'
+            )
     else:
         raise CookieFormatError(
             "JSON cookie file must be an array of cookies or a "
@@ -122,6 +138,26 @@ def _parse_json(text: str) -> list[dict]:
         )
 
     return [_normalize_json_cookie(item) for item in cookies]
+
+
+def _parse_header_string(text: str) -> list[dict]:
+    """Parse HTTP 'Cookie:' header or semicolon-separated 'name=val; name2=val2' string."""
+    cleaned = text.strip()
+    if cleaned.lower().startswith("cookie:"):
+        cleaned = cleaned[7:].strip()
+    cookies = []
+    for part in cleaned.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, value = part.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+        if name:
+            cookies.append(_normalize_json_cookie({"name": name, "value": value}))
+    if not cookies:
+        raise CookieFormatError("no key=value pairs found in cookie string")
+    return cookies
 
 
 def _parse_netscape(text: str) -> list[dict]:
@@ -167,6 +203,80 @@ def _parse_netscape(text: str) -> list[dict]:
     return cookies
 
 
+def parse_cookie_text(text: str) -> list[dict]:
+    """Parse cookie text in JSON, Netscape, HTTP Header, or raw session token format."""
+    stripped = text.strip()
+    if not stripped:
+        return []
+    # 1. JSON format (Cookie-Editor, EditThisCookie, Cookiebro, etc.)
+    if stripped.startswith(("{", "[")):
+        return _parse_json(stripped)
+    # 2. Raw JWT session token (e.g. eyJhbGciOi...)
+    if stripped.startswith("eyJ") and len(stripped) > 50 and "\t" not in stripped and "\n" not in stripped:
+        return [_normalize_json_cookie({"name": SESSION_COOKIE, "value": stripped})]
+    # 3. Netscape format (tab-separated or commented lines)
+    if "\t" in stripped or stripped.startswith("#"):
+        try:
+            return _parse_netscape(stripped)
+        except Exception:
+            pass
+    # 4. HTTP Cookie header or semicolon-delimited key=value
+    if "=" in stripped:
+        try:
+            return _parse_header_string(stripped)
+        except Exception:
+            pass
+    # Fallback to Netscape
+    return _parse_netscape(stripped)
+
+
+def is_cookie_content(text: str) -> bool:
+    """Check if a string appears to be exported ChatGPT session cookies or token."""
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if "session-token" in stripped or "__Secure" in stripped:
+        return True
+    if stripped.startswith("[") and ("name" in stripped or "domain" in stripped or "value" in stripped):
+        return True
+    if "#HttpOnly_" in stripped or ("\tTRUE\t" in stripped or "\tFALSE\t" in stripped):
+        return True
+    if stripped.lower().startswith("cookie:") and "=" in stripped:
+        return True
+    if stripped.startswith("eyJ") and len(stripped) > 80 and "." in stripped:
+        return True
+    return False
+
+
+def looks_like_cookie_or_token(text: str) -> bool:
+    """Check if text appears to be cookie data, tokens, or cookie file fragments."""
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if is_cookie_content(stripped):
+        return True
+    lower = stripped.lower()
+    indicators = (
+        "session-token",
+        "__secure",
+        "expirationdate",
+        "samesite",
+        "httponly",
+        '"domain":',
+        "'domain':",
+        '"path":',
+        "cf_clearance",
+        "_puid",
+        "chatgpt.com",
+    )
+    matched = sum(1 for ind in indicators if ind in lower)
+    if matched >= 2:
+        return True
+    if (stripped.startswith(("[{", "{", "[")) or stripped.endswith(("}]", "}"))) and any(ind in lower for ind in indicators):
+        return True
+    return False
+
+
 def load_cookie_file(path: str | Path) -> list[dict]:
     """Load cookies from a Netscape or JSON cookie file.
 
@@ -177,10 +287,7 @@ def load_cookie_file(path: str | Path) -> list[dict]:
     """
     p = Path(path)
     text = p.read_text(encoding="utf-8")
-    stripped = text.lstrip()
-    if stripped.startswith(("{", "[")):
-        return _parse_json(text)
-    return _parse_netscape(text)
+    return parse_cookie_text(text)
 
 
 def cookies_valid(cookies: list[dict]) -> bool:
