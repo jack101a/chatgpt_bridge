@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .core import ChatGPT
@@ -36,6 +37,17 @@ META_FILE = STATE_DIR / "gallery_index.json"
 FAVS_FILE = STATE_DIR / "favorites.json"
 SETTINGS_FILE = STATE_DIR / "settings.json"
 DASH_HTML = Path(__file__).parent / "dashboard.html"
+FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+FRONTEND_DIST_ALT = Path(__file__).parent / "dist"
+
+
+def _get_dist_dir() -> Path | None:
+    if (FRONTEND_DIST / "index.html").exists():
+        return FRONTEND_DIST
+    if (FRONTEND_DIST_ALT / "index.html").exists():
+        return FRONTEND_DIST_ALT
+    return None
+
 
 START_TS = time.time()
 
@@ -57,6 +69,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_dist_dir = _get_dist_dir()
+if _dist_dir and (_dist_dir / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(_dist_dir / "assets")), name="assets")
 
 # Single shared core instance; requests serialized via a lock (single tab).
 _core: ChatGPT | None = None
@@ -213,6 +229,9 @@ def _error_response(exc: Exception) -> JSONResponse:
 @app.get("/dashboard", response_class=HTMLResponse)
 async def serve_dashboard() -> HTMLResponse:
     """Serve the single-page companion dashboard."""
+    dist = _get_dist_dir()
+    if dist and (dist / "index.html").exists():
+        return HTMLResponse((dist / "index.html").read_text(encoding="utf-8"))
     if DASH_HTML.exists():
         return HTMLResponse(DASH_HTML.read_text(encoding="utf-8"))
     return HTMLResponse(
