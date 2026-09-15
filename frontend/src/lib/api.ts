@@ -155,7 +155,17 @@ export const api = {
     }),
 
   // Characters
-  getCharacters: (): Promise<CharacterCard[]> => fetchJson<CharacterCard[]>('/api/characters'),
+  getCharacters: async (): Promise<CharacterCard[]> => {
+    const res = await fetchJson<any>('/api/characters');
+    if (Array.isArray(res)) return res;
+    if (res && Array.isArray(res.characters)) {
+      return res.characters.map((c: any) => ({
+        ...c,
+        is_locked: c.id === res.active_character_id || Boolean(c.is_locked),
+      }));
+    }
+    return [];
+  },
   
   saveCharacter: (char: Partial<CharacterCard>): Promise<CharacterCard> =>
     fetchJson<CharacterCard>('/api/characters', {
@@ -163,10 +173,10 @@ export const api = {
       body: JSON.stringify(char),
     }),
     
-  lockCharacter: (id: string, is_locked: boolean): Promise<{ success: boolean; is_locked: boolean }> =>
+  lockCharacter: (id: string, locked?: boolean): Promise<{ ok: boolean; locked: boolean; character?: CharacterCard }> =>
     fetchJson(`/api/characters/${id}/lock`, {
       method: 'POST',
-      body: JSON.stringify({ is_locked }),
+      body: locked !== undefined ? JSON.stringify({ locked }) : undefined,
     }),
 
   // Prompt Library

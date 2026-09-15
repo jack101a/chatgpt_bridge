@@ -21,6 +21,15 @@ export function CharacterStudioDrawer({ isOpen, onClose, activeCharacter, setAct
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const loadCharacters = async () => {
     try {
       const data = await api.getCharacters();
@@ -51,7 +60,7 @@ export function CharacterStudioDrawer({ isOpen, onClose, activeCharacter, setAct
     try {
       const newState = !char.is_locked;
       const res = await api.lockCharacter(char.id, newState);
-      const updated = { ...char, is_locked: res.is_locked };
+      const updated = { ...char, is_locked: res.locked };
       if (editingChar?.id === char.id) setEditingChar(updated);
       if (activeCharacter?.id === char.id || newState) {
         setActiveCharacter(newState ? updated : null);
@@ -65,8 +74,8 @@ export function CharacterStudioDrawer({ isOpen, onClose, activeCharacter, setAct
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm transition-opacity">
-      <div className="w-full max-w-md h-full bg-white dark:bg-[#1a1a1c] shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm transition-opacity" onClick={onClose}>
+      <div className="w-full max-w-md h-full bg-white dark:bg-[#1a1a1c] shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-white/10">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <UserCircle2 className="w-6 h-6" /> Character Studio
