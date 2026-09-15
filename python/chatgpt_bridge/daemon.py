@@ -1351,6 +1351,7 @@ class FaceCardRandomizePayload(BaseModel):
 class FaceCardGeneratePayload(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
     conversation_id: str | None = None
+    prompt: str | None = None
 
 
 @app.get("/api/cards/face/dictionary")
@@ -1393,7 +1394,7 @@ async def randomize_face_card_endpoint(payload: FaceCardRandomizePayload | None 
 @app.post("/api/cards/face/generate")
 async def generate_face_card_endpoint(payload: FaceCardGeneratePayload) -> dict[str, Any]:
     """Compile prompt and invoke 16:9 image generation engine directly."""
-    prompt = compile_face_card_prompt(payload.data)
+    prompt = payload.prompt.strip() if payload.prompt and payload.prompt.strip() else compile_face_card_prompt(payload.data)
     visual_dna = compile_visual_dna(payload.data)
     req = ImageRequest(
         prompt=prompt,
@@ -1425,6 +1426,7 @@ class BodyCardRandomizePayload(BaseModel):
 class BodyCardGeneratePayload(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
     conversation_id: str | None = None
+    prompt: str | None = None
 
 
 @app.get("/api/cards/body/dictionary")
@@ -1467,7 +1469,7 @@ async def randomize_body_card_endpoint(payload: BodyCardRandomizePayload | None 
 @app.post("/api/cards/body/generate")
 async def generate_body_card_endpoint(payload: BodyCardGeneratePayload) -> dict[str, Any]:
     """Compile prompt and invoke 4:3 full-body image generation engine directly."""
-    prompt = compile_body_card_prompt(payload.data)
+    prompt = payload.prompt.strip() if payload.prompt and payload.prompt.strip() else compile_body_card_prompt(payload.data)
     visual_dna = compile_body_visual_dna(payload.data)
     req = ImageRequest(
         prompt=prompt,
@@ -1485,6 +1487,33 @@ async def generate_body_card_endpoint(payload: BodyCardGeneratePayload) -> dict[
         "prompt": prompt,
         "visual_dna": visual_dna,
         "body_data": payload.data,
+    }
+
+
+class ExpressionCardGeneratePayload(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+    conversation_id: str | None = None
+    prompt: str | None = None
+
+
+@app.post("/api/cards/expression/generate")
+async def generate_expression_card_endpoint(payload: ExpressionCardGeneratePayload) -> dict[str, Any]:
+    """Compile prompt and invoke 4:3 2x3 grid expression card image generation engine directly."""
+    prompt = payload.prompt.strip() if payload.prompt and payload.prompt.strip() else payload.data.get("prompt", "")
+    req = ImageRequest(
+        prompt=prompt,
+        conversation_id=payload.conversation_id,
+        metadata={
+            "card_type": "expression_identity",
+            "expression_data": payload.data,
+        },
+    )
+    result = await image(req)
+    return {
+        "ok": True,
+        "result": result,
+        "prompt": prompt,
+        "expression_data": payload.data,
     }
 
 

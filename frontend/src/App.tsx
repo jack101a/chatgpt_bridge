@@ -55,7 +55,7 @@ export function App() {
   // Ensure initial hash reflects active tab
   useEffect(() => {
     const currentHash = window.location.hash.replace('#', '');
-    if (!currentHash || (currentHash !== 'chat' && currentHash !== 'gallery')) {
+    if (!currentHash || (currentHash !== 'chat' && currentHash !== 'gallery' && currentHash !== 'generator')) {
       window.history.replaceState(null, '', `#${currentTab}`);
     }
     try {
@@ -74,9 +74,11 @@ export function App() {
     }
   }, [isDarkMode]);
 
-  // Default page is always a brand new chat session
+  // Default page initializes a brand new chat session only if user starts on chat tab
   useEffect(() => {
-    bridge.newChat();
+    if (currentTab === 'chat') {
+      bridge.newChat();
+    }
     isInitialLoad.current = false;
   }, []);
 
@@ -316,7 +318,7 @@ export function App() {
 
       {/* ── Main Content Stage ── */}
       <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
-        {currentTab === 'chat' && (
+        <div className={`flex-1 min-h-0 flex flex-col w-full overflow-hidden ${currentTab === 'chat' ? 'flex' : 'hidden'}`}>
           <ChatView
             messages={bridge.messages}
             isGenerating={bridge.isGenerating}
@@ -342,9 +344,9 @@ export function App() {
             onPromptWithImage={handlePromptWithImage}
             onRefresh={handleFullPageRefresh}
           />
-        )}
+        </div>
 
-        {currentTab === 'gallery' && (
+        <div className={`flex-1 min-h-0 flex flex-col w-full overflow-hidden ${currentTab === 'gallery' ? 'flex' : 'hidden'}`}>
           <GalleryView
             items={gallery.items}
             sections={gallery.sections}
@@ -375,9 +377,9 @@ export function App() {
             onPromptWithImage={handlePromptWithImage}
             onToggleChrome={setIsMobileNavVisible}
           />
-        )}
+        </div>
 
-        {currentTab === 'generator' && (
+        <div className={`flex-1 min-h-0 flex flex-col w-full overflow-hidden ${currentTab === 'generator' ? 'flex' : 'hidden'}`}>
           <CardGeneratorView
             characters={characters}
             onRefreshCharacters={fetchCharacters}
@@ -385,7 +387,7 @@ export function App() {
             onOpenViewer={handleOpenViewer}
             onContinueInChat={handleContinueInChat}
           />
-        )}
+        </div>
 
         {/* ── Mobile Bottom Navigation (Visible on < 1024px) ── */}
         <MobileBottomNav

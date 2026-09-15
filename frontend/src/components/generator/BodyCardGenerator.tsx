@@ -19,6 +19,7 @@ import {
   Shield,
   Shirt,
   Sparkle,
+  Pencil,
 } from 'lucide-react';
 import { CharacterCard, ImageResult, GalleryItem } from '../../types';
 import { api, copyToClipboard } from '../../lib/api';
@@ -45,31 +46,29 @@ export function BodyCardGenerator({
   const [formData, setFormData] = useState<Record<string, any>>({
     character_name: 'Kaya',
     gender_presentation: 'woman',
-    age_appearance: 'early 20s',
-    ethnicity_ancestry: ['North Indian / South Asian'],
-    height_impression: 'average',
-    overall_body_type: 'hourglass',
-    body_presence: 'soft feminine',
-    posture: 'relaxed natural',
-    shoulders: 'soft balanced',
-    chest_bust: 'full',
-    arms: 'slender',
-    waist: 'defined',
-    abdomen: 'gentle lower-belly fullness',
-    hips_pelvis: 'rounded',
+    age_appearance: 'mid-20s',
+    ethnicity_ancestry: ['Indian'],
+    height_impression: 'tall-looking',
+    overall_body_type: 'dramatic curvy hourglass',
+    body_presence: 'feminine presence',
+    posture: 'Neutral relaxed standing posture',
+    shoulders: 'soft balanced shoulders',
+    chest_bust: 'a very prominent natural bust',
+    arms: 'soft naturally full arms',
+    waist: 'clearly narrow defined waist',
+    abdomen: 'natural gentle lower-belly softness',
+    abdomen_exclusions: 'without visible abdominal definition or athletic muscularity',
+    hips_pelvis: 'wide rounded hips',
     lower_body: 'rounded',
-    thighs: 'soft',
-    legs: 'balanced',
-    tone: 'medium',
-    undertone: 'golden',
-    texture: 'realistic visible pores',
-    distinctive_features: 'beauty marks',
-    length: 'long',
-    density: 'thick',
-    texture_hair: 'wavy',
-    color: 'black',
-    distinctive_details: 'pulled back neatly into a low ponytail keeping shoulders and neckline clear',
-    style: 'simple fitted tank and shorts',
+    thighs: 'full soft thighs',
+    legs: 'long-looking feminine legs',
+    physique_descriptors: 'soft, plush, curvy, feminine, and naturally proportioned',
+    physique_exclusions: 'not muscular or bodybuilder-like',
+    tone: 'bright natural milky-white',
+    undertone: 'subtle peach-pink warmth',
+    texture: 'realistic human skin texture',
+    distinctive_features: 'none',
+    style: 'skim or NO clothing',
   });
 
   // Collapsible Accordion sections state
@@ -79,10 +78,13 @@ export function BodyCardGenerator({
     upper: false,
     midsection: false,
     lower: false,
+    physique: false,
     skin: false,
-    hair: false,
     attire: false,
   });
+
+  // Custom prompt override state (null = auto-sync with form, string = user manual edits)
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
 
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
@@ -117,108 +119,84 @@ export function BodyCardGenerator({
   const compiledPrompt = useMemo(() => {
     const name = formData.character_name || 'Kaya';
     const gender = formData.gender_presentation || 'woman';
-    const age = formData.age_appearance || 'early 20s';
+    const age = formData.age_appearance || 'mid-20s';
     const ethList = Array.isArray(formData.ethnicity_ancestry)
       ? formData.ethnicity_ancestry.join(', ')
-      : formData.ethnicity_ancestry || 'North Indian / South Asian';
+      : formData.ethnicity_ancestry || 'Indian';
 
-    const heightImp = formData.height_impression || 'average';
-    const bodyType = formData.overall_body_type || 'hourglass';
-    const presence = formData.body_presence || 'soft feminine';
-    const posture = formData.posture || 'relaxed natural';
+    const genderLower = gender.toLowerCase();
+    const pronounPoss = genderLower.includes('woman') || genderLower.includes('feminine')
+      ? 'her'
+      : genderLower.includes('man') || genderLower.includes('masculine')
+      ? 'his'
+      : 'their';
+    const pronounPossCap = pronounPoss.charAt(0).toUpperCase() + pronounPoss.slice(1);
+    const samePersonTerm = genderLower.includes('woman') || genderLower.includes('feminine')
+      ? 'same woman'
+      : genderLower.includes('man') || genderLower.includes('masculine')
+      ? 'same man'
+      : 'same person';
 
-    const shoulders = formData.shoulders || 'soft balanced';
-    const chestBust = formData.chest_bust || 'full';
-    const arms = formData.arms || 'slender';
+    const heightImp = formData.height_impression || 'tall-looking';
+    const bodyPres = formData.body_presence || 'feminine presence';
+    const silhouette = formData.overall_body_type || 'dramatic curvy hourglass';
 
-    const waist = formData.waist || 'defined';
-    const abdomen = formData.abdomen || 'gentle lower-belly fullness';
+    const presParts = [];
+    if (heightImp) presParts.push(heightImp);
+    if (bodyPres && !bodyPres.includes(heightImp)) presParts.push(bodyPres);
+    const presStr = presParts.join(' ');
+    const silStr = silhouette.toLowerCase().includes('silhouette') ? silhouette : `${silhouette} silhouette`;
+    const presenceSilhouette = `${presStr} and ${silStr}`.trim();
 
-    const hips = formData.hips_pelvis || 'rounded';
-    const glute = formData.lower_body || 'rounded';
-    const thighs = formData.thighs || 'soft';
-    const legs = formData.legs || 'balanced';
+    const shoulders = formData.shoulders || 'soft balanced shoulders';
+    const chestBust = formData.chest_bust || 'a very prominent natural bust';
+    const waist = formData.waist || 'clearly narrow defined waist';
+    const hips = formData.hips_pelvis || 'wide rounded hips';
+    const thighs = formData.thighs || 'full soft thighs';
+    const legs = formData.legs || 'long-looking feminine legs';
+    const arms = formData.arms || 'soft naturally full arms';
 
-    const skinTone = formData.tone || 'medium';
-    const skinUnder = formData.undertone || 'golden';
-    const skinTex = formData.texture || 'realistic visible pores';
+    const abdomen = formData.abdomen || 'natural gentle lower-belly softness';
+    const abdomenExcl = formData.abdomen_exclusions || 'without visible abdominal definition or athletic muscularity';
+
+    const physique = formData.physique_descriptors || 'soft, plush, curvy, feminine, and naturally proportioned';
+    const physiqueExcl = formData.physique_exclusions || 'not muscular or bodybuilder-like';
+
+    const attire = formData.style || 'skim or NO clothing';
+    const posture = formData.posture || 'Neutral relaxed standing posture';
+
+    let skinTone = formData.tone || 'bright natural milky-white';
+    if (!skinTone.toLowerCase().includes('skin')) skinTone = `${skinTone} skin`;
+    const skinUnder = formData.undertone || 'subtle peach-pink warmth';
+    const skinTex = formData.texture || 'realistic human skin texture';
     const distinctSkin = formData.distinctive_features || '';
 
-    const hairLen = formData.length || 'long';
-    const hairDens = formData.density || 'thick';
-    const hairTex = formData.texture_hair || 'wavy';
-    const hairCol = formData.color || 'black';
-    const hairArr = formData.distinctive_details || 'pulled back neatly into a low ponytail keeping shoulders and neckline clear';
-
-    const attire = formData.style || 'simple fitted tank and shorts';
-
     const skinDistinctLine = distinctSkin && distinctSkin.toLowerCase() !== 'none'
-      ? `Distinctive skin characteristics: ${distinctSkin}.`
+      ? ` Distinctive skin characteristics: ${distinctSkin}.`
       : '';
 
-    return `Create a high-resolution photorealistic **BODY IDENTITY REFERENCE CARD** for
-${name}, a fictional adult ${ethList} ${gender}
-in their ${age}.
+    return `Create a 4:3 high-resolution photorealistic **BODY IDENTITY REFERENCE CARD** for ${name}, the same fictional adult ${ethList} ${gender} in ${pronounPoss} ${age}.
+Show the **${samePersonTerm}** in three consistent full-body views on one clean reference sheet:
 
-Use a **4:3 landscape image composition** designed specifically as a full-body reference sheet.
+1. front view
+2. left side view
+3. Right side view
+4. back view
 
-At the top center, place only the title:
-
-**BODY IDENTITY REFERENCE CARD**
-
-Below the title, show the SAME person in four consistent full-body views arranged horizontally in four clearly separated panels:
-
-1. front view — label below: **"Front side"**
-2. left side profile — label below: **"Left side"**
-3. back view — label below: **"Back side"**
-4. right side profile — label below: **"Right side"**
-
-Each view must occupy its own **clean rectangular panel with a thin, subtle border**, with equal panel width and consistent spacing. Use a **pure white overall background** and clean white space between the panels.
-
-Keep all four figures at the same body scale, camera distance, vertical alignment, lighting, and rendering quality. Make the complete body clearly visible from head to feet in every view.
-
-Use **minimal, neutral, close-fitting reference attire** (${attire}) that keeps the body's natural silhouette and proportions clearly visible. Avoid bulky, oversized, loose, layered, or distracting clothing that obscures the torso, waist, hips, limbs, or overall body shape.
-
-Height impression is ${heightImp} height impression with balanced skeletal frame.
-Overall body type is ${bodyType} silhouette with natural human proportions.
-Shoulders are ${shoulders} with clean anatomical definition.
-Chest and bust are ${chestBust} with natural shape and proportion.
-Waist is ${waist} with a smooth natural indent.
-Hips and pelvis are ${hips} providing a balanced pelvic contour.
-Thighs are ${thighs} with realistic muscular and soft tissue transition.
-Legs are ${legs} in proportion to the torso, extending down to neutral bare feet or minimal flat soles.
-Arms are ${arms} resting naturally at sides.
-Stomach and abdomen have ${abdomen} without unnatural exaggeration.
-Glutes and lower body have ${glute} fullness visible in side and back profiles.
-Posture and body presence are ${posture} posture with a ${presence} body presence.
-
-Their skin is ${skinTone} with ${skinUnder} undertones, ${skinTex}.
-${skinDistinctLine}
-
-Their hair is ${hairLen}, ${hairDens} density, ${hairTex}, ${hairCol}, with ${hairArr}.
-
-Keep facial styling minimal and consistent so the reference remains primarily focused on physical identity.
-
-Use consistent soft natural lighting, realistic human anatomy, realistic skin texture, natural body detail, accurate proportions, and photorealistic rendering.
-
-Do not slim, enlarge, or otherwise reshape the body beyond the specified physical description. Do not exaggerate body volume or make the character generally heavier or thinner than intended. Preserve the same natural proportions consistently across all four views.
-
-No artificial symmetry, excessive retouching, plastic skin, stylization, perspective distortion, wide-angle distortion, or unrealistic proportions.
-
-No text anywhere on the image except:
-
-* **"BODY IDENTITY REFERENCE CARD"**
-* **"Front side"**
-* **"Left side"**
-* **"Back side"**
-* **"Right side"**
-
-Place each view label neatly below its corresponding panel.
-
-All four views must depict **EXACTLY THE SAME PERSON** with identical body structure, proportions, skin characteristics, height impression, and recognizable physical features.
-
-The side and back views should naturally reveal body depth, shoulder width, torso shape, waist definition, hip structure, limb proportions, and overall silhouette while remaining clearly consistent with the front view.`.trim();
+${name} has a **${presenceSilhouette}** with ${shoulders}, ${chestBust}, ${waist}, ${hips}, ${thighs}, ${legs}, and ${arms}.
+${pronounPossCap} abdomen has **${abdomen}**, ${abdomenExcl}.
+${pronounPossCap} overall physique is **${physique}**, ${physiqueExcl}.
+Use ${attire} that clearly shows ${pronounPoss} natural proportions without being revealing. ${posture}, feet visible, arms naturally positioned.
+Preserve ${pronounPoss} ${skinTone} with ${skinUnder} and ${skinTex}.${skinDistinctLine}
+Plain neutral background, consistent soft natural lighting, realistic anatomy and proportions.
+No slimming, body reshaping, exaggerated curves, muscular enhancement, artificial proportions, beauty filter, or stylization.
+All three views must depict **exactly the same ${gender} with identical body proportions**.
+No text except label of side and title
+Purpose: **BODY LOCK — this image is the primary reference for ${name}'s body proportions, silhouette, and physical structure.**`.trim();
   }, [formData]);
+
+  // Effective prompt is custom if edited, else compiled
+  const effectivePrompt = customPrompt !== null ? customPrompt : compiledPrompt;
 
   // Toggle Accordion section
   const toggleSection = (sec: string) => {
@@ -251,6 +229,7 @@ The side and back views should naturally reveal body depth, shoulder width, tors
       if (res.ok && res.data) {
         setFormData(res.data);
         if (archetypeKey) setSelectedArchetype(archetypeKey);
+        setCustomPrompt(null); // re-sync with freshly randomized data
       }
     } catch (e) {
       console.error('Randomize body error:', e);
@@ -264,12 +243,13 @@ The side and back views should naturally reveal body depth, shoulder width, tors
     setSelectedArchetype(key);
     if (archetypes[key]) {
       setFormData(archetypes[key]);
+      setCustomPrompt(null);
     }
   };
 
   // Copy prompt
   const handleCopyPrompt = async () => {
-    const ok = await copyToClipboard(compiledPrompt);
+    const ok = await copyToClipboard(effectivePrompt);
     if (ok) {
       setCopiedPrompt(true);
       setTimeout(() => setCopiedPrompt(false), 2000);
@@ -284,7 +264,8 @@ The side and back views should naturally reveal body depth, shoulder width, tors
     setGeneratedResult(null);
 
     try {
-      const res = await api.generateBodyCard(formData);
+      const promptToUse = customPrompt !== null && customPrompt.trim() ? customPrompt.trim() : compiledPrompt;
+      const res = await api.generateBodyCard(formData, undefined, promptToUse);
       if (res.ok && res.result) {
         setGeneratedResult(res.result);
         setGeneratedVisualDna(res.visual_dna || '');
@@ -329,6 +310,8 @@ The side and back views should naturally reveal body depth, shoulder width, tors
               arms: formData.arms,
               abdomen: formData.abdomen,
               lower_body: formData.lower_body,
+              physique_descriptors: formData.physique_descriptors,
+              physique_exclusions: formData.physique_exclusions,
               posture: formData.posture,
             },
           },
@@ -358,6 +341,8 @@ The side and back views should naturally reveal body depth, shoulder width, tors
             arms: formData.arms,
             abdomen: formData.abdomen,
             lower_body: formData.lower_body,
+            physique_descriptors: formData.physique_descriptors,
+            physique_exclusions: formData.physique_exclusions,
             posture: formData.posture,
           },
         };
@@ -395,7 +380,7 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                   Body Card Studio
                 </h2>
                 <span className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
-                  4:3 Full-Body 4-View Turnaround Sheet
+                  4:3 Full-Body Reference Turnaround Sheet
                 </span>
               </div>
             </div>
@@ -443,12 +428,11 @@ The side and back views should naturally reveal body depth, shoulder width, tors
               onChange={(e) => handleSelectArchetype(e.target.value)}
               className="flex-1 text-xs py-1.5 px-2.5 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] text-[#0d0d0d] dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
-              <option value="kaya_soft_hourglass">Kaya (Soft Hourglass · South Asian Grace)</option>
+              <option value="kaya_soft_hourglass">Kaya (Dramatic Curvy Hourglass · Indian Grace)</option>
               <option value="freya_athletic_fit">Freya (Athletic Runner · Nordic Power)</option>
               <option value="meiling_petite_curve">Meiling (Petite Grace · East Asian Delicate)</option>
               <option value="amina_statuesque_elegance">Amina (Tall Statuesque · West African Poise)</option>
-              <option value="camila_curvy_radiance">Camila (Curvy Voluptuous · Latin Glow)</option>
-              <option value="astrid_slender_minimalist">Astrid (Slender Minimalist · Tall Lean)</option>
+              <option value="camila_curvy_radiance">Camila (Curvy Radiance · Latin Glow)</option>
             </select>
           </div>
         </div>
@@ -506,7 +490,7 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                       Age Appearance
                     </label>
                     <select
-                      value={formData.age_appearance || 'early 20s'}
+                      value={formData.age_appearance || 'mid-20s'}
                       onChange={(e) => handleFieldChange('age_appearance', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
@@ -528,8 +512,9 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                   </label>
                   <div className="flex flex-wrap gap-1.5 mb-2">
                     {[
-                      'North Indian / South Asian',
+                      'Indian',
                       'South Asian',
+                      'North Indian',
                       'East Asian',
                       'Southeast Asian',
                       'Central Asian',
@@ -588,38 +573,37 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                       Height Impression
                     </label>
                     <select
-                      value={formData.height_impression || 'average'}
+                      value={formData.height_impression || 'tall-looking'}
                       onChange={(e) => handleFieldChange('height_impression', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="petite">petite (compact frame)</option>
-                      <option value="short">short (balanced compact)</option>
-                      <option value="average">average (balanced frame)</option>
-                      <option value="tall">tall (elongated frame)</option>
-                      <option value="very tall">very tall (statuesque)</option>
+                      <option value="tall-looking">tall-looking</option>
+                      <option value="petite">petite</option>
+                      <option value="short">short</option>
+                      <option value="average">average</option>
+                      <option value="tall">tall</option>
+                      <option value="very tall">very tall</option>
+                      <option value="statuesque">statuesque</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                      Overall Body Type
+                      Overall Body Silhouette
                     </label>
                     <select
-                      value={formData.overall_body_type || 'hourglass'}
+                      value={formData.overall_body_type || 'dramatic curvy hourglass'}
                       onChange={(e) => handleFieldChange('overall_body_type', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="hourglass">hourglass (balanced bust/hips, defined waist)</option>
-                      <option value="curvy">curvy (voluptuous curves)</option>
-                      <option value="pear">pear (narrower shoulders, wider hips)</option>
-                      <option value="athletic">athletic (toned, low body fat)</option>
-                      <option value="muscular">muscular (pronounced muscularity)</option>
-                      <option value="lean">lean (slender athletic)</option>
-                      <option value="slim">slim (straight elegant silhouette)</option>
-                      <option value="soft">soft (gentle everyday softness)</option>
-                      <option value="rectangle">rectangle (balanced shoulder/hip)</option>
-                      <option value="inverted triangle">inverted triangle (broad shoulders)</option>
-                      <option value="plus-size">plus-size (full rounded contours)</option>
+                      <option value="dramatic curvy hourglass">dramatic curvy hourglass</option>
+                      <option value="hourglass">hourglass</option>
+                      <option value="soft curvy">soft curvy</option>
+                      <option value="pear">pear</option>
+                      <option value="athletic">athletic</option>
+                      <option value="lean">lean</option>
+                      <option value="slim">slim</option>
+                      <option value="plus-size">plus-size</option>
                     </select>
                   </div>
                 </div>
@@ -627,39 +611,37 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                      Body Presence
+                      Presence Impression
                     </label>
                     <select
-                      value={formData.body_presence || 'soft feminine'}
+                      value={formData.body_presence || 'feminine presence'}
                       onChange={(e) => handleFieldChange('body_presence', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
+                      <option value="feminine presence">feminine presence</option>
                       <option value="soft feminine">soft feminine</option>
-                      <option value="delicate">delicate</option>
                       <option value="curvy feminine">curvy feminine</option>
-                      <option value="natural">natural</option>
-                      <option value="athletic">athletic</option>
-                      <option value="statuesque">statuesque</option>
-                      <option value="strong">strong</option>
-                      <option value="grounded powerful">grounded powerful</option>
+                      <option value="natural presence">natural presence</option>
+                      <option value="athletic presence">athletic presence</option>
+                      <option value="statuesque presence">statuesque presence</option>
+                      <option value="strong presence">strong presence</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                      Posture
+                      Standing Posture
                     </label>
                     <select
-                      value={formData.posture || 'relaxed natural'}
+                      value={formData.posture || 'Neutral relaxed standing posture'}
                       onChange={(e) => handleFieldChange('posture', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
+                      <option value="Neutral relaxed standing posture">Neutral relaxed standing posture</option>
                       <option value="relaxed natural">relaxed natural</option>
-                      <option value="upright">upright</option>
-                      <option value="confident">confident</option>
-                      <option value="elegant">elegant</option>
-                      <option value="casual">casual</option>
-                      <option value="athletic">athletic</option>
+                      <option value="upright confident">upright confident</option>
+                      <option value="poised elegant">poised elegant</option>
+                      <option value="casual everyday">casual everyday</option>
                     </select>
                   </div>
                 </div>
@@ -688,16 +670,16 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                       Shoulders
                     </label>
                     <select
-                      value={formData.shoulders || 'soft balanced'}
+                      value={formData.shoulders || 'soft balanced shoulders'}
                       onChange={(e) => handleFieldChange('shoulders', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="soft balanced">soft balanced</option>
-                      <option value="narrow">narrow</option>
-                      <option value="average">average</option>
-                      <option value="broad">broad</option>
-                      <option value="strong athletic">strong athletic</option>
-                      <option value="delicate sloping">delicate sloping</option>
+                      <option value="soft balanced shoulders">soft balanced shoulders</option>
+                      <option value="narrow soft shoulders">narrow soft shoulders</option>
+                      <option value="average natural shoulders">average natural shoulders</option>
+                      <option value="broad shoulders">broad shoulders</option>
+                      <option value="strong athletic shoulders">strong athletic shoulders</option>
+                      <option value="delicate sloping shoulders">delicate sloping shoulders</option>
                     </select>
                   </div>
 
@@ -706,17 +688,16 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                       Chest / Bust
                     </label>
                     <select
-                      value={formData.chest_bust || 'moderate'}
+                      value={formData.chest_bust || 'a very prominent natural bust'}
                       onChange={(e) => handleFieldChange('chest_bust', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="small">small</option>
-                      <option value="moderate">moderate</option>
-                      <option value="full">full</option>
-                      <option value="very full">very full</option>
-                      <option value="prominent">prominent</option>
-                      <option value="toned athletic pectorals">toned athletic</option>
-                      <option value="broad muscular chest">broad muscular</option>
+                      <option value="a very prominent natural bust">a very prominent natural bust</option>
+                      <option value="a full natural bust">a full natural bust</option>
+                      <option value="a moderate natural bust">a moderate natural bust</option>
+                      <option value="a small delicate bust">a small delicate bust</option>
+                      <option value="prominent rounded bust">prominent rounded bust</option>
+                      <option value="toned athletic pectorals">toned athletic pectorals</option>
                     </select>
                   </div>
                 </div>
@@ -726,16 +707,16 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                     Arms
                   </label>
                   <select
-                    value={formData.arms || 'slender'}
+                    value={formData.arms || 'soft naturally full arms'}
                     onChange={(e) => handleFieldChange('arms', e.target.value)}
                     className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   >
-                    <option value="slender">slender</option>
-                    <option value="soft">soft natural</option>
-                    <option value="average">average</option>
-                    <option value="full">full</option>
-                    <option value="toned">toned athletic</option>
-                    <option value="muscular">muscular</option>
+                    <option value="soft naturally full arms">soft naturally full arms</option>
+                    <option value="slender feminine arms">slender feminine arms</option>
+                    <option value="soft natural arms">soft natural arms</option>
+                    <option value="average toned arms">average toned arms</option>
+                    <option value="lean defined athletic arms">lean defined athletic arms</option>
+                    <option value="muscular arms">muscular arms</option>
                   </select>
                 </div>
               </div>
@@ -763,43 +744,60 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                       Waist Definition
                     </label>
                     <select
-                      value={formData.waist || 'defined'}
+                      value={formData.waist || 'clearly narrow defined waist'}
                       onChange={(e) => handleFieldChange('waist', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="defined">defined</option>
-                      <option value="narrow">narrow</option>
-                      <option value="very narrow">very narrow</option>
-                      <option value="softly defined">softly defined</option>
-                      <option value="straight">straight</option>
-                      <option value="tapered athletic">tapered athletic</option>
+                      <option value="clearly narrow defined waist">clearly narrow defined waist</option>
+                      <option value="narrow defined waist">narrow defined waist</option>
+                      <option value="softly defined waist">softly defined waist</option>
+                      <option value="straight waist">straight waist</option>
+                      <option value="very narrow cinched waist">very narrow cinched waist</option>
+                      <option value="tapered athletic waist">tapered athletic waist</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                      Stomach / Abdomen
+                      Abdomen Softness
                     </label>
                     <select
-                      value={formData.abdomen || 'gentle lower-belly fullness'}
+                      value={formData.abdomen || 'natural gentle lower-belly softness'}
                       onChange={(e) => handleFieldChange('abdomen', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
+                      <option value="natural gentle lower-belly softness">natural gentle lower-belly softness</option>
+                      <option value="flat natural stomach">flat natural stomach</option>
                       <option value="gentle lower-belly fullness">gentle lower-belly fullness</option>
-                      <option value="flat natural">flat natural</option>
-                      <option value="soft">soft</option>
-                      <option value="moderately full">moderately full</option>
-                      <option value="rounded">rounded</option>
-                      <option value="defined athletic">defined athletic</option>
-                      <option value="subtle vertical midline (linea alba)">subtle midline (linea alba)</option>
+                      <option value="soft rounded abdomen">soft rounded abdomen</option>
+                      <option value="moderately full natural abdomen">moderately full natural abdomen</option>
+                      <option value="defined athletic core">defined athletic core</option>
                     </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
+                    Abdomen Muscularity Rule
+                  </label>
+                  <select
+                    value={formData.abdomen_exclusions || 'without visible abdominal definition or athletic muscularity'}
+                    onChange={(e) => handleFieldChange('abdomen_exclusions', e.target.value)}
+                    className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="without visible abdominal definition or athletic muscularity">
+                      without visible abdominal definition or athletic muscularity
+                    </option>
+                    <option value="without muscular definition">without muscular definition</option>
+                    <option value="with subtle vertical core line (linea alba)">with subtle vertical core line (linea alba)</option>
+                    <option value="with defined six-pack abdominals">with defined six-pack abdominals</option>
+                  </select>
                 </div>
               </div>
             )}
           </div>
 
-          {/* 5. Hips, Lower Body & Legs */}
+          {/* 5. Hips, Thighs & Legs */}
           <div className="border border-[#e5e5e5] dark:border-[#27272a] rounded-xl bg-white dark:bg-[#18181b] overflow-hidden shadow-2xs">
             <button
               onClick={() => toggleSection('lower')}
@@ -807,7 +805,7 @@ The side and back views should naturally reveal body depth, shoulder width, tors
             >
               <div className="flex items-center gap-2">
                 <Activity size={15} className="text-emerald-500" />
-                <span className="text-xs font-semibold">5. Hips, Lower Body &amp; Legs</span>
+                <span className="text-xs font-semibold">5. Hips, Thighs &amp; Legs</span>
               </div>
               {openSections.lower ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
@@ -820,22 +818,59 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                       Hips &amp; Pelvis
                     </label>
                     <select
-                      value={formData.hips_pelvis || 'rounded'}
+                      value={formData.hips_pelvis || 'wide rounded hips'}
                       onChange={(e) => handleFieldChange('hips_pelvis', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="rounded">rounded</option>
-                      <option value="moderate">moderate</option>
-                      <option value="narrow">narrow</option>
-                      <option value="wide">wide</option>
-                      <option value="very wide">very wide</option>
+                      <option value="wide rounded hips">wide rounded hips</option>
+                      <option value="rounded feminine hips">rounded feminine hips</option>
+                      <option value="moderate natural hips">moderate natural hips</option>
+                      <option value="narrow compact hips">narrow compact hips</option>
+                      <option value="very wide voluptuous hips">very wide voluptuous hips</option>
                       <option value="high-shelf feminine curve">high-shelf feminine curve</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                      Glute / Lower-Body
+                      Thighs
+                    </label>
+                    <select
+                      value={formData.thighs || 'full soft thighs'}
+                      onChange={(e) => handleFieldChange('thighs', e.target.value)}
+                      className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    >
+                      <option value="full soft thighs">full soft thighs</option>
+                      <option value="soft natural thighs">soft natural thighs</option>
+                      <option value="slender thighs">slender thighs</option>
+                      <option value="moderate balanced thighs">moderate balanced thighs</option>
+                      <option value="strong muscular thighs">strong muscular thighs</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
+                      Legs &amp; Proportions
+                    </label>
+                    <select
+                      value={formData.legs || 'long-looking feminine legs'}
+                      onChange={(e) => handleFieldChange('legs', e.target.value)}
+                      className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    >
+                      <option value="long-looking feminine legs">long-looking feminine legs</option>
+                      <option value="balanced natural legs">balanced natural legs</option>
+                      <option value="long slender legs">long slender legs</option>
+                      <option value="very long statuesque legs">very long statuesque legs</option>
+                      <option value="compact grounded legs">compact grounded legs</option>
+                      <option value="athletic shapely legs">athletic shapely legs</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
+                      Glute Profile
                     </label>
                     <select
                       value={formData.lower_body || 'rounded'}
@@ -844,48 +879,9 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                     >
                       <option value="rounded">rounded</option>
                       <option value="subtle">subtle</option>
-                      <option value="full">full</option>
-                      <option value="prominent">prominent</option>
-                      <option value="athletic">athletic</option>
-                      <option value="generous natural fullness">generous fullness</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                      Thighs
-                    </label>
-                    <select
-                      value={formData.thighs || 'soft'}
-                      onChange={(e) => handleFieldChange('thighs', e.target.value)}
-                      className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    >
-                      <option value="soft">soft</option>
-                      <option value="slender">slender</option>
-                      <option value="moderate">moderate</option>
-                      <option value="full">full</option>
-                      <option value="strong muscular">strong muscular</option>
-                      <option value="athletic quad sweep">athletic quad sweep</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                      Legs &amp; Proportions
-                    </label>
-                    <select
-                      value={formData.legs || 'balanced'}
-                      onChange={(e) => handleFieldChange('legs', e.target.value)}
-                      className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    >
-                      <option value="balanced">balanced</option>
-                      <option value="long-looking">long-looking</option>
-                      <option value="very long-looking">very long-looking</option>
-                      <option value="slender">slender</option>
-                      <option value="athletic">athletic</option>
-                      <option value="short-looking">short-looking</option>
+                      <option value="full prominent">full prominent</option>
+                      <option value="athletic lifted">athletic lifted</option>
+                      <option value="generous natural fullness">generous natural fullness</option>
                     </select>
                   </div>
                 </div>
@@ -893,7 +889,60 @@ The side and back views should naturally reveal body depth, shoulder width, tors
             )}
           </div>
 
-          {/* 6. Skin & Complexion */}
+          {/* 6. Overall Physique & Build */}
+          <div className="border border-[#e5e5e5] dark:border-[#27272a] rounded-xl bg-white dark:bg-[#18181b] overflow-hidden shadow-2xs">
+            <button
+              onClick={() => toggleSection('physique')}
+              className="w-full px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-zinc-800/40 text-left transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Shield size={15} className="text-emerald-500" />
+                <span className="text-xs font-semibold">6. Overall Physique &amp; Build</span>
+              </div>
+              {openSections.physique ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+
+            {openSections.physique && (
+              <div className="p-3.5 pt-0 border-t border-[#f0f0f0] dark:border-[#222225] space-y-3 mt-2">
+                <div>
+                  <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
+                    Physique Character
+                  </label>
+                  <select
+                    value={formData.physique_descriptors || 'soft, plush, curvy, feminine, and naturally proportioned'}
+                    onChange={(e) => handleFieldChange('physique_descriptors', e.target.value)}
+                    className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="soft, plush, curvy, feminine, and naturally proportioned">
+                      soft, plush, curvy, feminine, and naturally proportioned
+                    </option>
+                    <option value="toned, athletic, lean, and balanced">toned, athletic, lean, and balanced</option>
+                    <option value="slender, delicate, fine-boned, and graceful">slender, delicate, fine-boned, and graceful</option>
+                    <option value="voluptuous, full-figured, and generous">voluptuous, full-figured, and generous</option>
+                    <option value="muscular, athletic, and powerful">muscular, athletic, and powerful</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
+                    Physique Negative Exclusions
+                  </label>
+                  <select
+                    value={formData.physique_exclusions || 'not muscular or bodybuilder-like'}
+                    onChange={(e) => handleFieldChange('physique_exclusions', e.target.value)}
+                    className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="not muscular or bodybuilder-like">not muscular or bodybuilder-like</option>
+                    <option value="without excessive leanness or visible veins">without excessive leanness or visible veins</option>
+                    <option value="without artificial bodybuilder hypertrophy">without artificial bodybuilder hypertrophy</option>
+                    <option value="without exaggerated proportions">without exaggerated proportions</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 7. Skin & Complexion */}
           <div className="border border-[#e5e5e5] dark:border-[#27272a] rounded-xl bg-white dark:bg-[#18181b] overflow-hidden shadow-2xs">
             <button
               onClick={() => toggleSection('skin')}
@@ -901,7 +950,7 @@ The side and back views should naturally reveal body depth, shoulder width, tors
             >
               <div className="flex items-center gap-2">
                 <Sparkle size={15} className="text-emerald-500" />
-                <span className="text-xs font-semibold">6. Skin &amp; Complexion</span>
+                <span className="text-xs font-semibold">7. Skin &amp; Complexion</span>
               </div>
               {openSections.skin ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
@@ -914,18 +963,19 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                       Skin Tone
                     </label>
                     <select
-                      value={formData.tone || 'medium'}
+                      value={formData.tone || 'bright natural milky-white'}
                       onChange={(e) => handleFieldChange('tone', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="very fair">very fair</option>
+                      <option value="bright natural milky-white">bright natural milky-white</option>
                       <option value="fair">fair</option>
-                      <option value="light">light</option>
+                      <option value="porcelain">porcelain</option>
+                      <option value="light ivory">light ivory</option>
                       <option value="light-medium">light-medium</option>
-                      <option value="medium">medium</option>
+                      <option value="medium warm honey">medium warm honey</option>
+                      <option value="golden olive">golden olive</option>
                       <option value="tan">tan</option>
-                      <option value="deep">deep</option>
-                      <option value="very deep">very deep</option>
+                      <option value="deep espresso">deep espresso</option>
                     </select>
                   </div>
 
@@ -934,18 +984,17 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                       Undertone
                     </label>
                     <select
-                      value={formData.undertone || 'golden'}
+                      value={formData.undertone || 'subtle peach-pink warmth'}
                       onChange={(e) => handleFieldChange('undertone', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="golden">golden</option>
-                      <option value="warm">warm</option>
+                      <option value="subtle peach-pink warmth">subtle peach-pink warmth</option>
+                      <option value="warm golden">warm golden</option>
+                      <option value="cool pink">cool pink</option>
                       <option value="neutral">neutral</option>
-                      <option value="cool">cool</option>
                       <option value="peach">peach</option>
                       <option value="olive">olive</option>
-                      <option value="pink">pink</option>
-                      <option value="red">red</option>
+                      <option value="golden bronze">golden bronze</option>
                     </select>
                   </div>
                 </div>
@@ -956,116 +1005,34 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                       Texture
                     </label>
                     <select
-                      value={formData.texture || 'realistic visible pores'}
+                      value={formData.texture || 'realistic human skin texture'}
                       onChange={(e) => handleFieldChange('texture', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="realistic visible pores">realistic visible pores</option>
-                      <option value="smooth natural">smooth natural</option>
-                      <option value="soft">soft</option>
+                      <option value="realistic human skin texture">realistic human skin texture</option>
+                      <option value="realistic visible pores and soft skin grain">realistic visible pores</option>
+                      <option value="smooth natural skin">smooth natural skin</option>
+                      <option value="subtly luminous natural hydration">subtly luminous hydration</option>
                       <option value="slightly textured">slightly textured</option>
-                      <option value="freckled">freckled</option>
-                      <option value="subtly luminous natural hydration">subtly luminous</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                      Distinctive Features
+                      Distinctive Characteristics
                     </label>
                     <select
-                      value={formData.distinctive_features || 'beauty marks'}
+                      value={formData.distinctive_features || 'none'}
                       onChange={(e) => handleFieldChange('distinctive_features', e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     >
                       <option value="none">none</option>
                       <option value="beauty marks">beauty marks</option>
                       <option value="freckles across shoulders">freckles across shoulders</option>
-                      <option value="moles">small moles</option>
+                      <option value="small moles">small moles</option>
                       <option value="birthmark">birthmark</option>
-                      <option value="small scars">small scars</option>
                     </select>
                   </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 7. Hair Styling (Unobstructed Reference) */}
-          <div className="border border-[#e5e5e5] dark:border-[#27272a] rounded-xl bg-white dark:bg-[#18181b] overflow-hidden shadow-2xs">
-            <button
-              onClick={() => toggleSection('hair')}
-              className="w-full px-3.5 py-2.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-zinc-800/40 text-left transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Sparkle size={15} className="text-emerald-500" />
-                <span className="text-xs font-semibold">7. Hair Styling (Unobstructed Reference)</span>
-              </div>
-              {openSections.hair ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
-
-            {openSections.hair && (
-              <div className="p-3.5 pt-0 border-t border-[#f0f0f0] dark:border-[#222225] space-y-3 mt-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                      Hair Length
-                    </label>
-                    <select
-                      value={formData.length || 'long'}
-                      onChange={(e) => handleFieldChange('length', e.target.value)}
-                      className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    >
-                      <option value="very short">very short</option>
-                      <option value="short">short</option>
-                      <option value="shoulder length">shoulder length</option>
-                      <option value="long">long</option>
-                      <option value="very long">very long</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                      Hair Color
-                    </label>
-                    <select
-                      value={formData.color || 'black'}
-                      onChange={(e) => handleFieldChange('color', e.target.value)}
-                      className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    >
-                      <option value="black">black</option>
-                      <option value="dark brown">dark brown</option>
-                      <option value="medium brown">medium brown</option>
-                      <option value="light brown">light brown</option>
-                      <option value="blonde">blonde</option>
-                      <option value="red">red</option>
-                      <option value="auburn">auburn</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                    Hair Arrangement (Keep Silhouettes Clear)
-                  </label>
-                  <select
-                    value={formData.distinctive_details || 'pulled back neatly into a low ponytail keeping shoulders and neckline clear'}
-                    onChange={(e) => handleFieldChange('distinctive_details', e.target.value)}
-                    className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  >
-                    <option value="pulled back neatly into a low ponytail keeping shoulders and neckline clear">
-                      low ponytail (shoulders and neckline clear)
-                    </option>
-                    <option value="gathered in a high clean bun keeping torso silhouette fully visible">
-                      high clean bun (torso silhouette fully clear)
-                    </option>
-                    <option value="neatly pinned behind shoulders and back">
-                      neatly pinned behind shoulders and back
-                    </option>
-                    <option value="short crop fully exposing neck and shoulder contour">
-                      short crop (fully exposes neck and shoulders)
-                    </option>
-                  </select>
                 </div>
               </div>
             )}
@@ -1088,15 +1055,16 @@ The side and back views should naturally reveal body depth, shoulder width, tors
               <div className="p-3.5 pt-0 border-t border-[#f0f0f0] dark:border-[#222225] space-y-3 mt-2">
                 <div>
                   <label className="text-[11px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
-                    Minimal Fitted Style
+                    Attire Style
                   </label>
                   <select
-                    value={formData.style || 'simple fitted tank and shorts'}
+                    value={formData.style || 'skim or NO clothing'}
                     onChange={(e) => handleFieldChange('style', e.target.value)}
                     className="w-full text-xs p-2 rounded-lg border border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   >
+                    <option value="skim or NO clothing">skim or NO clothing</option>
+                    <option value="minimal neutral fitted reference clothing">minimal neutral fitted reference clothing</option>
                     <option value="simple fitted tank and shorts">simple fitted tank and shorts</option>
-                    <option value="minimal neutral fitted clothing">minimal neutral fitted clothing</option>
                     <option value="simple fitted top and leggings">simple fitted top and leggings</option>
                     <option value="neutral fitted bodysuit">neutral fitted bodysuit</option>
                     <option value="matte neutral athletic sports top and bike shorts">matte sports top &amp; bike shorts</option>
@@ -1106,7 +1074,7 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                 <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
                   <Info size={14} className="shrink-0 mt-0.5" />
                   <span>
-                    Keep clothing minimal, neutral, close-fitting, and non-distracting so the complete body silhouette and proportions remain clearly visible.
+                    clearly shows her natural proportions without being revealing. Neutral relaxed standing posture, feet visible, arms naturally positioned.
                   </span>
                 </div>
               </div>
@@ -1163,7 +1131,7 @@ The side and back views should naturally reveal body depth, shoulder width, tors
               </span>
             </div>
             <p className="text-xs text-[#6e6e80] dark:text-[#a1a1aa] mt-0.5">
-              Generates 4 separated panels (Front side · Left side · Back side · Right side) with clean borders on pure white background.
+              Generates consistent full-body views (Front, Left side, Right side, Back) on clean reference sheet with exact anatomical lock.
             </p>
           </div>
 
@@ -1200,7 +1168,7 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                   Ready to Render Body Reference Card
                 </h3>
                 <p className="text-xs text-[#6e6e80] dark:text-[#a1a1aa] mt-0.5">
-                  4:3 photorealistic 4-view full-body sheet with Front, Left, Back, and Right side views.
+                  4:3 photorealistic 4-view full-body sheet with Front, Left, Right, and Back side views.
                 </p>
               </div>
             </div>
@@ -1263,7 +1231,7 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                       onOpenViewer({
                         id: generatedResult.image_url.split('/').pop() || 'gen',
                         url: generatedResult.image_url,
-                        prompt: compiledPrompt,
+                        prompt: effectivePrompt,
                         favorite: false,
                         conversation_id: generatedResult.conversation_id,
                         created_at: Date.now() / 1000,
@@ -1316,7 +1284,7 @@ The side and back views should naturally reveal body depth, shoulder width, tors
                     onContinueInChat({
                       id: generatedResult.image_url.split('/').pop() || 'gen',
                       url: generatedResult.image_url,
-                      prompt: compiledPrompt,
+                      prompt: effectivePrompt,
                       favorite: false,
                       conversation_id: generatedResult.conversation_id,
                       created_at: Date.now() / 1000,
@@ -1338,37 +1306,71 @@ The side and back views should naturally reveal body depth, shoulder width, tors
           </div>
         )}
 
-        {/* Live Prompt Preview Box */}
+        {/* Live Prompt Preview / Editor Box */}
         <div className="flex-1 flex flex-col rounded-2xl border border-[#e5e5e5] dark:border-[#27272a] bg-white dark:bg-[#18181b] overflow-hidden shadow-2xs">
           <div className="p-3 px-4 border-b border-[#e5e5e5] dark:border-[#27272a] flex items-center justify-between bg-[#fafafa] dark:bg-[#151518]">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white">
-                Live Compiled Template Prompt
+                Body Reference Prompt
               </span>
+              {customPrompt !== null ? (
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1">
+                  <Pencil size={10} />
+                  <span>Custom Edited</span>
+                </span>
+              ) : (
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-medium flex items-center gap-1">
+                  <Sparkles size={10} />
+                  <span>Auto-Synced</span>
+                </span>
+              )}
               <span className="text-[10px] font-mono text-[#6e6e80] dark:text-[#a1a1aa]">
-                ({compiledPrompt.length} chars)
+                ({effectivePrompt.length} chars)
               </span>
             </div>
 
-            <button
-              onClick={handleCopyPrompt}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-[#6e6e80] dark:text-[#a1a1aa] hover:text-[#0d0d0d] dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
-            >
-              {copiedPrompt ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-              <span>{copiedPrompt ? 'Copied' : 'Copy Prompt'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {customPrompt !== null && (
+                <button
+                  onClick={() => setCustomPrompt(null)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                  title="Revert back to automatically generated prompt from form controls"
+                >
+                  <RotateCcw size={12} />
+                  <span>Revert to Form</span>
+                </button>
+              )}
+
+              <button
+                onClick={handleCopyPrompt}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-[#6e6e80] dark:text-[#a1a1aa] hover:text-[#0d0d0d] dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                {copiedPrompt ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                <span>{copiedPrompt ? 'Copied' : 'Copy Prompt'}</span>
+              </button>
+            </div>
           </div>
 
-          <div className="p-4 flex-1">
-            <pre className="text-xs font-mono whitespace-pre-wrap text-[#4b4b59] dark:text-[#d4d4d8] leading-relaxed bg-[#f9f9fa] dark:bg-[#111113] p-3.5 rounded-xl border border-[#eeeeee] dark:border-[#222226] max-h-[380px] overflow-y-auto">
-              {compiledPrompt}
-            </pre>
+          <div className="p-3.5 flex-1 flex flex-col">
+            <textarea
+              value={effectivePrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              rows={14}
+              placeholder="Live prompt preview or type custom edits directly..."
+              className="w-full flex-1 text-xs font-mono whitespace-pre-wrap text-[#4b4b59] dark:text-[#d4d4d8] leading-relaxed bg-[#f9f9fa] dark:bg-[#111113] p-3.5 rounded-xl border border-[#eeeeee] dark:border-[#222226] resize-y focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[320px]"
+            />
+            <div className="mt-2 flex items-center justify-between text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
+              <span>💡 You can edit text directly in the box above or tweak options in the form on the left.</span>
+              {customPrompt !== null && (
+                <span className="text-amber-600 dark:text-amber-400 font-medium">Manual edits active (engine will use this exact text)</span>
+              )}
+            </div>
           </div>
 
           <div className="p-3 border-t border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#151518] flex items-center justify-between text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
             <div className="flex items-center gap-1">
               <Info size={13} />
-              <span>Standard 4:3 Landscape · 4 Distinct Panels (Front, Left, Back, Right) with Subtle Borders</span>
+              <span>4:3 Landscape · 4 Views (Front, Left, Right, Back) · Body Lock Reference</span>
             </div>
             <span className="font-mono">OpenAI ChatGPT 4o / DALL-E</span>
           </div>

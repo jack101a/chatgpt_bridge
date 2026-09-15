@@ -235,10 +235,10 @@ export const api = {
       body: JSON.stringify({ archetype }),
     }),
 
-  generateFaceCard: (data: Record<string, any>, conversation_id?: string): Promise<FaceCardGenerateResponse> =>
+  generateFaceCard: (data: Record<string, any>, conversation_id?: string, prompt?: string): Promise<FaceCardGenerateResponse> =>
     fetchJson<FaceCardGenerateResponse>('/api/cards/face/generate', {
       method: 'POST',
-      body: JSON.stringify({ data, conversation_id }),
+      body: JSON.stringify({ data, conversation_id, prompt }),
     }),
 
   // Body Identity Reference Card
@@ -257,10 +257,16 @@ export const api = {
       body: JSON.stringify({ archetype }),
     }),
 
-  generateBodyCard: (data: Record<string, any>, conversation_id?: string): Promise<BodyCardGenerateResponse> =>
+  generateBodyCard: (data: Record<string, any>, conversation_id?: string, prompt?: string): Promise<BodyCardGenerateResponse> =>
     fetchJson<BodyCardGenerateResponse>('/api/cards/body/generate', {
       method: 'POST',
-      body: JSON.stringify({ data, conversation_id }),
+      body: JSON.stringify({ data, conversation_id, prompt }),
+    }),
+
+  generateExpressionCard: (data: Record<string, any>, conversation_id?: string, prompt?: string): Promise<any> =>
+    fetchJson('/api/cards/expression/generate', {
+      method: 'POST',
+      body: JSON.stringify({ data, conversation_id, prompt }),
     }),
 };
 

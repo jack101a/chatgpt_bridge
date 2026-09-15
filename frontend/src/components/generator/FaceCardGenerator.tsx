@@ -20,6 +20,7 @@ import {
   Info,
   Loader2,
   Sparkle,
+  Pencil,
 } from 'lucide-react';
 import { CharacterCard, ImageResult, GalleryItem } from '../../types';
 import { api, copyToClipboard } from '../../lib/api';
@@ -108,6 +109,7 @@ export function FaceCardGenerator({
   const [generatedResult, setGeneratedResult] = useState<ImageResult | null>(null);
   const [generatedVisualDna, setGeneratedVisualDna] = useState<string>('');
   const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
 
   // Assignment Modal state
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -320,9 +322,12 @@ All three views must depict **EXACTLY THE SAME PERSON** with identical facial st
 The 3/4 views should naturally reveal facial depth and profile characteristics while remaining clearly consistent with the front view.`.trim();
   }, [formData]);
 
+  const effectivePrompt = customPrompt !== null ? customPrompt : compiledPrompt;
+
   // Dice roll / Randomize
   const handleRandomize = async (archetypeKey?: string) => {
     setIsRolling(true);
+    setCustomPrompt(null);
     try {
       const res = await api.randomizeFaceCard(archetypeKey);
       if (res.ok && res.data) {
@@ -339,6 +344,7 @@ The 3/4 views should naturally reveal facial depth and profile characteristics w
   // Archetype selection change
   const handleSelectArchetype = (key: string) => {
     setSelectedArchetype(key);
+    setCustomPrompt(null);
     if (archetypes[key]) {
       setFormData(archetypes[key]);
     }
@@ -346,7 +352,7 @@ The 3/4 views should naturally reveal facial depth and profile characteristics w
 
   // Copy prompt
   const handleCopyPrompt = async () => {
-    const ok = await copyToClipboard(compiledPrompt);
+    const ok = await copyToClipboard(effectivePrompt);
     if (ok) {
       setCopiedPrompt(true);
       setTimeout(() => setCopiedPrompt(false), 2000);
@@ -361,7 +367,7 @@ The 3/4 views should naturally reveal facial depth and profile characteristics w
     setGeneratedResult(null);
 
     try {
-      const res = await api.generateFaceCard(formData);
+      const res = await api.generateFaceCard(formData, undefined, effectivePrompt);
       if (res.ok && res.result) {
         setGeneratedResult(res.result);
         setGeneratedVisualDna(res.visual_dna || '');
@@ -1736,31 +1742,65 @@ The 3/4 views should naturally reveal facial depth and profile characteristics w
           </div>
         )}
 
-        {/* Live Prompt Preview Box */}
+        {/* Live Prompt Preview / Editor Box */}
         <div className="flex-1 flex flex-col rounded-2xl border border-[#e5e5e5] dark:border-[#27272a] bg-white dark:bg-[#18181b] overflow-hidden shadow-xs">
           <div className="p-3 px-4 border-b border-[#e5e5e5] dark:border-[#27272a] flex items-center justify-between bg-[#fafafa] dark:bg-[#151518]">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white">
-                Live Compiled Template Prompt
+                Face Reference Prompt
               </span>
+              {customPrompt !== null ? (
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1">
+                  <Pencil size={10} />
+                  <span>Custom Edited</span>
+                </span>
+              ) : (
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-medium flex items-center gap-1">
+                  <Sparkles size={10} />
+                  <span>Auto-Synced</span>
+                </span>
+              )}
               <span className="text-[10px] font-mono text-[#6e6e80] dark:text-[#a1a1aa]">
-                ({compiledPrompt.length} chars)
+                ({effectivePrompt.length} chars)
               </span>
             </div>
 
-            <button
-              onClick={handleCopyPrompt}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-[#6e6e80] dark:text-[#a1a1aa] hover:text-[#0d0d0d] dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
-            >
-              {copiedPrompt ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-              <span>{copiedPrompt ? 'Copied' : 'Copy Prompt'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {customPrompt !== null && (
+                <button
+                  onClick={() => setCustomPrompt(null)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                  title="Revert back to automatically generated prompt from form controls"
+                >
+                  <RotateCcw size={12} />
+                  <span>Revert to Form</span>
+                </button>
+              )}
+
+              <button
+                onClick={handleCopyPrompt}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-[#6e6e80] dark:text-[#a1a1aa] hover:text-[#0d0d0d] dark:hover:text-white hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                {copiedPrompt ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                <span>{copiedPrompt ? 'Copied' : 'Copy Prompt'}</span>
+              </button>
+            </div>
           </div>
 
-          <div className="p-4 flex-1">
-            <pre className="text-xs font-mono whitespace-pre-wrap text-[#4b4b59] dark:text-[#d4d4d8] leading-relaxed bg-[#f9f9fa] dark:bg-[#111113] p-3.5 rounded-xl border border-[#eeeeee] dark:border-[#222226] max-h-[380px] overflow-y-auto">
-              {compiledPrompt}
-            </pre>
+          <div className="p-3.5 flex-1 flex flex-col">
+            <textarea
+              value={effectivePrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              rows={14}
+              placeholder="Live prompt preview or type custom edits directly..."
+              className="w-full flex-1 text-xs font-mono whitespace-pre-wrap text-[#4b4b59] dark:text-[#d4d4d8] leading-relaxed bg-[#f9f9fa] dark:bg-[#111113] p-3.5 rounded-xl border border-[#eeeeee] dark:border-[#222226] resize-y focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[320px]"
+            />
+            <div className="mt-2 flex items-center justify-between text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
+              <span>💡 You can edit text directly in the box above or tweak options in the form on the left.</span>
+              {customPrompt !== null && (
+                <span className="text-amber-600 dark:text-amber-400 font-medium">Manual edits active (engine will use this exact text)</span>
+              )}
+            </div>
           </div>
 
           <div className="p-3 border-t border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#151518] flex items-center justify-between text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
