@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Menu, Sparkles, User, UserCheck, Smile } from 'lucide-react';
 import { FaceCardGenerator } from './FaceCardGenerator';
+import { BodyCardGenerator } from './BodyCardGenerator';
 import { CharacterCard, GalleryItem } from '../../types';
 
 interface CardGeneratorViewProps {
@@ -63,9 +64,6 @@ export function CardGeneratorView({
             >
               <UserCheck size={13} />
               <span>Body Card</span>
-              <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-normal">
-                Next
-              </span>
             </button>
 
             <button
@@ -105,23 +103,12 @@ export function CardGeneratorView({
         )}
 
         {activeCardType === 'body' && (
-          <div className="h-full flex flex-col items-center justify-center p-8 text-center bg-[#fafafa] dark:bg-[#141416]">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 mb-4">
-              <UserCheck size={28} />
-            </div>
-            <h3 className="font-semibold text-base text-[#0d0d0d] dark:text-white mb-1">
-              Body Lock Card Generator
-            </h3>
-            <p className="text-xs text-[#6e6e80] dark:text-[#a1a1aa] max-w-sm mb-4">
-              The Body Reference Card generator (Image 2 — body proportions, silhouette, posture, and physical build) is next in our roadmap!
-            </p>
-            <button
-              onClick={() => setActiveCardType('face')}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition-all"
-            >
-              Switch to Face Identity Card
-            </button>
-          </div>
+          <BodyCardGenerator
+            characters={characters}
+            onRefreshCharacters={onRefreshCharacters}
+            onOpenViewer={onOpenViewer}
+            onContinueInChat={onContinueInChat}
+          />
         )}
 
         {activeCardType === 'expression' && (

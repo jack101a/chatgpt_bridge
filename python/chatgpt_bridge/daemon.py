@@ -67,6 +67,13 @@ from .face_dictionary import (
     compile_visual_dna,
     randomize_face,
 )
+from .body_dictionary import (
+    BODY_ARCHETYPES,
+    BODY_DICTIONARY,
+    compile_body_card_prompt,
+    compile_body_visual_dna,
+    randomize_body,
+)
 
 try:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -1404,6 +1411,80 @@ async def generate_face_card_endpoint(payload: FaceCardGeneratePayload) -> dict[
         "prompt": prompt,
         "visual_dna": visual_dna,
         "face_data": payload.data,
+    }
+
+
+class BodyCardDataPayload(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class BodyCardRandomizePayload(BaseModel):
+    archetype: str | None = None
+
+
+class BodyCardGeneratePayload(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+    conversation_id: str | None = None
+
+
+@app.get("/api/cards/body/dictionary")
+async def get_body_card_dictionary() -> dict[str, Any]:
+    """Return dynamic data dictionary schema and harmonized archetype presets for body cards."""
+    return {
+        "ok": True,
+        "dictionary": BODY_DICTIONARY,
+        "archetypes": BODY_ARCHETYPES,
+    }
+
+
+@app.post("/api/cards/body/compile-prompt")
+async def compile_body_card_prompt_endpoint(payload: BodyCardDataPayload) -> dict[str, Any]:
+    """Compile dictionary selections into standard 4:3 prompt template and Visual DNA."""
+    prompt = compile_body_card_prompt(payload.data)
+    visual_dna = compile_body_visual_dna(payload.data)
+    return {
+        "ok": True,
+        "prompt": prompt,
+        "visual_dna": visual_dna,
+    }
+
+
+@app.post("/api/cards/body/randomize")
+async def randomize_body_card_endpoint(payload: BodyCardRandomizePayload | None = None) -> dict[str, Any]:
+    """Generate a coherent randomized body dictionary payload with compiled prompt."""
+    archetype = payload.archetype if payload else None
+    data = randomize_body(archetype)
+    prompt = compile_body_card_prompt(data)
+    visual_dna = compile_body_visual_dna(data)
+    return {
+        "ok": True,
+        "data": data,
+        "prompt": prompt,
+        "visual_dna": visual_dna,
+    }
+
+
+@app.post("/api/cards/body/generate")
+async def generate_body_card_endpoint(payload: BodyCardGeneratePayload) -> dict[str, Any]:
+    """Compile prompt and invoke 4:3 full-body image generation engine directly."""
+    prompt = compile_body_card_prompt(payload.data)
+    visual_dna = compile_body_visual_dna(payload.data)
+    req = ImageRequest(
+        prompt=prompt,
+        conversation_id=payload.conversation_id,
+        metadata={
+            "card_type": "body_identity",
+            "body_data": payload.data,
+            "visual_dna": visual_dna,
+        },
+    )
+    result = await image(req)
+    return {
+        "ok": True,
+        "result": result,
+        "prompt": prompt,
+        "visual_dna": visual_dna,
+        "body_data": payload.data,
     }
 
 

@@ -228,7 +228,7 @@ export interface CharacterCard {
 
 export interface DictionaryField {
   label: string;
-  type: 'text' | 'single_select' | 'multi_select';
+  type: 'text' | 'single_select' | 'multi_select' | 'text_readonly';
   default: any;
   placeholder?: string;
   options?: string[];
@@ -240,6 +240,12 @@ export interface DictionaryCategory {
 }
 
 export interface FaceCardDictionaryResponse {
+  ok: boolean;
+  dictionary: Record<string, DictionaryCategory>;
+  archetypes: Record<string, Record<string, any> & { label?: string }>;
+}
+
+export interface BodyCardDictionaryResponse {
   ok: boolean;
   dictionary: Record<string, DictionaryCategory>;
   archetypes: Record<string, Record<string, any> & { label?: string }>;
@@ -258,12 +264,27 @@ export interface RandomizeFaceResponse {
   visual_dna: string;
 }
 
+export interface RandomizeBodyResponse {
+  ok: boolean;
+  data: Record<string, any>;
+  prompt: string;
+  visual_dna: string;
+}
+
 export interface FaceCardGenerateResponse {
   ok: boolean;
   result: ImageResult;
   prompt: string;
   visual_dna: string;
   face_data: Record<string, any>;
+}
+
+export interface BodyCardGenerateResponse {
+  ok: boolean;
+  result: ImageResult;
+  prompt: string;
+  visual_dna: string;
+  body_data: Record<string, any>;
 }
 
 export interface StoryboardShot {
