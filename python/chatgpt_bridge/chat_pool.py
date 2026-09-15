@@ -19,7 +19,7 @@ from typing import Any
 STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
 POOL_FILE = STATE_DIR / "chat_pool.json"
 
-DEFAULT_MAX_CHATS = 10
+DEFAULT_MAX_CHATS = 25
 
 
 class ChatPoolManager:
@@ -77,7 +77,11 @@ class ChatPoolManager:
 
         Returns the list of conversation IDs that were deleted. Deletion
         failures are logged but do not raise (pruning is best-effort).
+        If ``max_chats <= 0``, pruning is disabled (unlimited).
         """
+        if self.max_chats <= 0:
+            return []
+
         overflow = len(self._ids) - self.max_chats
         if overflow <= 0:
             return []

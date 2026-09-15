@@ -1,0 +1,1882 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Bridge · Command Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{fontFamily:{sans:['Geist','system-ui','sans-serif'],mono:['Geist Mono','monospace']}}}}</script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.x/dist/cdn.min.js"></script>
+<style>
+/* ═══════════════════════════════════════════════════════
+   DESIGN TOKENS
+═══════════════════════════════════════════════════════ */
+:root {
+  /* Light (default — like ChatGPT) */
+  --bg:       #ffffff;
+  --bg-sub:   #f7f7f8;
+  --bg-hover: rgba(0,0,0,.05);
+  --bg-active:rgba(0,0,0,.08);
+  --sidebar:  #f7f7f8;
+  --sidebar-b:#e5e5e5;
+  --border:   #e5e5e5;
+  --border-md:#d0d0d0;
+  --t1:       #0d0d0d;
+  --t2:       #6e6e80;
+  --t3:       #a8a8b8;
+  --chrome:   rgba(255,255,255,.9);
+  --scrim:    rgba(0,0,0,.5);
+  --input-bg: #ffffff;
+  --input-sh: 0 0 0 1px #e5e5e5, 0 2px 8px rgba(0,0,0,.06);
+  --input-sh-f:0 0 0 2px var(--a);
+  --bubble-user: #f4f4f5;
+  --bubble-bot:  transparent;
+  --a:  #10a37f;   /* ChatGPT green */
+  --ah: #0d926e;
+  --ab: rgba(16,163,127,.12);
+  --as: rgba(16,163,127,.25);
+  --green:  #16a34a;
+  --amber:  #d97706;
+  --red:    #dc2626;
+  --r-sm:6px; --r-md:12px; --r-lg:18px; --r-xl:24px; --r-pill:9999px;
+}
+:root[data-theme="dark"] {
+  --bg:       #212121;
+  --bg-sub:   #2b2b2b;
+  --bg-hover: rgba(255,255,255,.06);
+  --bg-active:rgba(255,255,255,.10);
+  --sidebar:  #171717;
+  --sidebar-b:#2b2b2b;
+  --border:   rgba(255,255,255,.10);
+  --border-md:rgba(255,255,255,.18);
+  --t1:       rgba(255,255,255,.95);
+  --t2:       rgba(255,255,255,.52);
+  --t3:       rgba(255,255,255,.28);
+  --chrome:   rgba(33,33,33,.9);
+  --scrim:    rgba(0,0,0,.7);
+  --input-bg: #2b2b2b;
+  --input-sh: 0 0 0 1px rgba(255,255,255,.10);
+  --input-sh-f:0 0 0 2px var(--a);
+  --bubble-user: rgba(255,255,255,.08);
+  --bubble-bot:  transparent;
+}
+html[data-theme="light"]{color-scheme:light}
+html[data-theme="dark"] {color-scheme:dark}
+
+/* ─── Base ─────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{height:100%}
+body{
+  font-family:'Geist',system-ui,sans-serif;
+  background:var(--bg);color:var(--t1);
+  -webkit-font-smoothing:antialiased;
+  overscroll-behavior:none;height:100%;
+  transition:background .2s,color .2s;
+}
+[x-cloak]{display:none!important}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:var(--border-md)}
+*:focus-visible{outline:2px solid var(--a);outline-offset:2px;border-radius:var(--r-sm)}
+input,textarea,select{outline:none}
+
+/* ═══════════════════════════════════════════════════════
+   LAYOUT SHELL — ChatGPT style
+═══════════════════════════════════════════════════════ */
+#shell{
+  display:grid;
+  grid-template-columns:260px 1fr;
+  grid-template-rows:1fr;
+  height:100dvh;
+}
+@media(max-width:1023px){
+  #shell{grid-template-columns:1fr;grid-template-rows:1fr auto}
+  #app-sidebar{display:none}
+  #mobile-nav{display:flex}
+}
+@media(min-width:1024px){#mobile-nav{display:none!important}}
+
+/* ─── Sidebar ───────────────────────────────────── */
+#app-sidebar{
+  background:var(--sidebar);
+  border-right:1px solid var(--sidebar-b);
+  display:flex;flex-direction:column;
+  height:100dvh;overflow:hidden;
+}
+.sidebar-header{
+  padding:12px 12px 8px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.sidebar-scroll{flex:1;overflow-y:auto;padding:0 8px 8px}
+.sidebar-footer{padding:8px;border-top:1px solid var(--sidebar-b)}
+
+.convo-group-label{
+  font-size:11px;font-weight:600;color:var(--t3);
+  text-transform:uppercase;letter-spacing:.08em;
+  padding:10px 8px 4px;
+}
+.convo-item{
+  position:relative;display:flex;align-items:center;
+  border-radius:var(--r-md);margin-bottom:1px;
+}
+.convo-item:hover{background:var(--bg-hover)}
+.convo-item.active{background:var(--bg-active)}
+.convo-btn{
+  flex:1;min-width:0;text-align:left;
+  padding:9px 8px 9px 10px;background:none;border:none;cursor:pointer;
+  font-size:14px;color:var(--t1);font-family:inherit;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+.convo-rename{
+  flex:1;min-width:0;margin:6px 6px 6px 10px;padding:4px 6px;
+  font-size:13px;background:var(--input-bg);border:1px solid var(--a);
+  border-radius:6px;color:var(--t1);outline:none;font-family:inherit;
+}
+.convo-kebab{
+  opacity:0;width:28px;height:28px;flex-shrink:0;margin-right:4px;
+  border-radius:var(--r-sm);background:none;border:none;cursor:pointer;
+  color:var(--t2);font-size:16px;display:flex;align-items:center;justify-content:center;
+  transition:opacity .15s,background .15s;
+}
+.convo-item:hover .convo-kebab,.convo-item.active .convo-kebab{opacity:1}
+.convo-kebab:hover{background:var(--bg-active)}
+.sidebar-nav-item{
+  display:flex;align-items:center;gap:10px;padding:9px 10px;
+  border-radius:var(--r-md);background:none;border:none;cursor:pointer;
+  font-size:14px;color:var(--t2);transition:background .15s,color .15s;
+  width:100%;text-align:left;font-family:inherit;
+}
+.sidebar-nav-item:hover{background:var(--bg-hover);color:var(--t1)}
+.sidebar-nav-item.active{background:var(--bg-active);color:var(--t1);font-weight:500}
+.sidebar-search{
+  display:flex;align-items:center;gap:8px;padding:7px 10px;
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--r-md);
+  margin:0 0 4px;transition:border-color .15s;
+}
+.sidebar-search:focus-within{border-color:var(--a)}
+.sidebar-search input{flex:1;background:transparent;border:none;outline:none;font-size:13px;color:var(--t1);font-family:inherit}
+.sidebar-search input::placeholder{color:var(--t3)}
+.group-label{font-size:11px;font-weight:500;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;padding:12px 10px 4px}
+.popover{
+  position:absolute;min-width:168px;border-radius:10px;padding:5px;z-index:55;
+  background:var(--bg);border:1px solid var(--border);
+  box-shadow:0 8px 32px rgba(0,0,0,.16),0 2px 6px rgba(0,0,0,.08);
+  display:flex;flex-direction:column;gap:1px;right:0;top:34px;
+}
+.popover button{
+  text-align:left;padding:8px 12px;border-radius:8px;font-size:13.5px;
+  color:var(--t1);background:transparent;border:none;cursor:pointer;
+  transition:background .12s;font-family:inherit;
+}
+.popover button:hover{background:var(--bg-hover)}
+.popover button.danger{color:var(--red)}
+
+/* ─── Content pane ──────────────────────────────── */
+.content-pane{
+  display:flex;flex-direction:column;
+  overflow:hidden;height:100dvh;position:relative;
+}
+.view-pane{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+
+/* ─── Chat — ChatGPT style ──────────────────────── */
+#thread-scroll{
+  flex:1;overflow-y:auto;overscroll-behavior:contain;
+}
+.thread-inner{
+  max-width:720px;margin:0 auto;
+  padding:24px 20px 16px;
+}
+/* User message */
+.msg-user-row{display:flex;justify-content:flex-end;margin-bottom:16px}
+.msg-user{
+  max-width:min(85%,560px);background:var(--bubble-user);
+  border-radius:18px;padding:12px 18px;
+  font-size:15px;line-height:1.6;color:var(--t1);
+  white-space:pre-wrap;word-break:break-word;
+}
+/* Bot message — no card, just text like ChatGPT */
+.msg-bot-row{display:flex;align-items:flex-start;gap:12px;margin-bottom:20px}
+.avatar-mark{
+  width:28px;height:28px;border-radius:50%;flex-shrink:0;margin-top:2px;
+  background:linear-gradient(135deg,var(--a),var(--ah));
+  display:flex;align-items:center;justify-content:center;
+}
+.msg-bot-content{flex:1;min-width:0;font-size:15px;line-height:1.7;color:var(--t1)}
+.msg-bot-content p{margin:0 0 10px}
+.msg-bot-content p:last-child{margin-bottom:0}
+.msg-bot-content ul,.msg-bot-content ol{margin:4px 0 12px;padding-left:22px}
+.msg-bot-content li{margin-bottom:4px}
+.msg-bot-content strong{font-weight:600}
+.msg-bot-content code{
+  background:var(--bg-sub);border:1px solid var(--border);
+  padding:1px 6px;border-radius:5px;
+  font-family:'Geist Mono',monospace;font-size:.86em;
+}
+.msg-bot-content pre{
+  background:var(--bg-sub);border:1px solid var(--border);border-radius:10px;
+  padding:14px 16px;overflow-x:auto;margin:8px 0 12px;
+  font-family:'Geist Mono',monospace;font-size:13px;line-height:1.6;
+}
+.msg-bot-content pre code{background:none;border:none;padding:0;font-size:inherit}
+.msg-bot-content a{color:var(--a);text-decoration:underline;text-underline-offset:3px}
+/* Image result card inside chat */
+.chat-img-card{
+  position:relative;border-radius:16px;overflow:hidden;cursor:pointer;
+  display:inline-block;max-width:420px;
+  box-shadow:0 2px 12px rgba(0,0,0,.10);
+  border:1px solid var(--border);
+  transition:box-shadow .2s,transform .2s;
+}
+.chat-img-card:hover{box-shadow:0 8px 32px rgba(0,0,0,.18);transform:translateY(-1px)}
+.chat-img-card img{display:block;width:100%;border-radius:inherit}
+.chat-img-actions{
+  position:absolute;top:8px;right:8px;display:flex;gap:4px;
+  opacity:0;transition:opacity .18s;
+}
+.chat-img-card:hover .chat-img-actions{opacity:1}
+.chat-img-meta{
+  margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-size:12px;color:var(--t3);font-family:'Geist Mono',monospace;
+}
+.chat-img-btns{margin-top:6px;display:flex;align-items:center;gap:12px}
+.chat-img-btns button,.chat-img-btns a{
+  font-size:13px;color:var(--t2);background:none;border:none;cursor:pointer;
+  font-family:inherit;text-decoration:none;transition:color .15s;padding:0;
+}
+.chat-img-btns button:hover,.chat-img-btns a:hover{color:var(--t1)}
+
+/* Typing indicator */
+.typing-dot{
+  width:7px;height:7px;border-radius:50%;background:var(--t3);
+  animation:bounce3 1s ease infinite both;display:inline-block;
+}
+.typing-dot:nth-child(2){animation-delay:.15s}
+.typing-dot:nth-child(3){animation-delay:.3s}
+
+/* ─── Empty state ───────────────────────────────── */
+.empty-state{
+  display:flex;flex-direction:column;align-items:center;
+  text-align:center;padding:60px 24px 32px;
+}
+.suggestions-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+  width:100%;max-width:480px;margin-top:24px;
+}
+@media(max-width:500px){.suggestions-grid{grid-template-columns:1fr}}
+.suggestion-card{
+  text-align:left;padding:14px 16px;border-radius:14px;cursor:pointer;
+  background:var(--bg);border:1px solid var(--border);
+  transition:border-color .15s,box-shadow .15s,transform .15s;
+  font-family:inherit;color:var(--t1);
+}
+.suggestion-card:hover{border-color:var(--border-md);box-shadow:0 4px 16px rgba(0,0,0,.08);transform:translateY(-1px)}
+
+/* ─── Composer ──────────────────────────────────── */
+.composer-wrap{
+  border-top:1px solid var(--border);background:var(--bg);
+  padding:12px 20px;padding-bottom:max(12px,env(safe-area-inset-bottom));
+}
+.composer-inner{max-width:720px;margin:0 auto}
+.composer-box{
+  display:flex;flex-direction:column;
+  background:var(--input-bg);border:1px solid var(--border);border-radius:16px;
+  box-shadow:var(--input-sh);
+  transition:box-shadow .18s;overflow:hidden;
+}
+.composer-box:focus-within{box-shadow:var(--input-sh-f)}
+.composer-rows{padding:12px 14px 6px}
+.composer-textarea{
+  width:100%;background:transparent;border:none;resize:none;
+  font-family:'Geist',system-ui,sans-serif;font-size:15px;line-height:1.55;
+  color:var(--t1);min-height:24px;max-height:200px;overflow-y:auto;outline:none;
+  display:block;
+}
+.composer-textarea::placeholder{color:var(--t3)}
+.composer-mode-row{
+  display:flex;align-items:center;gap:6px;padding:4px 0 2px;flex-wrap:wrap;
+}
+.mode-pill{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:3px 8px 3px 10px;border-radius:var(--r-pill);
+  background:var(--ab);border:1px solid rgba(16,163,127,.2);
+  font-size:12px;color:var(--a);font-weight:500;
+}
+.mode-pill button{background:none;border:none;cursor:pointer;padding:1px;color:var(--t3);line-height:1;font-size:13px}
+.mode-pill button:hover{color:var(--red)}
+.aspect-chip{
+  padding:3px 10px;border-radius:var(--r-pill);
+  background:transparent;border:1px solid var(--border);
+  font-size:12px;color:var(--t2);cursor:pointer;transition:all .15s;white-space:nowrap;font-family:inherit;
+}
+.aspect-chip:hover{border-color:var(--border-md);color:var(--t1)}
+.aspect-chip.active{background:var(--ab);border-color:rgba(16,163,127,.3);color:var(--a)}
+.composer-actions{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:6px 10px 10px;
+}
+.composer-left-btns{display:flex;align-items:center;gap:2px}
+.composer-right-btns{display:flex;align-items:center;gap:6px}
+.send-btn{
+  width:34px;height:34px;border-radius:10px;border:none;cursor:pointer;
+  background:var(--a);color:#fff;display:flex;align-items:center;justify-content:center;
+  transition:background .15s,transform .1s,opacity .15s;flex-shrink:0;
+}
+.send-btn:hover:not(:disabled){background:var(--ah)}
+.send-btn:active{transform:scale(.93)}
+.send-btn:disabled{opacity:.3;cursor:not-allowed}
+
+/* ─── Buttons ───────────────────────────────────── */
+.btn-icon{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;border-radius:var(--r-sm);
+  background:transparent;border:none;color:var(--t2);cursor:pointer;
+  transition:background .12s,color .12s,transform .1s;
+}
+.btn-icon:hover{background:var(--bg-hover);color:var(--t1)}
+.btn-icon:active{transform:scale(.9)}
+.btn-icon.active{background:var(--ab);color:var(--a)}
+.btn-ghost{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:7px 14px;border-radius:var(--r-md);
+  background:transparent;border:1px solid var(--border);color:var(--t1);
+  font-weight:500;cursor:pointer;font-family:inherit;font-size:13px;
+  transition:background .15s,border-color .15s;
+}
+.btn-ghost:hover{background:var(--bg-hover);border-color:var(--border-md)}
+.btn-ghost:disabled{opacity:.35;cursor:not-allowed}
+.btn-primary{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:8px 16px;border-radius:var(--r-md);
+  background:var(--a);color:#fff;border:none;font-weight:500;
+  cursor:pointer;font-family:inherit;font-size:13px;
+  transition:background .15s,transform .1s,opacity .15s;
+}
+.btn-primary:hover{background:var(--ah)}
+.btn-primary:active{transform:scale(.96)}
+.btn-primary:disabled{opacity:.35;cursor:not-allowed}
+.input{
+  background:var(--input-bg);border:1px solid var(--border);border-radius:var(--r-md);
+  color:var(--t1);font-family:inherit;padding:8px 12px;font-size:13px;
+  transition:border-color .15s;
+}
+.input:focus{border-color:var(--a)!important;box-shadow:0 0 0 3px var(--ab)!important}
+.input::placeholder{color:var(--t3)}
+select.input option{background:var(--bg)}
+
+/* ─── Status ────────────────────────────────────── */
+.status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.status-live{background:var(--green)}
+.status-busy{background:var(--amber);animation:pulse 1.2s infinite}
+.status-off {background:var(--t3)}
+
+/* ─── Toggle ────────────────────────────────────── */
+.toggle{
+  position:relative;width:44px;height:24px;border-radius:var(--r-pill);
+  cursor:pointer;background:var(--border-md);border:none;
+  transition:background .2s;flex-shrink:0;padding:0;
+}
+.toggle.on{background:var(--a)}
+.toggle::after{
+  content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;
+  border-radius:50%;background:#fff;
+  transition:transform .18s cubic-bezier(.2,.8,.2,1);
+  box-shadow:0 1px 3px rgba(0,0,0,.25);
+}
+.toggle.on::after{transform:translateX(20px)}
+
+/* ─── Topbar ────────────────────────────────────── */
+#topbar{
+  height:52px;display:flex;align-items:center;padding:0 16px;gap:10px;
+  border-bottom:1px solid var(--border);background:var(--bg);
+  padding-top:env(safe-area-inset-top);position:sticky;top:0;z-index:50;
+}
+
+/* ─── Mobile nav ────────────────────────────────── */
+#mobile-nav{
+  background:var(--bg);border-top:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-around;
+  padding:4px 0 max(8px,env(safe-area-inset-bottom));
+}
+.nav-btn{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:5px 24px;border-radius:var(--r-md);border:none;
+  background:transparent;cursor:pointer;color:var(--t3);
+  transition:color .15s;
+}
+.nav-btn.active{color:var(--a)}
+.nav-btn .nav-icon{width:22px;height:22px;position:relative;display:flex;align-items:center;justify-content:center}
+.nav-pip{position:absolute;bottom:-3px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--a);opacity:0;transition:opacity .2s}
+.nav-btn.active .nav-pip{opacity:1}
+.nav-label{font-size:10px;font-weight:500;font-family:inherit}
+
+/* ─── Gallery ───────────────────────────────────── */
+.masonry{columns:1;column-gap:10px}
+@media(min-width:480px){.masonry{columns:2}}
+@media(min-width:760px){.masonry{columns:3}}
+@media(min-width:1100px){.masonry{columns:4}}
+.masonry>*{break-inside:avoid;margin-bottom:10px}
+.img-card{
+  position:relative;border-radius:14px;overflow:hidden;
+  border:1px solid var(--border);cursor:pointer;
+  transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s;
+}
+.img-card:hover{transform:translateY(-3px);box-shadow:0 16px 48px rgba(0,0,0,.15)}
+.img-card-overlay{
+  position:absolute;inset:0;
+  background:linear-gradient(to top,rgba(0,0,0,.75) 0%,rgba(0,0,0,.1) 50%,transparent 75%);
+  opacity:0;transition:opacity .2s;
+  display:flex;flex-direction:column;justify-content:flex-end;padding:12px;
+}
+.img-card:hover .img-card-overlay{opacity:1}
+.img-card img{display:block;width:100%}
+
+/* ─── Settings ──────────────────────────────────── */
+.settings-card{
+  background:var(--bg);border:1px solid var(--border);border-radius:16px;
+  padding:20px;margin-bottom:12px;
+}
+.settings-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0}
+.settings-row+.settings-row{border-top:1px solid var(--border)}
+.settings-label{font-size:14px;color:var(--t1);font-weight:500}
+.settings-hint{font-size:12px;color:var(--t3);margin-top:2px;line-height:1.5}
+.segmented{display:inline-flex;gap:3px;background:var(--bg-sub);border:1px solid var(--border);border-radius:10px;padding:3px}
+.segmented button{
+  padding:6px 14px;border-radius:7px;font-size:13px;font-weight:500;
+  color:var(--t2);background:none;border:none;cursor:pointer;
+  transition:all .15s;font-family:inherit;
+}
+.segmented button.active{background:var(--bg);color:var(--t1);box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.accent-swatch{
+  width:26px;height:26px;border-radius:50%;border:2px solid transparent;
+  cursor:pointer;transition:transform .15s;flex-shrink:0;
+}
+.accent-swatch:hover{transform:scale(1.12)}
+.accent-swatch.active{box-shadow:0 0 0 3px var(--bg),0 0 0 5px currentColor}
+.storage-track{height:6px;border-radius:3px;background:var(--bg-sub);overflow:hidden;border:1px solid var(--border)}
+.storage-fill{height:100%;border-radius:3px;background:var(--a);transition:width .3s}
+.danger-btn{
+  background:rgba(220,38,38,.06);border:1px solid rgba(220,38,38,.18);
+  color:var(--red);border-radius:var(--r-md);font-size:13px;
+  font-weight:500;padding:8px 14px;cursor:pointer;font-family:inherit;
+  transition:background .15s;
+}
+.danger-btn:hover{background:rgba(220,38,38,.12)}
+
+/* ─── Toast ─────────────────────────────────────── */
+.toast{
+  display:flex;align-items:flex-start;gap:10px;padding:12px 16px;
+  border-radius:14px;max-width:320px;
+  background:var(--bg);border:1px solid var(--border);
+  box-shadow:0 8px 32px rgba(0,0,0,.15);
+  animation:slideR .22s cubic-bezier(.2,.8,.2,1) both;
+  font-size:13.5px;color:var(--t1);line-height:1.4;
+}
+.toast-success{border-color:rgba(22,163,74,.3)}
+.toast-error  {border-color:rgba(220,38,38,.3)}
+.toast-warn   {border-color:rgba(217,119,6,.3)}
+
+/* ─── Drawer ────────────────────────────────────── */
+.drawer-panel{
+  position:fixed;z-index:70;background:var(--bg);
+  bottom:0;left:0;right:0;border-radius:24px 24px 0 0;
+  border:1px solid var(--border);border-bottom:none;
+  box-shadow:0 -8px 48px rgba(0,0,0,.12);
+  max-height:92dvh;overflow-y:auto;
+  animation:slideUp .3s cubic-bezier(.2,.8,.2,1) both;
+}
+@media(min-width:640px){
+  .drawer-panel{
+    top:0;bottom:0;right:0;left:auto;width:420px;
+    max-height:100dvh;border-radius:0;border-left:1px solid var(--border);
+    border-bottom:1px solid var(--border);border-right:none;border-top:none;
+    animation:slideR .3s cubic-bezier(.2,.8,.2,1) both;
+  }
+}
+.drawer-backdrop{position:fixed;inset:0;z-index:69;background:var(--scrim);animation:fadeIn .2s both}
+
+/* ─── Animations ────────────────────────────────── */
+@keyframes fadeIn   {from{opacity:0}to{opacity:1}}
+@keyframes fadeUp   {from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes slideUp  {from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+@keyframes slideR   {from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+@keyframes spin     {to{transform:rotate(360deg)}}
+@keyframes pulse    {0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes bounce3  {0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-5px)}}
+@keyframes shimmer  {to{background-position:-200% 0}}
+.a-fade    {animation:fadeIn  .22s ease both}
+.a-fade-up {animation:fadeUp  .28s cubic-bezier(.2,.8,.2,1) both}
+.a-slide-r {animation:slideR  .28s cubic-bezier(.2,.8,.2,1) both}
+.stagger>*                 {animation:fadeUp .3s cubic-bezier(.2,.8,.2,1) both}
+.stagger>*:nth-child(1)    {animation-delay:.00s}
+.stagger>*:nth-child(2)    {animation-delay:.06s}
+.stagger>*:nth-child(3)    {animation-delay:.12s}
+.stagger>*:nth-child(4)    {animation-delay:.18s}
+.shimmer{
+  background:linear-gradient(110deg,var(--bg-sub) 30%,var(--border) 50%,var(--bg-sub) 70%);
+  background-size:200% 100%;animation:shimmer 1.5s linear infinite;
+}
+
+/* ─── Misc ──────────────────────────────────────── */
+.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clamp-2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+
+/* ═══════════════════════════════════════════════════════
+   PROFESSIONAL IMAGE VIEWER
+   Full-viewport, pan+zoom, no accidental close
+═══════════════════════════════════════════════════════ */
+#viewer{
+  position:fixed;inset:0;z-index:80;
+  background:rgba(0,0,0,.96);
+  display:flex;flex-direction:column;
+  animation:fadeIn .18s ease both;
+  user-select:none;-webkit-user-select:none;
+}
+/* Toolbar top */
+#viewer-toolbar{
+  position:absolute;top:0;left:0;right:0;z-index:10;
+  padding:env(safe-area-inset-top) 12px 0;
+  display:flex;align-items:center;justify-content:space-between;
+  height:calc(56px + env(safe-area-inset-top));
+  background:linear-gradient(to bottom,rgba(0,0,0,.7) 0%,transparent 100%);
+  pointer-events:none;
+}
+#viewer-toolbar>*{pointer-events:all}
+.vt-left,.vt-right{display:flex;align-items:center;gap:4px}
+.vt-btn{
+  width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;
+  background:rgba(255,255,255,.10);color:rgba(255,255,255,.9);
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s,transform .1s;backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+}
+.vt-btn:hover{background:rgba(255,255,255,.20)}
+.vt-btn:active{transform:scale(.9)}
+.vt-counter{
+  font-size:13px;font-family:'Geist Mono',monospace;
+  color:rgba(255,255,255,.6);padding:0 8px;
+}
+/* Bottom toolbar */
+#viewer-bottom{
+  position:absolute;bottom:0;left:0;right:0;z-index:10;
+  padding:0 16px env(safe-area-inset-bottom) 16px;
+  background:linear-gradient(to top,rgba(0,0,0,.75) 0%,transparent 100%);
+  pointer-events:none;
+  min-height:calc(120px + env(safe-area-inset-bottom));
+  display:flex;flex-direction:column;justify-content:flex-end;gap:10px;padding-bottom:max(20px,env(safe-area-inset-bottom));
+}
+#viewer-bottom>*{pointer-events:all}
+.vb-prompt{
+  font-size:13px;color:rgba(255,255,255,.75);line-height:1.5;
+  text-align:center;max-width:600px;margin:0 auto;
+  overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+}
+.vb-meta{
+  display:flex;align-items:center;justify-content:center;gap:12px;
+  font-size:11.5px;font-family:'Geist Mono',monospace;color:rgba(255,255,255,.45);
+}
+.vb-actions{
+  display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;
+}
+.vb-action-btn{
+  display:flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--r-pill);
+  background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.15);
+  color:rgba(255,255,255,.85);font-size:13px;font-weight:500;
+  cursor:pointer;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  transition:background .15s;font-family:inherit;
+}
+.vb-action-btn:hover{background:rgba(255,255,255,.18)}
+.vb-action-btn.fav{color:#fbbf24;border-color:rgba(251,191,36,.3)}
+.vb-action-btn.danger{color:#f87171;border-color:rgba(248,113,113,.25)}
+/* Image stage — takes all remaining height */
+#viewer-stage{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;touch-action:none;cursor:grab;
+}
+#viewer-stage.grabbing{cursor:grabbing}
+#viewer-img{
+  max-width:calc(100vw - 24px);
+  max-height:calc(100dvh - 80px);/* space for toolbars */
+  object-fit:contain;
+  pointer-events:none;
+  will-change:transform;
+  transform-origin:center center;
+  border-radius:4px;
+  transition:none;/* we use JS transform directly */
+}
+/* Prev / Next large hit areas */
+.viewer-nav{
+  position:absolute;top:50%;transform:translateY(-50%);z-index:9;
+  width:56px;height:80px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;pointer-events:all;
+}
+#viewer-prev{left:0}
+#viewer-next{right:0}
+.viewer-nav-inner{
+  width:40px;height:40px;border-radius:50%;
+  background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.15);
+  display:flex;align-items:center;justify-content:center;
+  color:rgba(255,255,255,.9);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  transition:background .15s;
+}
+.viewer-nav:hover .viewer-nav-inner{background:rgba(255,255,255,.22)}
+.viewer-zoom-badge{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:rgba(0,0,0,.6);color:#fff;font-size:12px;font-family:'Geist Mono',monospace;
+  padding:4px 10px;border-radius:var(--r-pill);pointer-events:none;
+  opacity:0;transition:opacity .2s;
+}
+.viewer-zoom-badge.show{opacity:1}
+
+/* ─── scroll progress ───────────────────────────── */
+@supports(animation-timeline:scroll()){
+  #thread-scroll::before{
+    content:'';position:sticky;top:0;left:0;height:2px;display:block;z-index:5;
+    background:var(--a);animation:scaleX linear;animation-timeline:scroll(self);
+    transform-origin:left;width:100%;opacity:.6;
+  }
+}
+</style>
+</head>
+
+<body x-data="bridge()" x-init="init()" @keydown.escape.window="closeAll()">
+
+<!-- ═══════════════════════════════════════════════════════
+     SHELL (no topbar on desktop — ChatGPT style)
+═══════════════════════════════════════════════════════ -->
+<div id="shell">
+
+  <!-- ── SIDEBAR ──────────────────────────────────────── -->
+  <aside id="app-sidebar">
+    <div class="sidebar-header">
+      <div class="flex items-center gap-2">
+        <svg width="26" height="26" viewBox="0 0 26 26" fill="none"><rect width="26" height="26" rx="7" fill="url(#lgs)"/><path d="M8 13l4 4 6-8" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="lgs" x1="0" y1="0" x2="26" y2="26"><stop offset="0%" stop-color="#10a37f"/><stop offset="100%" stop-color="#0d926e"/></linearGradient></defs></svg>
+        <span style="font-size:15px;font-weight:600;color:var(--t1)">Bridge</span>
+      </div>
+      <button @click="newChat()" class="btn-icon" title="New chat">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+
+    <div class="sidebar-scroll">
+      <!-- Search -->
+      <div class="sidebar-search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input x-model="sidebarSearch" placeholder="Search threads" aria-label="Search">
+      </div>
+
+      <!-- Groups -->
+      <template x-for="group in groupedChats" :key="group.label">
+        <div class="mb-1">
+          <p class="group-label" x-text="group.label"></p>
+          <template x-for="c in group.items" :key="c.conversation_id">
+            <div class="convo-item" :class="c.conversation_id===activeConvId&&view==='chat'?'active':''">
+              <template x-if="renamingId!==c.conversation_id">
+                <button @click="openConv(c)" class="convo-btn" x-text="c.title||cut(c.last_prompt||'Thread',46)"></button>
+              </template>
+              <template x-if="renamingId===c.conversation_id">
+                <input :id="'ri-'+c.conversation_id" x-model="renameVal" class="convo-rename"
+                  @keydown.enter="commitRename(c)" @keydown.escape="renamingId=null" @blur="commitRename(c)">
+              </template>
+              <div class="relative">
+                <button @click.stop="menuId=menuId===c.conversation_id?null:c.conversation_id" class="convo-kebab">⋯</button>
+                <div x-show="menuId===c.conversation_id" @click.outside="menuId=null" x-cloak class="popover">
+                  <button @click="startRename(c);menuId=null">Rename</button>
+                  <button @click="exportConv(c);menuId=null">Export as text</button>
+                  <button @click="deleteConv(c);menuId=null" class="danger">Delete</button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+      <p x-show="!filteredChats.length" style="font-size:13px;color:var(--t3);text-align:center;padding:24px 8px">No threads yet</p>
+    </div>
+
+    <div class="sidebar-footer">
+      <!-- Account pill -->
+      <div class="flex items-center gap-2 px-2 py-2 mb-1">
+        <span class="status-dot" :class="telemetry.browser_busy?'status-busy':'status-live'"></span>
+        <span class="truncate" style="font-size:13px;color:var(--t2);font-family:'Geist Mono',monospace" x-text="telemetry.active_account||'—'"></span>
+        <span class="ml-auto" style="font-size:11px;font-family:'Geist Mono',monospace;color:var(--t3)" x-show="wsLive">● live</span>
+      </div>
+      <button @click="view='gallery';sidebarOpen=false" class="sidebar-nav-item" :class="view==='gallery'&&'active'">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Gallery
+      </button>
+      <button @click="view='settings';sidebarOpen=false" class="sidebar-nav-item" :class="view==='settings'&&'active'">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="14" cy="6" r="2.1" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="8" cy="12" r="2.1" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="16" cy="18" r="2.1" fill="currentColor" stroke="none"/></svg>
+        Settings
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── CONTENT PANE ──────────────────────────────────── -->
+  <div class="content-pane">
+
+    <!-- Mobile topbar -->
+    <header id="topbar" class="lg:hidden">
+      <button @click="sidebarOpen=!sidebarOpen" class="btn-icon" aria-label="Menu">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="14" y2="18"/></svg>
+      </button>
+      <svg width="22" height="22" viewBox="0 0 26 26" fill="none"><rect width="26" height="26" rx="7" fill="url(#lgm)"/><path d="M8 13l4 4 6-8" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="lgm" x1="0" y1="0" x2="26" y2="26"><stop offset="0%" stop-color="#10a37f"/><stop offset="100%" stop-color="#0d926e"/></linearGradient></defs></svg>
+      <span class="truncate flex-1" style="font-size:14px;font-weight:600" x-text="topbarTitle"></span>
+      <div class="flex items-center gap-1.5">
+        <span class="status-dot" :class="telemetry.browser_busy?'status-busy':'status-live'"></span>
+        <div class="relative" x-show="view==='chat'&&activeConvId" x-cloak>
+          <button @click="topKebab=!topKebab" class="btn-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="19" r="1" fill="currentColor"/></svg>
+          </button>
+          <div x-show="topKebab" @click.outside="topKebab=false" x-cloak class="popover">
+            <button @click="startRename(activeConv());topKebab=false">Rename</button>
+            <button @click="exportConv(activeConv());topKebab=false">Export</button>
+            <button @click="deleteConv(activeConv());topKebab=false" class="danger">Delete</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Mobile sidebar backdrop -->
+    <div x-show="sidebarOpen" x-cloak @click="sidebarOpen=false" class="fixed inset-0 z-40 a-fade" style="background:var(--scrim)"></div>
+
+    <!-- Mobile sidebar -->
+    <div x-show="sidebarOpen" x-cloak @click.self="sidebarOpen=false" class="fixed inset-0 z-50 lg:hidden">
+      <aside style="position:absolute;left:0;top:0;bottom:0;width:260px;background:var(--sidebar);border-right:1px solid var(--sidebar-b);display:flex;flex-direction:column;overflow:hidden;animation:slideR .25s cubic-bezier(.2,.8,.2,1) both">
+        <div class="sidebar-header">
+          <div class="flex items-center gap-2">
+            <svg width="22" height="22" viewBox="0 0 26 26" fill="none"><rect width="26" height="26" rx="7" fill="url(#lgm2)"/><path d="M8 13l4 4 6-8" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="lgm2" x1="0" y1="0" x2="26" y2="26"><stop offset="0%" stop-color="#10a37f"/><stop offset="100%" stop-color="#0d926e"/></linearGradient></defs></svg>
+            <span style="font-size:15px;font-weight:600;color:var(--t1)">Bridge</span>
+          </div>
+          <button @click="sidebarOpen=false" class="btn-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+        <div class="sidebar-scroll">
+          <div class="sidebar-search"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input x-model="sidebarSearch" placeholder="Search threads"></div>
+          <template x-for="group in groupedChats" :key="group.label">
+            <div class="mb-1">
+              <p class="group-label" x-text="group.label"></p>
+              <template x-for="c in group.items" :key="c.conversation_id">
+                <div class="convo-item" :class="c.conversation_id===activeConvId&&'active'">
+                  <button @click="openConv(c);sidebarOpen=false" class="convo-btn" x-text="c.title||cut(c.last_prompt||'Thread',46)"></button>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+        <div class="sidebar-footer">
+          <button @click="view='gallery';sidebarOpen=false" class="sidebar-nav-item" :class="view==='gallery'&&'active'">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Gallery
+          </button>
+          <button @click="view='settings';sidebarOpen=false" class="sidebar-nav-item" :class="view==='settings'&&'active'">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="14" cy="6" r="2.1" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="8" cy="12" r="2.1" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="16" cy="18" r="2.1" fill="currentColor" stroke="none"/></svg>Settings
+          </button>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ══ CHAT VIEW ══ -->
+    <div x-show="view==='chat'" x-cloak class="view-pane">
+      <div id="thread-scroll" style="flex:1;overflow-y:auto;overscroll-behavior:contain" x-ref="thread">
+        <div class="thread-inner">
+
+          <!-- Empty state -->
+          <div x-show="!chatMsgs.length&&!generating" class="empty-state a-fade-up">
+            <div style="width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,rgba(16,163,127,.15),rgba(13,146,110,.08));border:1px solid rgba(16,163,127,.2);display:flex;align-items:center;justify-content:center;margin-bottom:20px">
+              <svg width="22" height="22" viewBox="0 0 26 26" fill="none"><path d="M8 13l4 4 6-8" stroke="#10a37f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <p style="font-size:20px;font-weight:600;color:var(--t1);margin-bottom:8px">What can I generate today?</p>
+            <p style="font-size:14px;color:var(--t2);max-width:320px;line-height:1.6">
+              Describe an image in plain language. Bridge auto-rotates accounts and retries to deliver the best result.
+            </p>
+            <div class="suggestions-grid stagger">
+              <template x-for="ex in examples" :key="ex">
+                <button @click="prefill(ex)" class="suggestion-card">
+                  <p style="font-size:13px;font-weight:500;color:var(--t1);margin-bottom:2px">Try this</p>
+                  <p style="font-size:13px;color:var(--t2);line-height:1.5" x-text="ex"></p>
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Messages -->
+          <template x-for="m in chatMsgs" :key="m.id">
+            <div class="a-fade-up">
+
+              <!-- User message -->
+              <template x-if="m.role==='user'">
+                <div class="msg-user-row">
+                  <div class="msg-user" x-text="m.content"></div>
+                </div>
+              </template>
+
+              <!-- Bot image result -->
+              <template x-if="m.role==='assistant'&&m.type==='image'">
+                <div class="msg-bot-row">
+                  <div class="avatar-mark">
+                    <svg width="12" height="12" viewBox="0 0 26 26" fill="none"><path d="M8 13l4 4 6-8" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </div>
+                  <div style="flex:1;min-width:0">
+                    <div class="chat-img-card" @click="openLbMsg(m)" style="max-width:min(100%,420px)">
+                      <img :src="m.imageUrl" :alt="m.content" loading="lazy">
+                      <div class="chat-img-actions">
+                        <button @click.stop="toggleFavMsg(m)" class="btn-icon" style="background:rgba(0,0,0,.5);color:rgba(255,255,255,.9);width:30px;height:30px;border-radius:50%" :style="m.fav?'color:#fbbf24':''">★</button>
+                        <a :href="m.imageUrl" download @click.stop class="btn-icon flex" style="background:rgba(0,0,0,.5);color:rgba(255,255,255,.9);width:30px;height:30px;border-radius:50%;text-decoration:none">⬇</a>
+                      </div>
+                    </div>
+                    <div class="chat-img-meta">
+                      <span x-show="m.account" style="color:var(--a);font-weight:500" x-text="m.account"></span>
+                      <span x-show="m.dur" x-text="m.dur?.toFixed(1)+'s'"></span>
+                      <span x-show="m.size" x-text="bytes(m.size)"></span>
+                      <span x-show="(m.retries||1)>1" style="color:var(--amber)" x-text="m.retries+' retries'"></span>
+                    </div>
+                    <div class="chat-img-btns">
+                      <button @click="toggleFavMsg(m)" :style="m.fav?'color:var(--amber)':''" x-text="m.fav?'★ Saved':'☆ Save'"></button>
+                      <button @click="continueFrom(m)">↳ Continue</button>
+                      <button @click="openLbMsg(m)" style="margin-left:auto">⤢ Full view</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Bot text -->
+              <template x-if="m.role==='assistant'&&m.type==='text'">
+                <div class="msg-bot-row">
+                  <div class="avatar-mark">
+                    <svg width="12" height="12" viewBox="0 0 26 26" fill="none"><path d="M8 13l4 4 6-8" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </div>
+                  <div class="msg-bot-content" x-html="md(m.content)"></div>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- Generating -->
+          <div x-show="generating" class="msg-bot-row a-fade-up">
+            <div class="avatar-mark" style="animation:pulse 1.5s infinite">
+              <svg width="12" height="12" viewBox="0 0 26 26" fill="none"><path d="M8 13l4 4 6-8" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <div style="display:flex;gap:4px">
+                  <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
+                </div>
+                <span style="font-size:14px;color:var(--t2)" x-text="progress.status||'Generating…'"></span>
+              </div>
+              <div style="width:200px;height:3px;border-radius:2px;background:var(--bg-sub);overflow:hidden">
+                <div style="height:100%;border-radius:2px;background:var(--a);transition:width .3s ease" :style="`width:${progress.pct||8}%`"></div>
+              </div>
+              <div style="margin-top:6px;font-size:12px;color:var(--t3);font-family:'Geist Mono',monospace">
+                attempt <span x-text="progress.try||1"></span> · <span x-text="(progress.elapsed||0)+'s'"></span> · <span style="color:var(--a)" x-text="telemetry.active_account||'?'"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── COMPOSER ──────────────────────────────────── -->
+      <div class="composer-wrap">
+        <div class="composer-inner">
+          <!-- Continuation badge -->
+          <div x-show="prompt.conv" x-cloak style="margin-bottom:6px;display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px;color:var(--t3)">Continuing thread:</span>
+            <span style="font-size:12px;font-family:'Geist Mono',monospace;color:var(--a)" class="truncate" x-text="prompt.conv?.slice(0,20)+'…'"></span>
+            <button @click="prompt.conv=''" style="margin-left:auto;font-size:12px;color:var(--t3);background:none;border:none;cursor:pointer;font-family:inherit">Clear</button>
+          </div>
+          <div class="composer-box">
+            <div class="composer-rows">
+              <!-- Image mode pill + aspect chips -->
+              <div x-show="composer.mode==='image'" x-cloak class="composer-mode-row">
+                <span class="mode-pill">
+                  Image mode
+                  <button @click="composer.mode='text'" aria-label="Exit">✕</button>
+                </span>
+                <template x-for="opt in aspectOpts" :key="opt.id">
+                  <button @click="composer.aspect=opt.id" class="aspect-chip" :class="composer.aspect===opt.id&&'active'" x-text="opt.label"></button>
+                </template>
+              </div>
+              <!-- Refinement layers -->
+              <div x-show="composer.showLayers" x-cloak style="margin-bottom:8px">
+                <input x-model="prompt.t1" placeholder="Layer 1 — style / softening (optional)" class="input w-full mb-2 text-[12px]" style="font-family:'Geist Mono',monospace;padding:7px 10px">
+                <input x-model="prompt.t2" placeholder="Layer 2 — deep refinement (optional)" class="input w-full text-[12px]" style="font-family:'Geist Mono',monospace;padding:7px 10px">
+              </div>
+              <textarea x-model="composer.text" x-ref="promptInput"
+                @input="grow($event.target)"
+                @keydown.enter.exact.prevent="send()"
+                @keydown.meta.enter.prevent="send()"
+                :placeholder="composer.mode==='image'?'Describe the image to generate…':'Message Bridge…'"
+                rows="1" aria-label="Prompt" class="composer-textarea"></textarea>
+            </div>
+            <div class="composer-actions">
+              <div class="composer-left-btns">
+                <!-- Image mode toggle -->
+                <button @click="toggleImgMode()" class="btn-icon" :class="composer.mode==='image'&&'active'" title="Image mode">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </button>
+                <!-- Layers toggle -->
+                <button @click="composer.showLayers=!composer.showLayers" class="btn-icon" :class="composer.showLayers&&'active'" title="Prompt layers">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                </button>
+              </div>
+              <div class="composer-right-btns">
+                <span x-show="composer.text.trim()" style="font-size:11px;color:var(--t3)">⏎ send</span>
+                <button @click="send()" :disabled="generating||!composer.text.trim()" class="send-btn" aria-label="Send">
+                  <svg x-show="!generating" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor"/></svg>
+                  <svg x-show="generating" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin .8s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <p style="text-align:center;font-size:11px;color:var(--t3);margin-top:6px">Bridge may auto-switch accounts and retry on rate-limit</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ GALLERY VIEW ══ -->
+    <div x-show="view==='gallery'" x-cloak class="view-pane">
+      <div style="flex:1;overflow-y:auto">
+        <div style="max-width:1400px;margin:0 auto;padding:20px 16px">
+          <div class="flex flex-wrap items-center gap-2 mb-5">
+            <div class="flex gap-1.5">
+              <button @click="gFilter='all';resetGallery();loadGallery()" class="btn-ghost" :class="gFilter==='all'&&'!border-[var(--a)] !text-[var(--a)]'" style="font-size:12.5px;padding:6px 12px">All</button>
+              <button @click="gFilter='today';resetGallery();loadGallery()" class="btn-ghost" :class="gFilter==='today'&&'!border-[var(--a)] !text-[var(--a)]'" style="font-size:12.5px;padding:6px 12px">Today</button>
+              <button @click="gFilter='favorites';resetGallery();loadGallery()" class="btn-ghost" :class="gFilter==='favorites'&&'!border-[var(--a)] !text-[var(--a)]'" style="font-size:12.5px;padding:6px 12px">Saved</button>
+            </div>
+            <input x-model="gSearch" @input="filterGallery()" placeholder="Search prompts…" class="input" style="max-width:200px;padding:6px 12px;font-size:13px">
+            <select x-model="gConvFilter" @change="resetGallery();loadGallery()" class="input" style="max-width:160px;padding:6px 10px;font-size:13px">
+              <option value="">All threads</option>
+              <template x-for="c in chats" :key="c.conversation_id"><option :value="c.conversation_id" x-text="cut(c.last_prompt||c.conversation_id,28)"></option></template>
+            </select>
+            <span style="font-size:12px;color:var(--t3);font-family:'Geist Mono',monospace;margin-left:auto" x-text="displayedGallery.length+' images'"></span>
+          </div>
+          <div class="masonry">
+            <template x-for="img in displayedGallery" :key="img.id">
+              <div class="img-card a-fade-up" @click="openLb(img)">
+                <img :src="img.url" :alt="img.prompt||''" loading="lazy">
+                <div class="img-card-overlay">
+                  <p class="clamp-2" style="font-size:12px;color:rgba(255,255,255,.9);line-height:1.4" x-text="img.prompt||'Historical generation'"></p>
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:11px;font-family:'Geist Mono',monospace;color:rgba(255,255,255,.55)">
+                    <span x-text="img.account_used||'—'"></span><span>·</span><span x-text="ago(img.created_at)"></span>
+                    <span x-show="img.favorite" style="margin-left:auto;color:#fbbf24">★</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <!-- Skeletons -->
+            <template x-if="gLoading&&!displayedGallery.length">
+              <template x-for="h in [200,280,160,240,300,180,220,260]" :key="h">
+                <div class="shimmer rounded-xl" :style="`height:${h}px;border:1px solid var(--border)`"></div>
+              </template>
+            </template>
+          </div>
+          <div x-show="!displayedGallery.length&&!gLoading" class="flex flex-col items-center py-24 text-center a-fade">
+            <div style="width:52px;height:52px;border-radius:16px;background:var(--bg-sub);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;margin-bottom:16px;color:var(--t3)">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            </div>
+            <p style="color:var(--t2);font-size:14px;margin-bottom:10px" x-text="gallery.length?'No images match your search.':'No images generated yet.'"></p>
+            <button x-show="!gallery.length" @click="view='chat'" class="btn-primary">Start generating</button>
+          </div>
+          <div x-show="gNextCursor" style="text-align:center;padding:28px">
+            <button @click="loadGallery()" :disabled="gLoading" class="btn-ghost" style="padding:10px 24px">Load more</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ SETTINGS VIEW ══ -->
+    <div x-show="view==='settings'" x-cloak class="view-pane">
+      <div style="flex:1;overflow-y:auto">
+        <div style="max-width:660px;margin:0 auto;padding:24px 20px 48px">
+
+          <!-- Appearance -->
+          <div class="settings-card">
+            <p style="font-size:15px;font-weight:600;margin-bottom:4px">Appearance</p>
+            <p class="settings-hint" style="margin-bottom:16px">How Bridge looks on this device.</p>
+            <div class="settings-row">
+              <span class="settings-label">Theme</span>
+              <div class="segmented">
+                <button @click="setTheme('light')" :class="appTheme==='light'&&'active'">Light</button>
+                <button @click="setTheme('dark')" :class="appTheme==='dark'&&'active'">Dark</button>
+                <button @click="setTheme('system')" :class="appTheme==='system'&&'active'">System</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Accent</span>
+              <div class="flex items-center gap-2.5">
+                <template x-for="opt in accentOpts" :key="opt.id">
+                  <button @click="setAccent(opt.id)" class="accent-swatch" :class="appAccent===opt.id&&'active'" :style="`background:${opt.color};color:${opt.color}`" :aria-label="opt.label"></button>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- Engine -->
+          <div class="settings-card">
+            <p style="font-size:15px;font-weight:600;margin-bottom:16px">Engine &amp; Accounts</p>
+            <div class="settings-row">
+              <div><p class="settings-label">Active account</p><p class="settings-hint" style="font-family:'Geist Mono',monospace" x-text="telemetry.active_account||'—'"></p></div>
+              <span class="status-dot" :class="telemetry.browser_busy?'status-busy':'status-live'" style="width:9px;height:9px"></span>
+            </div>
+            <div class="settings-row">
+              <div><p class="settings-label">Auto account switching</p><p class="settings-hint">Rotates on rate-limit.</p></div>
+              <button @click="patchSettings({auto_switch:!settings.auto_switch})" class="toggle" :class="settings.auto_switch&&'on'" role="switch" :aria-checked="settings.auto_switch"></button>
+            </div>
+            <div class="settings-row">
+              <p class="settings-label">Max retries</p>
+              <input type="number" min="1" max="30" :value="settings.max_retries||10" @change="patchSettings({max_retries:+$event.target.value})" class="input" style="width:70px;text-align:center;font-family:'Geist Mono',monospace">
+            </div>
+            <!-- Accounts -->
+            <div class="space-y-3 mt-4">
+              <template x-for="a in accounts" :key="a.id">
+                <div class="rounded-xl p-4" :style="a.is_active?'background:rgba(16,163,127,.06);border:1px solid rgba(16,163,127,.2)':'background:var(--bg-sub);border:1px solid var(--border)'">
+                  <div class="flex items-center justify-between gap-2 mb-3">
+                    <div class="min-w-0">
+                      <p class="truncate" style="font-size:13px;font-weight:600" x-text="a.alias||a.id"></p>
+                      <p class="truncate" style="font-size:11px;color:var(--t3);font-family:'Geist Mono',monospace" x-text="a.email||''"></p>
+                    </div>
+                    <span style="font-size:11.5px;padding:3px 10px;border-radius:var(--r-pill);font-weight:500;white-space:nowrap" :style="acctPill(a).style" x-text="acctPill(a).label"></span>
+                  </div>
+                  <div class="grid grid-cols-3 gap-2 mb-3">
+                    <template x-for="stat in acctStats(a)" :key="stat.k">
+                      <div style="border-radius:10px;background:var(--bg);border:1px solid var(--border);padding:8px 0;text-align:center">
+                        <p style="font-size:15px;font-weight:600;line-height:1" :style="`color:${stat.color}`" x-text="stat.v"></p>
+                        <p style="font-size:10px;color:var(--t3);margin-top:3px" x-text="stat.k"></p>
+                      </div>
+                    </template>
+                  </div>
+                  <button @click="switchTo(a)" :disabled="a.is_active" class="w-full py-2 rounded-lg text-[13px] font-medium"
+                    :class="a.is_active?'':'btn-ghost'"
+                    :style="a.is_active?'background:rgba(16,163,127,.1);border:1px solid rgba(16,163,127,.2);color:var(--a);cursor:default;border-radius:var(--r-md)':''"
+                    x-text="a.is_active?'● Active':'Switch to this account'"></button>
+                </div>
+              </template>
+            </div>
+            <button @click="cookiesOpen=true" class="btn-ghost w-full mt-3" style="gap:6px">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Import cookies
+            </button>
+          </div>
+
+          <!-- Notifications -->
+          <div class="settings-card">
+            <p style="font-size:15px;font-weight:600;margin-bottom:16px">Notifications</p>
+            <div class="settings-row">
+              <div><p class="settings-label">Sound on completion</p><p class="settings-hint">Soft chime when done.</p></div>
+              <button @click="appSoundOn=!appSoundOn;savePrefs()" class="toggle" :class="appSoundOn&&'on'"></button>
+            </div>
+            <div class="settings-row">
+              <div><p class="settings-label">Toast messages</p><p class="settings-hint">Status notifications.</p></div>
+              <button @click="appToastsOn=!appToastsOn;savePrefs()" class="toggle" :class="appToastsOn&&'on'"></button>
+            </div>
+          </div>
+
+          <!-- Telemetry -->
+          <div class="settings-card">
+            <p style="font-size:15px;font-weight:600;margin-bottom:16px">Engine telemetry</p>
+            <div class="grid grid-cols-3 gap-3">
+              <template x-for="s in [{k:'Uptime',v:dur(telemetry.uptime_s)},{k:'Generated',v:telemetry.total_images||0},{k:'Status',v:telemetry.browser_busy?'BUSY':'IDLE',color:telemetry.browser_busy?'var(--amber)':'var(--green)'}]" :key="s.k">
+                <div style="border-radius:12px;background:var(--bg-sub);border:1px solid var(--border);padding:14px 0;text-align:center">
+                  <p style="font-size:18px;font-weight:600;font-family:'Geist Mono',monospace" :style="`color:${s.color||'var(--t1)'}`" x-text="s.v"></p>
+                  <p style="font-size:11px;color:var(--t3);margin-top:4px" x-text="s.k"></p>
+                </div>
+              </template>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div><!-- .content-pane -->
+</div><!-- #shell -->
+
+<!-- ═══════════════════════════════════════════════════════
+     MOBILE BOTTOM NAV
+═══════════════════════════════════════════════════════ -->
+<nav id="mobile-nav" role="navigation">
+  <button @click="view='chat'" class="nav-btn" :class="view==='chat'&&'active'">
+    <div class="nav-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg><div class="nav-pip"></div></div>
+    <span class="nav-label">Chat</span>
+  </button>
+  <button @click="view='gallery'" class="nav-btn" :class="view==='gallery'&&'active'">
+    <div class="nav-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><div class="nav-pip"></div></div>
+    <span class="nav-label">Gallery</span>
+  </button>
+  <button @click="view='settings'" class="nav-btn" :class="view==='settings'&&'active'">
+    <div class="nav-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg><div class="nav-pip"></div></div>
+    <span class="nav-label">Settings</span>
+  </button>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════
+     PROFESSIONAL IMAGE VIEWER
+═══════════════════════════════════════════════════════ -->
+<div id="viewer" x-show="lv.open" x-cloak>
+
+  <!-- Stage (touch target) -->
+  <div id="viewer-stage" x-ref="stage"
+    @mousedown="stageMouseDown($event)"
+    @mousemove="stageMouseMove($event)"
+    @mouseup="stageMouseUp($event)"
+    @mouseleave="stageMouseUp($event)"
+    @wheel.prevent="stageWheel($event)"
+    @dblclick="stageDouble()">
+    <img id="viewer-img" x-ref="vimg"
+      :src="currentVImg?.url" :alt="currentVImg?.prompt||''"
+      x-show="currentVImg"
+      @load="imgLoaded()"
+      @error="$event.target.style.opacity='.3'">
+    <div id="viewer-zoom-badge" x-ref="zbadge" x-text="Math.round(vi.z*100)+'%'"></div>
+  </div>
+
+  <!-- Top toolbar -->
+  <div id="viewer-toolbar">
+    <div class="vt-left">
+      <button @click="lv.open=false" class="vt-btn" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <span class="vt-counter" x-show="displayedGallery.length>1" x-text="(lv.index+1)+' / '+displayedGallery.length"></span>
+    </div>
+    <div class="vt-right">
+      <button @click="vi.rotate=(vi.rotate-90+360)%360;applyVT()" class="vt-btn" title="Rotate left">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+      <button @click="vi.rotate=(vi.rotate+90)%360;applyVT()" class="vt-btn" title="Rotate right">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+      </button>
+      <button @click="zoomStep(-1)" class="vt-btn" title="Zoom out">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+      </button>
+      <button @click="zoomStep(1)" class="vt-btn" title="Zoom in">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+      </button>
+      <button @click="resetVT()" class="vt-btn" title="Fit to screen">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Prev / Next nav -->
+  <div id="viewer-prev" class="viewer-nav" @click="lvStep(-1)" x-show="displayedGallery.length>1">
+    <div class="viewer-nav-inner"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></div>
+  </div>
+  <div id="viewer-next" class="viewer-nav" @click="lvStep(1)" x-show="displayedGallery.length>1">
+    <div class="viewer-nav-inner"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></div>
+  </div>
+
+  <!-- Bottom info + actions -->
+  <div id="viewer-bottom">
+    <template x-if="currentVImg">
+      <div>
+        <p class="vb-prompt" x-text="currentVImg.prompt||'Historical generation'"></p>
+        <div class="vb-meta">
+          <span x-show="currentVImg.account_used" x-text="currentVImg.account_used"></span>
+          <template x-if="currentVImg.account_used&&(currentVImg.duration_s||currentVImg.size_bytes)"><span>·</span></template>
+          <span x-show="currentVImg.duration_s" x-text="currentVImg.duration_s?.toFixed(1)+'s'"></span>
+          <span x-show="currentVImg.size_bytes" x-text="bytes(currentVImg.size_bytes)"></span>
+        </div>
+        <div class="vb-actions">
+          <button @click="toggleFavLb()" class="vb-action-btn" :class="currentVImg?.favorite&&'fav'"
+            x-text="currentVImg?.favorite?'★ Saved':'☆ Save'"></button>
+          <button @click="continueFrom(currentVImg);lv.open=false" class="vb-action-btn">↳ Continue</button>
+          <a :href="currentVImg?.url" download class="vb-action-btn" style="text-decoration:none">⬇ Download</a>
+          <button @click="clipCopy(currentVImg?.prompt,'Prompt copied')" class="vb-action-btn">Copy prompt</button>
+          <button @click="deleteLbImg()" class="vb-action-btn danger">Delete</button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     COOKIE DRAWER
+═══════════════════════════════════════════════════════ -->
+<div x-show="cookiesOpen" x-cloak>
+  <div class="drawer-backdrop" @click="cookiesOpen=false"></div>
+  <div class="drawer-panel">
+    <div style="padding:20px 20px 0">
+      <div class="sm:hidden" style="width:36px;height:4px;border-radius:2px;background:var(--border-md);margin:0 auto 18px"></div>
+      <div class="flex items-center justify-between" style="margin-bottom:16px">
+        <h3 style="font-size:16px;font-weight:600">Import cookies</h3>
+        <button @click="cookiesOpen=false" class="btn-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+    </div>
+    <div style="padding:0 20px 24px;display:flex;flex-direction:column;gap:12px">
+      <p style="font-size:13px;color:var(--t2);line-height:1.6">Paste an exported <code style="background:var(--bg-sub);border:1px solid var(--border);padding:1px 6px;border-radius:4px;font-family:'Geist Mono',monospace">cookies.json</code> to refresh a session.</p>
+      <select x-model="ckForm.account" class="input w-full">
+        <option value="">Select account…</option>
+        <template x-for="a in accounts" :key="a.id"><option :value="a.alias||a.id" x-text="a.alias||a.id"></option></template>
+      </select>
+      <textarea x-model="ckForm.json" rows="10" placeholder='[{"name":"__Secure-next-auth.session-token","value":"…"}]'
+        class="input w-full" style="resize:none;font-size:11.5px;font-family:'Geist Mono',monospace;padding:10px 12px"></textarea>
+      <button @click="importCookies()" class="btn-primary w-full" style="padding:12px">Validate &amp; Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     TOASTS
+═══════════════════════════════════════════════════════ -->
+<div style="position:fixed;z-index:90;bottom:max(16px,calc(54px + env(safe-area-inset-bottom)));right:16px;display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none">
+  <template x-for="t in toasts" :key="t.id">
+    <div class="toast pointer-events-auto" :class="`toast-${t.kind}`" style="display:flex;align-items:flex-start;gap:10px">
+      <svg x-show="t.kind==='success'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;margin-top:2px"><polyline points="20 6 9 17 4 12"/></svg>
+      <svg x-show="t.kind==='error'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <svg x-show="t.kind==='warn'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;margin-top:2px"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <svg x-show="t.kind==='info'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--a)" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      <span x-text="t.msg"></span>
+    </div>
+  </template>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   ACCENT PALETTES
+═══════════════════════════════════════════════════════ */
+const ACCENTS = {
+  green:  { a:'#10a37f', ah:'#0d926e' },
+  blue:   { a:'#2563eb', ah:'#3b82f6' },
+  purple: { a:'#7c3aed', ah:'#8b5cf6' },
+  rose:   { a:'#e11d48', ah:'#f43f5e' },
+  amber:  { a:'#d97706', ah:'#f59e0b' },
+};
+
+/* ═══════════════════════════════════════════════════════
+   MARKDOWN
+═══════════════════════════════════════════════════════ */
+function md(text) {
+  if (!text) return '';
+  let s = String(text)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  s = s.replace(/```([\s\S]*?)```/g,(_,c)=>'<pre><code>'+c.trim()+'</code></pre>');
+  s = s.replace(/`([^`]+)`/g,'<code>$1</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+  s = s.replace(/\*([^*]+)\*/g,'<em>$1</em>');
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/(?:^|\n)([-*] .+(?:\n[-*] .+)*)/g,(_,b)=>{
+    const items=b.split('\n').map(l=>'<li>'+l.replace(/^[-*]\s+/,'')+'</li>').join('');
+    return '\n<ul>'+items+'</ul>';
+  });
+  s = s.split(/\n{2,}/).map(p=>{
+    const t=p.trim();
+    if(t.startsWith('<ul')||t.startsWith('<ol')||t.startsWith('<pre')) return t;
+    return '<p>'+p.replace(/\n/g,'<br>')+'</p>';
+  }).join('');
+  return s;
+}
+
+/* ═══════════════════════════════════════════════════════
+   AUDIO DING
+═══════════════════════════════════════════════════════ */
+function playDing() {
+  try {
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='sine'; o.frequency.value=880;
+    g.gain.setValueAtTime(.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.1, ctx.currentTime+.01);
+    g.gain.exponentialRampToValueAtTime(.0001, ctx.currentTime+.4);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime+.42);
+  } catch(e) {}
+}
+
+/* ═══════════════════════════════════════════════════════
+   DATE HELPERS
+═══════════════════════════════════════════════════════ */
+function sameDay(ts, ref) {
+  return new Date(ts*1000).toDateString() === new Date(ref).toDateString();
+}
+
+/* ═══════════════════════════════════════════════════════
+   APP
+═══════════════════════════════════════════════════════ */
+function bridge() { return {
+
+  // ── Navigation ──────────────────────────────────
+  view:'chat', sidebarOpen:false, sidebarSearch:'',
+  topKebab:false, menuId:null,
+
+  // ── Conversations ──────────────────────────────
+  chats:[], activeConvId:null,
+  renamingId:null, renameVal:'',
+
+  // ── Composer ───────────────────────────────────
+  composer:{ text:'', mode:'text', aspect:'square', showLayers:false },
+  prompt:{ conv:'', t1:'', t2:'' },
+  generating:false, progress:{},
+  aspectOpts:[{id:'square',label:'Square'},{id:'portrait',label:'Portrait'},{id:'landscape',label:'Landscape'}],
+  examples:[
+    'Cinematic portrait, golden hour warmth',
+    'Abstract deep-ocean fluid artwork',
+    'Hyperrealistic macro photography, dewdrop',
+    'Dramatic noir street, rain reflections',
+  ],
+  chatMsgs:[],
+
+  // ── Gallery ─────────────────────────────────────
+  gallery:[], displayedGallery:[],
+  gNextCursor:null, gLoading:false,
+  gFilter:'all', gConvFilter:'', gSearch:'',
+
+  // ── Viewer (professional image viewer) ──────────
+  lv:{ open:false, index:-1 },    // lightbox nav state
+  vi:{ z:1, x:0, y:0, rotate:0 }, // image transform
+  _vi:{                            // touch/drag internal state
+    dragging:false, panning:false,
+    startX:0, startY:0, imgStartX:0, imgStartY:0,
+    touchIds:[], pinchStart:0, pinchZ:1,
+    swipeStartX:0, swipeStartY:0, swipeT:0,
+  },
+
+  // ── Settings/accounts ───────────────────────────
+  accounts:[], telemetry:{}, settings:{},
+  cookiesOpen:false, ckForm:{ account:'', json:'' },
+
+  // ── Appearance ──────────────────────────────────
+  appTheme:'light', appAccent:'green',
+  appSoundOn:true, appToastsOn:true,
+  accentOpts:[
+    {id:'green', color:'#10a37f', label:'Green'},
+    {id:'blue',  color:'#2563eb', label:'Blue'},
+    {id:'purple',color:'#7c3aed', label:'Purple'},
+    {id:'rose',  color:'#e11d48', label:'Rose'},
+    {id:'amber', color:'#d97706', label:'Amber'},
+  ],
+
+  // ── Misc ────────────────────────────────────────
+  toasts:[], wsLive:false, _ws:null,
+
+  /* ── COMPUTED ─────────────────────────────────── */
+  activeConv() { return this.chats.find(c=>c.conversation_id===this.activeConvId)||null; },
+  get topbarTitle() {
+    if (this.view==='gallery') return 'Gallery';
+    if (this.view==='settings') return 'Settings';
+    const c=this.activeConv();
+    return (c&&(c.title||this.cut(c.last_prompt||'',40))) || 'Bridge';
+  },
+  get filteredChats() {
+    if (!this.sidebarSearch.trim()) return this.chats;
+    const q=this.sidebarSearch.toLowerCase();
+    return this.chats.filter(c=>(c.title||c.last_prompt||'').toLowerCase().includes(q));
+  },
+  get groupedChats() {
+    const now=Date.now();
+    const buckets={'Today':[],'Yesterday':[],'Last 7 days':[],'Older':[]};
+    const sorted=[...this.filteredChats].sort((a,b)=>(b.last_active||0)-(a.last_active||0));
+    for (const c of sorted) {
+      if (sameDay(c.last_active||0,now)) buckets['Today'].push(c);
+      else if (sameDay(c.last_active||0,now-86400000)) buckets['Yesterday'].push(c);
+      else if (now-(c.last_active||0)*1000 < 7*86400000) buckets['Last 7 days'].push(c);
+      else buckets['Older'].push(c);
+    }
+    return Object.keys(buckets).filter(k=>buckets[k].length).map(k=>({label:k,items:buckets[k]}));
+  },
+  get currentVImg() { return this.displayedGallery[this.lv.index]||null; },
+
+  /* ── INIT ─────────────────────────────────────── */
+  async init() {
+    this.loadPrefs(); this.applyTheme();
+    await Promise.all([this.loadAccounts(),this.loadChats(),this.loadTelemetry(),this.loadSettings()]);
+    this.connectWS();
+    setInterval(()=>this.loadTelemetry(), 15000);
+    if (window.matchMedia)
+      window.matchMedia('(prefers-color-scheme:light)').addEventListener('change',()=>{ if(this.appTheme==='system') this.applyTheme(); });
+    // Setup viewer touch events on the stage element
+    this.$nextTick(()=>this.bindViewerTouch());
+    // Keyboard nav for viewer
+    window.addEventListener('keydown',e=>{
+      if (!this.lv.open) return;
+      if (e.key==='ArrowLeft') this.lvStep(-1);
+      if (e.key==='ArrowRight') this.lvStep(1);
+      if (e.key==='+') this.zoomStep(1);
+      if (e.key==='-') this.zoomStep(-1);
+      if (e.key==='0') this.resetVT();
+    });
+  },
+
+  /* ── PREFS ────────────────────────────────────── */
+  loadPrefs() {
+    try {
+      const p=JSON.parse(localStorage.getItem('bridge:prefs')||'{}');
+      this.appTheme=p.theme||'light';
+      this.appAccent=p.accent||'green';
+      this.appSoundOn=p.soundOn!==false;
+      this.appToastsOn=p.toastsOn!==false;
+    } catch(e){}
+  },
+  savePrefs() {
+    localStorage.setItem('bridge:prefs',JSON.stringify({theme:this.appTheme,accent:this.appAccent,soundOn:this.appSoundOn,toastsOn:this.appToastsOn}));
+  },
+
+  /* ── THEME ────────────────────────────────────── */
+  setTheme(t) { this.appTheme=t; this.applyTheme(); this.savePrefs(); },
+  setAccent(id) { this.appAccent=id; this.applyTheme(); this.savePrefs(); },
+  applyTheme() {
+    let mode=this.appTheme;
+    if (mode==='system') mode=(window.matchMedia&&window.matchMedia('(prefers-color-scheme:light)').matches)?'light':'dark';
+    document.documentElement.setAttribute('data-theme',mode);
+    const p=ACCENTS[this.appAccent]||ACCENTS.green;
+    const r=document.documentElement.style;
+    r.setProperty('--a',p.a); r.setProperty('--ah',p.ah);
+    // ab/as derived
+    const h=p.a.replace('#','');
+    const [rr,g,b]=[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
+    r.setProperty('--ab',`rgba(${rr},${g},${b},.12)`);
+    r.setProperty('--as',`rgba(${rr},${g},${b},.25)`);
+  },
+
+  /* ── API UTILS ────────────────────────────────── */
+  async api(path,opts={}) {
+    const r=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});
+    if (!r.ok) { const b=await r.json().catch(()=>({detail:r.statusText})); throw new Error(b.detail||r.statusText); }
+    return r.json();
+  },
+  toast(msg,kind='info') {
+    if (!this.appToastsOn&&kind!=='error') return;
+    const id=Date.now()+Math.random();
+    this.toasts.push({id,msg,kind});
+    setTimeout(()=>this.toasts=this.toasts.filter(t=>t.id!==id), 4500);
+  },
+  clipCopy(txt,msg) { navigator.clipboard?.writeText(txt||'').then(()=>this.toast(msg,'success')); },
+  ago(ts) {
+    if (!ts) return '—';
+    const s=Date.now()/1000-ts;
+    if (s<60) return 'just now';
+    if (s<3600) return Math.floor(s/60)+'m ago';
+    if (s<86400) return Math.floor(s/3600)+'h ago';
+    return Math.floor(s/86400)+'d ago';
+  },
+  bytes(b) {
+    if (!b) return '—'; const u=['B','KB','MB','GB']; let i=0;
+    while(b>=1024&&i<3){b/=1024;i++;} return b.toFixed(1)+' '+u[i];
+  },
+  dur(s) { if(!s)return '—'; const h=Math.floor(s/3600),m=Math.floor(s%3600/60); return h?h+'h '+m+'m':m+'m'; },
+  cut(s,n) { return s&&s.length>n?s.slice(0,n)+'…':(s||''); },
+  grow(el) { if(!el)return; el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; },
+  scrollThread() { this.$nextTick(()=>{ const el=document.getElementById('thread-scroll'); if(el) el.scrollTop=el.scrollHeight; }); },
+  closeAll() { this.lv.open=false; this.cookiesOpen=false; this.sidebarOpen=false; this.menuId=null; this.topKebab=false; },
+  cdLeft(a) { const d=(a.rate_limited_until||0)-Date.now()/1000; return d>0?Math.ceil(d/60)+'m':'—'; },
+  acctPill(a) {
+    if (a.rate_limited_until&&a.rate_limited_until>Date.now()/1000)
+      return {label:'⏳ '+this.cdLeft(a),style:'background:rgba(217,119,6,.1);border:1px solid rgba(217,119,6,.2);color:var(--amber);border-radius:var(--r-pill);padding:3px 10px;font-size:11.5px;font-weight:500'};
+    if (a.is_active)
+      return {label:'● Active',style:'background:rgba(22,163,74,.1);border:1px solid rgba(22,163,74,.2);color:var(--green);border-radius:var(--r-pill);padding:3px 10px;font-size:11.5px;font-weight:500'};
+    return {label:'Standby',style:'background:var(--bg-sub);border:1px solid var(--border);color:var(--t3);border-radius:var(--r-pill);padding:3px 10px;font-size:11.5px;font-weight:500'};
+  },
+  acctStats(a) {
+    return [
+      {k:'gens',v:a.total_generations||0,color:'var(--t1)'},
+      {k:'strikes',v:a.consecutive_rate_limits||0,color:(a.consecutive_rate_limits||0)>0?'var(--amber)':'var(--t1)'},
+      {k:'cooldown',v:this.cdLeft(a),color:this.cdLeft(a)!=='—'?'var(--red)':'var(--t1)'},
+    ];
+  },
+  md,
+
+  /* ── CONVERSATIONS ────────────────────────────── */
+  newChat() {
+    this.activeConvId=null; this.chatMsgs=[]; this.prompt.conv='';
+    this.view='chat'; this.sidebarOpen=false;
+    this.$nextTick(()=>this.$refs.promptInput?.focus());
+  },
+  openConv(c) {
+    this.activeConvId=c.conversation_id; this.view='chat'; this.sidebarOpen=false;
+    this.prompt.conv=c.conversation_id; this.chatMsgs=[];
+    this.api('/api/gallery?filter=all&limit=40&conversation_id='+c.conversation_id).then(p=>{
+      this.chatMsgs=[...p.items].reverse().map(img=>this._i2m(img));
+      this.scrollThread();
+    }).catch(()=>{});
+  },
+  startRename(c) {
+    if (!c) return;
+    this.renamingId=c.conversation_id; this.renameVal=c.title||c.last_prompt||'';
+    this.menuId=null;
+    this.$nextTick(()=>{ const el=document.getElementById('ri-'+c.conversation_id); if(el){el.focus();el.select();} });
+  },
+  commitRename(c) {
+    const v=(this.renameVal||'').trim();
+    if (v) c.title=v.slice(0,60);
+    this.renamingId=null;
+  },
+  exportConv(c) {
+    if (!c) return;
+    const lines=this.chatMsgs.map(m=>m.role==='user'?'You: '+m.content:'Bridge: '+(m.type==='image'?'[image: '+m.content+']':m.content)).join('\n\n');
+    const blob=new Blob([(c.title||'Thread')+'\n\n'+lines],{type:'text/plain'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='bridge-'+c.conversation_id.slice(0,12)+'.txt';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),2000);
+    this.toast('Exported','success');
+  },
+  deleteConv(c) {
+    if (!c||!confirm('Delete this thread?')) return;
+    this.api('/conversations/'+c.conversation_id,{method:'DELETE'}).catch(()=>{});
+    this.chats=this.chats.filter(x=>x.conversation_id!==c.conversation_id);
+    if (this.activeConvId===c.conversation_id) this.newChat();
+    this.toast('Thread deleted','success');
+  },
+
+  /* ── COMPOSER ─────────────────────────────────── */
+  toggleImgMode() { this.composer.mode=this.composer.mode==='image'?'text':'image'; },
+  prefill(text) {
+    this.composer.text=text; this.composer.mode='image';
+    this.$nextTick(()=>{ const el=this.$refs.promptInput; if(el){el.focus();this.grow(el);} });
+  },
+  continueFrom(src) {
+    this.prompt.conv=src.conversation_id||src.convId||'';
+    this.composer.text=src.prompt||src.content||''; this.composer.mode='image';
+    this.prompt.t1=src.tweaked_prompt||''; this.prompt.t2=src.tweaked_prompt_2||'';
+    this.lv.open=false; this.view='chat';
+    this.toast('Prompt pre-filled');
+    this.$nextTick(()=>this.$refs.promptInput?.focus());
+  },
+
+  async send() {
+    if (this.generating||!this.composer.text.trim()) return;
+    const text=this.composer.text.trim();
+    const pid='p-'+Date.now();
+    this.chatMsgs.push({id:pid,role:'user',type:'text',content:text});
+    this.composer.text='';
+    this.$nextTick(()=>{ const el=this.$refs.promptInput; if(el) el.style.height=''; });
+    this.scrollThread();
+    this.generating=true;
+    this.progress={status:'Submitting…',try:1,elapsed:0,pct:8};
+    const t0=Date.now();
+    const tick=setInterval(()=>{
+      this.progress.elapsed=Math.round((Date.now()-t0)/1000);
+      this.progress.pct=Math.min(90,this.progress.pct+1.2);
+    },1000);
+    try {
+      const r=await this.api('/image',{method:'POST',body:JSON.stringify({
+        prompt:text,
+        tweaked_prompt:this.prompt.t1||null,
+        tweaked_prompt_2:this.prompt.t2||null,
+        conversation_id:this.prompt.conv||null,
+        aspect:this.composer.aspect||null,
+        timeout_s:300,
+      })});
+      clearInterval(tick);
+      this.progress={status:'Done',pct:100};
+      this.prompt.conv=r.conversation_id||this.prompt.conv;
+      let imgId=pid;
+      if (r.image_url) { const m=r.image_url.match(/\/images\/([^/]+)\.\w+$/); if(m) imgId=m[1]; }
+      const msg={id:imgId,role:'assistant',type:'image',content:text,
+        imageUrl:r.image_url,account:r.account_used,
+        dur:r.duration_s,size:r.size_bytes,conversation_id:r.conversation_id,
+        fav:false,tweaked_prompt:this.prompt.t1||null,tweaked_prompt_2:this.prompt.t2||null,retries:r.retries||1};
+      this.chatMsgs=this.chatMsgs.filter(m=>m.id!==pid);
+      this.chatMsgs.push(msg);
+      if (this.appSoundOn) playDing();
+      this.toast('Generated via '+r.account_used,'success');
+      this.scrollThread();
+      await Promise.all([this.loadChats(),this.loadTelemetry()]);
+    } catch(e) {
+      clearInterval(tick);
+      this.chatMsgs=this.chatMsgs.filter(m=>m.id!==pid);
+      this.chatMsgs.push({id:'err-'+Date.now(),role:'assistant',type:'text',content:'Failed: '+e.message});
+      this.toast('Failed: '+e.message,'error');
+    }
+    this.generating=false;
+  },
+  _i2m(img) {
+    return {id:img.id,role:'assistant',type:'image',content:img.prompt||'',
+      imageUrl:img.url,account:img.account_used,dur:img.duration_s,size:img.size_bytes,
+      conversation_id:img.conversation_id,fav:img.favorite,
+      tweaked_prompt:img.tweaked_prompt,tweaked_prompt_2:img.tweaked_prompt_2,retries:1};
+  },
+
+  /* ── GALLERY ──────────────────────────────────── */
+  resetGallery() { this.gallery=[]; this.displayedGallery=[]; this.gNextCursor=null; },
+  filterGallery() {
+    const q=this.gSearch.trim().toLowerCase();
+    this.displayedGallery=q?this.gallery.filter(i=>(i.prompt||'').toLowerCase().includes(q)):this.gallery;
+  },
+  async loadGallery() {
+    if (this.gLoading) return; this.gLoading=true;
+    try {
+      const q=new URLSearchParams({filter:this.gFilter,limit:40});
+      if (this.gNextCursor) q.set('cursor',this.gNextCursor);
+      if (this.gConvFilter) q.set('conversation_id',this.gConvFilter);
+      const p=await this.api('/api/gallery?'+q);
+      this.gallery.push(...p.items); this.gNextCursor=p.next_cursor;
+      this.filterGallery();
+    } catch(e) { this.toast('Gallery: '+e.message,'error'); }
+    this.gLoading=false;
+  },
+
+  /* ── VIEWER — navigation ──────────────────────── */
+  async openLb(img) {
+    if (this.gFilter==='all'&&!this.gSearch) {
+      const idx=this.displayedGallery.findIndex(i=>i.id===img.id);
+      this.lv={open:true,index:Math.max(0,idx)};
+    } else {
+      // ensure at least this image is in the list
+      if (!this.displayedGallery.find(i=>i.id===img.id)) this.displayedGallery.push(img);
+      this.lv={open:true,index:this.displayedGallery.findIndex(i=>i.id===img.id)};
+    }
+    this.resetVT();
+  },
+  openLbMsg(msg) {
+    const fake={id:msg.id,url:msg.imageUrl,prompt:msg.content,tweaked_prompt:msg.tweaked_prompt,
+      tweaked_prompt_2:msg.tweaked_prompt_2,account_used:msg.account,duration_s:msg.dur,
+      size_bytes:msg.size,conversation_id:msg.conversation_id,favorite:msg.fav};
+    const existing=this.displayedGallery.findIndex(i=>i.id===msg.id);
+    if (existing>=0) {
+      this.lv={open:true,index:existing};
+    } else {
+      this.displayedGallery.push(fake);
+      this.lv={open:true,index:this.displayedGallery.length-1};
+    }
+    this.resetVT();
+  },
+  lvStep(dir) {
+    const l=this.displayedGallery.length; if(!l) return;
+    let i=this.lv.index+dir;
+    if (i<0) i=l-1; if (i>=l) i=0;
+    this.lv.index=i; this.resetVT();
+  },
+
+  /* ── VIEWER — transform ───────────────────────── */
+  resetVT() { this.vi={z:1,x:0,y:0,rotate:0}; this.applyVT(); },
+  applyVT() {
+    const el=this.$refs.vimg; if(!el) return;
+    el.style.transform=`translate(${this.vi.x}px,${this.vi.y}px) rotate(${this.vi.rotate}deg) scale(${this.vi.z})`;
+  },
+  imgLoaded() { this.resetVT(); },
+  zoomStep(dir) {
+    const steps=[0.5,0.75,1,1.5,2,3,4,6,8];
+    let idx=steps.findIndex(s=>s>=this.vi.z);
+    if (dir>0) idx=Math.min(steps.length-1,idx+1);
+    else idx=Math.max(0,idx-1);
+    this.vi.z=steps[idx];
+    this.clampPan(); this.applyVT(); this.showZoomBadge();
+  },
+  zoomTo(z,cx,cy) {
+    // Zoom toward point (cx,cy) in viewport coords
+    const el=this.$refs.vimg; if (!el) return;
+    const rect=el.getBoundingClientRect();
+    const ox=(cx-rect.left-rect.width/2)/this.vi.z;
+    const oy=(cy-rect.top-rect.height/2)/this.vi.z;
+    this.vi.z=Math.min(8,Math.max(0.25,z));
+    this.vi.x-=ox*(this.vi.z-(this.vi.z/(z/this.vi.z)));// approximate
+    this.clampPan(); this.applyVT(); this.showZoomBadge();
+  },
+  clampPan() {
+    if (this.vi.z<=1) { this.vi.x=0; this.vi.y=0; return; }
+    const stage=this.$refs.stage; const el=this.$refs.vimg;
+    if (!stage||!el) return;
+    const sw=stage.clientWidth, sh=stage.clientHeight;
+    const iw=el.naturalWidth||el.clientWidth, ih=el.naturalHeight||el.clientHeight;
+    const maxX=Math.max(0,(iw*this.vi.z-sw)/2);
+    const maxY=Math.max(0,(ih*this.vi.z-sh)/2);
+    this.vi.x=Math.max(-maxX,Math.min(maxX,this.vi.x));
+    this.vi.y=Math.max(-maxY,Math.min(maxY,this.vi.y));
+  },
+  showZoomBadge() {
+    const el=this.$refs.zbadge; if(!el) return;
+    el.classList.add('show');
+    clearTimeout(this._zbTimer);
+    this._zbTimer=setTimeout(()=>el.classList.remove('show'),1200);
+  },
+
+  /* ── VIEWER — mouse drag ──────────────────────── */
+  stageMouseDown(e) {
+    if (e.button!==0) return;
+    const s=this._vi;
+    s.dragging=true; s.panning=this.vi.z>1;
+    s.startX=e.clientX; s.startY=e.clientY;
+    s.imgStartX=this.vi.x; s.imgStartY=this.vi.y;
+    this.$refs.stage.classList.add('grabbing');
+  },
+  stageMouseMove(e) {
+    const s=this._vi; if(!s.dragging) return;
+    if (s.panning) {
+      this.vi.x=s.imgStartX+(e.clientX-s.startX);
+      this.vi.y=s.imgStartY+(e.clientY-s.startY);
+      this.clampPan(); this.applyVT();
+    }
+  },
+  stageMouseUp(e) {
+    const s=this._vi; if(!s.dragging) return;
+    s.dragging=false;
+    this.$refs.stage.classList.remove('grabbing');
+    // if not panning and didn't move much -> could be click (ignore)
+  },
+  stageWheel(e) {
+    const delta=e.deltaY>0?-0.15:0.15;
+    this.vi.z=Math.min(8,Math.max(0.25,this.vi.z+delta*this.vi.z));
+    this.clampPan(); this.applyVT(); this.showZoomBadge();
+  },
+  stageDouble() {
+    this.vi.z=this.vi.z>1?1:2;
+    if (this.vi.z===1) { this.vi.x=0; this.vi.y=0; }
+    this.clampPan(); this.applyVT(); this.showZoomBadge();
+  },
+
+  /* ── VIEWER — touch (robust, no accidental close) */
+  bindViewerTouch() {
+    const stage=document.getElementById('viewer-stage');
+    if (!stage) return;
+    stage.addEventListener('touchstart', e=>this.vtTouchStart(e), {passive:false});
+    stage.addEventListener('touchmove',  e=>this.vtTouchMove(e),  {passive:false});
+    stage.addEventListener('touchend',   e=>this.vtTouchEnd(e),   {passive:false});
+    stage.addEventListener('touchcancel',e=>this.vtTouchEnd(e),   {passive:false});
+  },
+  vtTouchStart(e) {
+    if (!this.lv.open) return;
+    e.preventDefault();
+    const s=this._vi;
+    if (e.touches.length===2) {
+      // Pinch
+      s.panning=false;
+      const t=e.touches;
+      s.pinchStart=Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
+      s.pinchZ=this.vi.z;
+    } else if (e.touches.length===1) {
+      s.panning=false;
+      s.swipeStartX=e.touches[0].clientX;
+      s.swipeStartY=e.touches[0].clientY;
+      s.imgStartX=this.vi.x; s.imgStartY=this.vi.y;
+      s.swipeT=Date.now();
+    }
+  },
+  vtTouchMove(e) {
+    if (!this.lv.open) return;
+    e.preventDefault();
+    const s=this._vi;
+    if (e.touches.length===2) {
+      // Pinch zoom
+      const t=e.touches;
+      const dist=Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
+      const scale=dist/s.pinchStart;
+      this.vi.z=Math.min(8,Math.max(0.25, s.pinchZ*scale));
+      this.clampPan(); this.applyVT(); this.showZoomBadge();
+    } else if (e.touches.length===1) {
+      const dx=e.touches[0].clientX-s.swipeStartX;
+      const dy=e.touches[0].clientY-s.swipeStartY;
+      if (this.vi.z>1) {
+        // Pan the image
+        s.panning=true;
+        this.vi.x=s.imgStartX+dx;
+        this.vi.y=s.imgStartY+dy;
+        this.clampPan(); this.applyVT();
+      } else {
+        // Swipe left/right to navigate (only when not zoomed)
+        // Show directional hint but don't navigate yet
+      }
+    }
+  },
+  vtTouchEnd(e) {
+    if (!this.lv.open) return;
+    const s=this._vi;
+    if (e.changedTouches.length===1 && !s.panning && this.vi.z<=1) {
+      const dx=e.changedTouches[0].clientX-s.swipeStartX;
+      const dy=e.changedTouches[0].clientY-s.swipeStartY;
+      const dt=Date.now()-s.swipeT;
+      const absDx=Math.abs(dx), absDy=Math.abs(dy);
+      // Navigate left/right: horizontal swipe > 60px, mostly horizontal, fast enough
+      if (absDx>60 && absDx>absDy*1.5 && dt<400) {
+        if (dx<0) this.lvStep(1); else this.lvStep(-1);
+      }
+      // Double-tap detection (< 250ms since last tap)
+      const now=Date.now();
+      if (now-this._lastTap<280 && absDx<20 && absDy<20) {
+        this.vi.z=this.vi.z>1?1:2.5;
+        if (this.vi.z===1){this.vi.x=0;this.vi.y=0;}
+        this.clampPan(); this.applyVT(); this.showZoomBadge();
+      }
+      this._lastTap=now;
+    }
+    s.panning=false;
+  },
+
+  /* ── VIEWER — favorites / delete ─────────────── */
+  async toggleFavMsg(msg) {
+    try {
+      const r=await this.api('/api/gallery/'+msg.id+'/favorite',{method:'POST'});
+      msg.fav=r.favorite;
+      const g=this.gallery.find(i=>i.id===msg.id); if(g) g.favorite=r.favorite;
+      const d=this.displayedGallery.find(i=>i.id===msg.id); if(d) d.favorite=r.favorite;
+    } catch(e) { this.toast(e.message,'error'); }
+  },
+  async toggleFavLb() {
+    if (!this.currentVImg) return;
+    try {
+      const r=await this.api('/api/gallery/'+this.currentVImg.id+'/favorite',{method:'POST'});
+      this.currentVImg.favorite=r.favorite;
+      const g=this.gallery.find(i=>i.id===this.currentVImg.id); if(g) g.favorite=r.favorite;
+      const m=this.chatMsgs.find(m=>m.id===this.currentVImg.id); if(m) m.fav=r.favorite;
+    } catch(e) { this.toast(e.message,'error'); }
+  },
+  async deleteLbImg() {
+    if (!this.currentVImg||!confirm('Delete permanently?')) return;
+    try {
+      await this.api('/api/gallery/'+this.currentVImg.id,{method:'DELETE'});
+      const id=this.currentVImg.id;
+      this.gallery=this.gallery.filter(i=>i.id!==id);
+      this.displayedGallery=this.displayedGallery.filter(i=>i.id!==id);
+      this.chatMsgs=this.chatMsgs.filter(m=>m.id!==id);
+      this.lv.open=false; this.toast('Deleted','success');
+    } catch(e) { this.toast(e.message,'error'); }
+  },
+
+  /* ── ACCOUNTS ─────────────────────────────────── */
+  async loadAccounts() {
+    try { const r=await this.api('/accounts'); this.accounts=Array.isArray(r)?r:(r.accounts||[]); } catch(e) {}
+  },
+  async switchTo(a) {
+    try {
+      await this.api('/accounts/switch',{method:'POST',body:JSON.stringify({account:a.alias||a.id})});
+      this.toast('Switched to '+(a.alias||a.id),'success');
+      await Promise.all([this.loadAccounts(),this.loadTelemetry()]);
+    } catch(e) { this.toast(e.message,'error'); }
+  },
+  async importCookies() {
+    if (!this.ckForm.account||!this.ckForm.json) return this.toast('Select account and paste cookies','error');
+    try {
+      await this.api('/api/accounts/cookies',{method:'POST',body:JSON.stringify({account:this.ckForm.account,cookies_json:this.ckForm.json})});
+      this.toast('Cookies imported','success');
+      this.cookiesOpen=false; this.ckForm={account:'',json:''};
+      await this.loadAccounts();
+    } catch(e) { this.toast('Import failed: '+e.message,'error'); }
+  },
+
+  /* ── CHATS / SETTINGS / TELEMETRY ────────────── */
+  async loadChats() {
+    try { this.chats=await this.api('/api/chats'); } catch(e) {}
+  },
+  async loadSettings() {
+    try { this.settings=await this.api('/api/settings'); } catch(e) {}
+  },
+  async patchSettings(p) {
+    try { this.settings=await this.api('/api/settings',{method:'PATCH',body:JSON.stringify(p)}); this.toast('Saved','success'); }
+    catch(e) { this.toast(e.message,'error'); }
+  },
+  async loadTelemetry() {
+    try { this.telemetry=await this.api('/api/telemetry'); if(this.telemetry.settings) this.settings=this.telemetry.settings; }
+    catch(e) {}
+  },
+
+  /* ── WEBSOCKET ────────────────────────────────── */
+  connectWS() {
+    const proto=location.protocol==='https:'?'wss':'ws';
+    const ws=new WebSocket(proto+'://'+location.host+'/ws/events');
+    ws.onopen=()=>this.wsLive=true;
+    ws.onclose=()=>{ this.wsLive=false; setTimeout(()=>this.connectWS(),3000); };
+    ws.onmessage=ev=>{
+      const m=JSON.parse(ev.data);
+      if (m.type==='generation_progress') this.progress={...this.progress,try:m.retry,status:m.status||'Generating…'};
+      if (m.type==='account_switched') { this.toast('Auto-switched to '+m.account,'info'); this.loadAccounts(); this.loadTelemetry(); }
+      if (m.type==='rate_limited') { this.toast(m.account+' rate-limited','warn'); this.loadAccounts(); }
+      if (m.type==='generation_done'&&!this.generating) { if(this.view==='gallery'){this.resetGallery();this.loadGallery();} this.loadChats(); }
+    };
+    this._ws=ws;
+  },
+}; }
+</script>
+</body>
+</html>

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 import re
 import time
 
@@ -301,16 +302,19 @@ class UIDriver:
                             break
                         await asyncio.sleep(0.4)
                     if page.url.rstrip("/") in (HOME_URL.rstrip("/"), target_home.rstrip("/")):
-                        await page.close()
-                        raise RuntimeError(
-                            f"Failed to load conversation {conversation_id}: redirected to home."
+                        log.warning(
+                            "Conversation %s redirected to home (it may have expired or been pruned). Continuing as fresh chat on home.",
+                            conversation_id,
                         )
+                        self._active_page = page
+                        self._active_cid = None
+                        return page
                     # Allow existing conversation turns and images to hydrate into DOM
                     try:
                         await page.locator(TURN_SELECTOR).first.wait_for(
                             state="attached", timeout=5000
                         )
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(1.0)
                     except Exception:
                         pass
                 elif self._project_id and page.url.rstrip("/") == HOME_URL.rstrip("/"):
@@ -358,6 +362,8 @@ class UIDriver:
         conversation_id: str | None = None,
         tweaked_prompt: str | None = None,
         tweaked_prompt_2: str | None = None,
+        image_path: str | Path | None = None,
+        on_progress: Any | None = None,
     ) -> dict:
         """Submit a prompt and wait for a generated image, retrying on denial.
 
@@ -382,7 +388,16 @@ class UIDriver:
 
         # Attempt 1: Initial submission
         try:
-            await self._submit_prompt(page, prompt)
+            if image_path is not None:
+                await self._submit_prompt(page, prompt, image_path=image_path)
+                # Snapshot existing image IDs immediately so any reference image uploaded into DOM is recorded
+                try:
+                    uploaded_ids = await self._existing_image_ids(page)
+                    initial_images.update(uploaded_ids)
+                except Exception:
+                    pass
+            else:
+                await self._submit_prompt(page, prompt)
             try:
                 outcome = await self._wait_for_outcome(
                     page,
@@ -486,6 +501,18 @@ class UIDriver:
                     current_prompt[:60],
                 )
 
+                if on_progress:
+                    try:
+                        res = on_progress({
+                            "type": "generation_progress",
+                            "status": f"Policy refusal: In-place edit retry {retry_idx}/{cfg.max_tries}…",
+                            "retry": retry_idx + 1,
+                        })
+                        if asyncio.iscoroutine(res):
+                            await res
+                    except Exception:
+                        pass
+
                 # Primary retry method: Edit message (pencil icon) -> Send
                 retried = await self._edit_message_retry(
                     page,
@@ -496,7 +523,10 @@ class UIDriver:
                     retried = await self._click_try_again(page)
                 if not retried:
                     # Tertiary: submit to composer
-                    await self._submit_prompt(page, current_prompt)
+                    if image_path is not None:
+                        await self._submit_prompt(page, current_prompt, image_path=image_path)
+                    else:
+                        await self._submit_prompt(page, current_prompt)
 
                 try:
                     outcome = await self._wait_for_outcome(
@@ -727,6 +757,18 @@ class UIDriver:
             if turn_count > 0 and turn_count > min_turn_idx:
                 for t_idx in range(turn_count - 1, max(-1, min_turn_idx - 1), -1):
                     turn = turns.nth(t_idx)
+                    # Generated images only come from assistant turns!
+                    # User turns contain uploaded reference images.
+                    is_user = False
+                    try:
+                        role = await turn.get_attribute("data-message-author-role")
+                        if role == "user" or await turn.locator('[data-message-author-role="user"]').count() > 0:
+                            is_user = True
+                    except Exception:
+                        pass
+                    if is_user:
+                        continue
+
                     imgs = turn.locator(IMAGE_SELECTOR)
                     img_count = await imgs.count()
                     for i in range(img_count - 1, -1, -1):
@@ -735,11 +777,38 @@ class UIDriver:
                         if fid and fid not in existing and fid not in delivered:
                             return src
 
-            # Fallback to page-wide search if turn scoping found nothing
+            # Fallback to assistant-scoped search across the page
+            try:
+                assistant_turns = page.locator('[data-message-author-role="assistant"]')
+                a_count = await assistant_turns.count()
+                for t_idx in range(a_count - 1, -1, -1):
+                    turn = assistant_turns.nth(t_idx)
+                    imgs = turn.locator(IMAGE_SELECTOR)
+                    img_count = await imgs.count()
+                    for i in range(img_count - 1, -1, -1):
+                        src = await imgs.nth(i).get_attribute("src") or ""
+                        fid = _extract_file_id(src)
+                        if fid and fid not in existing and fid not in delivered:
+                            return src
+            except Exception:
+                pass
+
+            # Final fallback for test environments or legacy DOMs without author role
             locator = page.locator(IMAGE_SELECTOR)
             count = await locator.count()
             for i in range(count - 1, -1, -1):
-                src = await locator.nth(i).get_attribute("src") or ""
+                img = locator.nth(i)
+                # Ensure not inside user turn or composer form via native DOM closest
+                try:
+                    if hasattr(img, "evaluate"):
+                        is_user_or_composer = await img.evaluate(
+                            "el => !!el.closest('[data-message-author-role=\"user\"], form, [data-testid=\"composer-text-input\"]')"
+                        )
+                        if is_user_or_composer:
+                            continue
+                except Exception:
+                    pass
+                src = await img.get_attribute("src") or ""
                 fid = _extract_file_id(src)
                 if fid and fid not in existing and fid not in delivered:
                     return src
@@ -991,7 +1060,7 @@ class UIDriver:
         except Exception:
             return False
 
-    async def _submit_prompt(self, page, prompt: str) -> None:
+    async def _submit_prompt(self, page, prompt: str, image_path: str | Path | None = None) -> None:
         # Wait for a VISIBLE composer. Using .first pins to the first match in
         # DOM order, which on /c/{id} is a hidden contenteditable skeleton div;
         # wait_for(state="visible") then hangs on that hidden element even
@@ -1009,11 +1078,21 @@ class UIDriver:
                     await page.reload(wait_until="domcontentloaded", timeout=60_000)
                     continue
                 raise
-        composer = page.locator(COMPOSER_SELECTOR).first
+        composers = page.locator(COMPOSER_SELECTOR)
+        count = await composers.count()
+        composer = None
+        for i in range(count):
+            c = composers.nth(i)
+            if await c.is_visible():
+                composer = c
+                break
+        if not composer:
+            composer = composers.first
         await composer.click()
         await page.keyboard.press("Escape")
         await asyncio.sleep(0.1)
-        # Clear any residual text in composer both in DOM and via keyboard
+
+        # Clear any residual text in composer both in DOM and via keyboard BEFORE attaching file
         await page.keyboard.press("ControlOrMeta+A")
         await page.keyboard.press("Backspace")
         try:
@@ -1026,6 +1105,49 @@ class UIDriver:
             }""")
         except Exception:
             pass
+
+        # Attach reference image if provided
+        if image_path and Path(image_path).exists():
+            log.info("Attaching reference image: %s", image_path)
+            try:
+                file_input = page.locator('input[type="file"]')
+                if await file_input.count() == 0:
+                    attach_btn = page.locator(
+                        'button[aria-label*="Attach"], button[data-testid*="attach"], button[aria-label*="Upload"]'
+                    ).first
+                    if await attach_btn.count() > 0 and await attach_btn.is_visible():
+                        await attach_btn.click()
+                        await asyncio.sleep(0.5)
+                        file_input = page.locator('input[type="file"]')
+
+                if await file_input.count() > 0:
+                    await file_input.first.set_input_files(str(image_path))
+                    log.info("set_input_files called successfully for reference image")
+                    # Wait for image upload to process in composer
+                    for poll in range(30):
+                        await asyncio.sleep(0.5)
+                        uploading = await page.evaluate("""() => {
+                            const prog = document.querySelector('[role="progressbar"], .animate-spin');
+                            return !!prog;
+                        }""")
+                        if not uploading and poll >= 2:
+                            log.info("Image upload completed in DOM after %.1fs", (poll + 1) * 0.5)
+                            # Record the uploaded reference image ID so it cannot be returned as output
+                            try:
+                                for img_el in (await page.locator('form img, [data-testid="composer-text-input"] img, div[contenteditable] img').all()):
+                                    img_src = await img_el.get_attribute("src") or ""
+                                    uploaded_fid = _extract_file_id(img_src)
+                                    if uploaded_fid:
+                                        self._record_delivered_id(uploaded_fid)
+                                        log.info("Recorded uploaded reference image ID: %s", uploaded_fid)
+                            except Exception:
+                                pass
+                            break
+                else:
+                    log.warning("Could not find input[type='file'] to attach reference image")
+            except Exception as e:
+                log.warning("Failed to attach reference image %s: %s", image_path, e)
+
         # Use insert_text: keyboard.type() emits Enter keydown on newlines,
         # which triggers premature form submission in ChatGPT ProseMirror composer.
         await page.keyboard.insert_text(prompt)
@@ -1035,13 +1157,13 @@ class UIDriver:
         send_btn = page.locator(
             '#composer-submit-button, button[data-testid="send-button"], button[data-testid="composer-send-button"], button[aria-label*="Send"]'
         ).first
-        for _ in range(15):
+        for _ in range(30):
             if await send_btn.count() > 0 and await send_btn.is_visible():
                 dis = await send_btn.get_attribute("disabled")
                 aria_dis = await send_btn.get_attribute("aria-disabled")
                 if dis is None and aria_dis != "true":
                     break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
         if await send_btn.count() > 0 and await send_btn.is_visible():
             try:
                 await send_btn.click()

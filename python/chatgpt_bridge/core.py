@@ -375,6 +375,8 @@ class ChatGPT:
         retry: RetryConfig | None = None,
         tweaked_prompt: str | None = None,
         tweaked_prompt_2: str | None = None,
+        image_path: str | Path | None = None,
+        on_progress: Any | None = None,
     ) -> dict:
         """Generate an image via the UI, continuing the current conversation."""
         async with self._busy_guard():
@@ -395,6 +397,10 @@ class ChatGPT:
                 kwargs["tweaked_prompt"] = tweaked_prompt
             if tweaked_prompt_2 is not None:
                 kwargs["tweaked_prompt_2"] = tweaked_prompt_2
+            if image_path is not None:
+                kwargs["image_path"] = image_path
+            if on_progress is not None:
+                kwargs["on_progress"] = on_progress
             try:
                 result = await self.ui.generate_image(
                     prompt,
