@@ -466,12 +466,12 @@ The 3/4 views should naturally reveal facial depth and profile characteristics w
               <button
                 onClick={() => handleRandomize()}
                 disabled={isRolling}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-sm active:scale-95 ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#0d0d0d] dark:text-white bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 transition-all shadow-xs active:scale-95 ${
                   isRolling ? 'opacity-70 animate-pulse' : ''
                 }`}
                 title="Randomize entire face with phenotypic realism"
               >
-                <Dices size={14} className={isRolling ? 'animate-spin' : ''} />
+                <Dices size={14} className={isRolling ? 'animate-spin text-emerald-500' : 'text-emerald-500'} />
                 <span>🎲 Randomize</span>
               </button>
 
@@ -481,6 +481,18 @@ The 3/4 views should naturally reveal facial depth and profile characteristics w
                 title="Reset to default"
               >
                 <RotateCcw size={15} />
+              </button>
+
+              <button
+                onClick={handleGenerate}
+                disabled={isGenerating}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition-all active:scale-95 ${
+                  isGenerating ? 'opacity-60 cursor-not-allowed' : ''
+                }`}
+                title="Generate 16:9 Face Identity Reference Card"
+              >
+                {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                <span>{isGenerating ? 'Generating…' : 'Generate Card'}</span>
               </button>
             </div>
           </div>
@@ -1499,6 +1511,40 @@ The 3/4 views should naturally reveal facial depth and profile characteristics w
             )}
           </div>
         </div>
+
+        {/* Sticky Bottom Action Bar (always pinned at the bottom of the left column) */}
+        <div className="p-3 border-t border-[#e5e5e5] dark:border-[#27272a] bg-white dark:bg-[#18181b] flex items-center justify-between gap-2 shrink-0 shadow-xs z-10">
+          <button
+            onClick={() => handleRandomize()}
+            disabled={isRolling}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-[#0d0d0d] dark:text-white bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 transition-all shadow-2xs active:scale-95 disabled:opacity-60 shrink-0"
+            title="Randomize entire face with phenotypic realism"
+          >
+            <Dices size={14} className={isRolling ? 'animate-spin text-emerald-500' : 'text-emerald-500'} />
+            <span>🎲 Randomize</span>
+          </button>
+
+          <button
+            onClick={handleGenerate}
+            disabled={isGenerating}
+            className={`flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md transition-all active:scale-95 ${
+              isGenerating ? 'opacity-60 cursor-not-allowed' : ''
+            }`}
+            title="Generate 16:9 Face Identity Reference Card"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 size={15} className="animate-spin" />
+                <span>{generationProgress || 'Rendering Face Card...'}</span>
+              </>
+            ) : (
+              <>
+                <Sparkles size={15} />
+                <span>Generate Face Card (16:9)</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* ── RIGHT COLUMN: Live Compiled Prompt & Result Deck ── */}
@@ -1522,7 +1568,7 @@ The 3/4 views should naturally reveal facial depth and profile characteristics w
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
-            className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-medium text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md transition-all active:scale-95 ${
+            className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md transition-all active:scale-95 ${
               isGenerating ? 'opacity-60 cursor-not-allowed' : ''
             }`}
           >
@@ -1539,6 +1585,42 @@ The 3/4 views should naturally reveal facial depth and profile characteristics w
             )}
           </button>
         </div>
+
+        {/* Prominent CTA when no result has been generated yet */}
+        {!generatedResult && (
+          <div className="p-4 sm:p-5 rounded-2xl border-2 border-dashed border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-500/[0.03] flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <Sparkles size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-[#0d0d0d] dark:text-white">
+                  Ready to Render Face Reference Card
+                </h3>
+                <p className="text-xs text-[#6e6e80] dark:text-[#a1a1aa] mt-0.5">
+                  16:9 photorealistic 3-view turnaround sheet with centered front &amp; 3/4 profiles.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleGenerate}
+              disabled={isGenerating}
+              className="w-full sm:w-auto px-6 py-2.5 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 shrink-0 disabled:opacity-60"
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" />
+                  <span>{generationProgress || 'Rendering Face Card...'}</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={15} />
+                  <span>Generate Face Card (16:9)</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Generated Image Result Card */}
         {generatedResult && (

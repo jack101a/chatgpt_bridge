@@ -413,6 +413,10 @@ export function App() {
         onClose={() => setIsCharacterStudioOpen(false)}
         activeCharacter={activeCharacter}
         setActiveCharacter={setActiveCharacter}
+        onNavigateToGenerator={() => {
+          setIsCharacterStudioOpen(false);
+          handleSelectTab('generator');
+        }}
       />
 
       {/* ── Dual-Mode Fullscreen Image Viewer ── */}

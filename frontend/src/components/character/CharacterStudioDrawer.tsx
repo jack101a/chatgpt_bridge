@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Plus, Lock, Unlock, UserCircle2, Shirt } from 'lucide-react';
+import { X, Plus, Lock, Unlock, UserCircle2, Shirt, Sparkles } from 'lucide-react';
 import { CharacterCard } from '../../types';
 import { api } from '../../lib/api';
 
@@ -8,9 +8,16 @@ interface Props {
   onClose: () => void;
   activeCharacter: CharacterCard | null;
   setActiveCharacter: (char: CharacterCard | null) => void;
+  onNavigateToGenerator?: () => void;
 }
 
-export function CharacterStudioDrawer({ isOpen, onClose, activeCharacter, setActiveCharacter }: Props) {
+export function CharacterStudioDrawer({
+  isOpen,
+  onClose,
+  activeCharacter,
+  setActiveCharacter,
+  onNavigateToGenerator,
+}: Props) {
   const [characters, setCharacters] = useState<CharacterCard[]>([]);
   const [editingChar, setEditingChar] = useState<Partial<CharacterCard> | null>(null);
   const [loading, setLoading] = useState(false);
@@ -88,12 +95,22 @@ export function CharacterStudioDrawer({ isOpen, onClose, activeCharacter, setAct
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           {!editingChar ? (
             <div className="space-y-4">
-              <button
-                onClick={() => setEditingChar({ name: '', visual_dna: '', wardrobes: [] })}
-                className="w-full py-3 flex items-center justify-center gap-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium"
-              >
-                <Plus className="w-5 h-5" /> New Character
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  onClick={() => setEditingChar({ name: '', visual_dna: '', wardrobes: [] })}
+                  className="w-full py-2.5 px-3 flex items-center justify-center gap-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-medium text-xs shadow-xs transition-all active:scale-95"
+                >
+                  <Plus className="w-4 h-4" /> New Character
+                </button>
+                {onNavigateToGenerator && (
+                  <button
+                    onClick={onNavigateToGenerator}
+                    className="w-full py-2.5 px-3 flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 text-[#0d0d0d] dark:text-white rounded-xl font-medium text-xs border border-[#e5e5e5] dark:border-white/10 transition-all active:scale-95"
+                  >
+                    <Sparkles className="w-4 h-4 text-emerald-500" /> Reference Studio
+                  </button>
+                )}
+              </div>
               
               <div className="space-y-2">
                 {characters.map(char => (
