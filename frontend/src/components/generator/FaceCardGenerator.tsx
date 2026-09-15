@@ -1550,7 +1550,7 @@ The 3/4 views should naturally reveal facial depth and profile characteristics w
                   Face Reference Card Generated
                 </span>
                 <span className="text-[10px] font-mono text-[#6e6e80] dark:text-[#a1a1aa]">
-                  ({generatedResult.duration_s.toFixed(1)}s · {generatedResult.account_used})
+                  ({((generatedResult.duration_s ?? 0)).toFixed(1)}s · {generatedResult.account_used || 'Primary'})
                 </span>
               </div>
 

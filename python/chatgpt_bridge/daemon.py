@@ -556,6 +556,7 @@ async def image(req: ImageRequest) -> dict:
                 result["image_url"] = f"/images/{p.name}"
                 result["thumbnail_url"] = f"/thumbnails/{p.stem}.webp"
                 duration = round(time.time() - t0, 2)
+                result["duration_s"] = duration
 
                 # 1. Generate lightweight WebP thumbnail
                 if p.exists():
