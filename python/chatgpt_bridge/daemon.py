@@ -13,7 +13,7 @@ from typing import Any
 
 log = logging.getLogger("chatgpt_bridge.daemon")
 
-from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -58,7 +58,7 @@ from .characters import (
     CharacterManager,
     WardrobeItem,
 )
-from .director import DirectorEngine, StoryboardPlan
+from .director import DirectorEngine, StoryboardPlan, StoryboardShot
 from .prompt_library import PromptLibrary
 
 try:
@@ -138,6 +138,7 @@ class ImageRequest(BaseModel):
     tweaked_prompt: str | None = Field(default=None, description="Optional softer prompt for retries 6-7")
     tweaked_prompt_2: str | None = Field(default=None, description="Optional further refined prompt for retries 8-10")
     reference_image: str | None = Field(default=None, description="Optional reference image ID or filename or URL to attach")
+    metadata: dict | None = Field(default=None, description="Optional metadata to store with the image")
 
 
 class SwitchAccountRequest(BaseModel):
@@ -299,6 +300,10 @@ class DirectorPlanRequest(BaseModel):
     style_override: str | None = Field(default=None, description="Optional style override")
 
 
+class DirectorExecuteRequest(BaseModel):
+    shots: list[StoryboardShot] = Field(..., description="The list of shots to execute")
+
+
 def _load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
@@ -339,6 +344,7 @@ async def index_generation(
     tg_message_id: int | None = None,
     tg_channel_id: str | int | None = None,
     is_local: bool = True,
+    metadata: dict | None = None,
 ) -> dict | None:
     if not path.exists() or not path.is_file():
         return None
@@ -361,6 +367,7 @@ async def index_generation(
             "tg_message_id": tg_message_id,
             "tg_channel_id": str(tg_channel_id) if tg_channel_id else None,
             "is_local": is_local,
+            "metadata": metadata or {},
         }
         async with _meta_lock:
             idx = _load_json(META_FILE, {})
@@ -596,6 +603,7 @@ async def image(req: ImageRequest) -> dict:
                     tg_file_id=tg_file_id,
                     tg_message_id=tg_message_id,
                     tg_channel_id=tg_chat_id if tg_file_id else None,
+                    metadata=req.metadata,
                     is_local=True,
                 )
 
@@ -1304,6 +1312,52 @@ async def lock_character_endpoint(
         "locked": active_id == character_id,
         "character": char if active_id == character_id else None,
     }
+
+
+async def _execute_director_sequence(shots: list[StoryboardShot]):
+    conv_id = None
+    for i, shot in enumerate(shots):
+        await ws_broadcast({
+            "type": "director_sequence_progress",
+            "shot_index": i,
+            "total_shots": len(shots),
+            "status": "Generating...",
+            "shot": shot.model_dump()
+        })
+        
+        req = ImageRequest(
+            prompt=shot.prompt,
+            conversation_id=conv_id,
+            metadata={"director_shot": shot.model_dump()}
+        )
+        
+        try:
+            res = await image(req)
+            if "conversation_id" in res and res["conversation_id"]:
+                conv_id = res["conversation_id"]
+        except Exception as e:
+            log.error(f"Director sequence error on shot {i}: {e}", exc_info=True)
+            await ws_broadcast({
+                "type": "director_sequence_error",
+                "shot_index": i,
+                "error": str(e)
+            })
+            break
+            
+        if i < len(shots) - 1:
+            await asyncio.sleep(8)
+            
+    await ws_broadcast({
+        "type": "director_sequence_progress",
+        "status": "Complete",
+        "shot_index": len(shots),
+        "total_shots": len(shots)
+    })
+
+@app.post("/api/director/execute")
+async def api_director_execute(req: DirectorExecuteRequest, background_tasks: BackgroundTasks):
+    background_tasks.add_task(_execute_director_sequence, req.shots)
+    return {"ok": True, "message": "Sequence execution started"}
 
 
 @app.post("/api/director/plan", response_model=StoryboardPlan)
