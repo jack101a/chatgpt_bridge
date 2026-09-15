@@ -2,9 +2,16 @@ import {
   ImageRequest,
   ImageResult,
   GalleryResponse,
+  GalleryTimeFilter,
   Account,
   Telemetry,
   ChatThread,
+  StorageStatus,
+  StorageSyncProgress,
+  TelegramTestResult,
+  VaultBackupsResponse,
+  VaultBackupResult,
+  VaultRestoreResult,
 } from '../types';
 
 export async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -17,7 +24,8 @@ export async function fetchJson<T>(url: string, options?: RequestInit): Promise<
   });
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(errorBody.detail || errorBody.message || res.statusText);
+    const msg = errorBody.error?.message || errorBody.detail || errorBody.message || res.statusText;
+    throw new Error(msg);
   }
   return res.json();
 }
@@ -50,7 +58,7 @@ export const api = {
 
   // Gallery
   getGallery: (params: {
-    filter?: 'all' | 'today' | 'favorites';
+    filter?: GalleryTimeFilter | string;
     limit?: number;
     cursor?: string | null;
     conversation_id?: string | null;
@@ -80,9 +88,77 @@ export const api = {
       body: JSON.stringify(settings),
     }),
 
+  // State Persistence
+  getState: (): Promise<Record<string, any>> => fetchJson('/api/state'),
+
+  saveState: (state: Record<string, any>): Promise<Record<string, any>> =>
+    fetchJson('/api/state', {
+      method: 'POST',
+      body: JSON.stringify(state),
+    }),
+
   // Chats
   getChats: (): Promise<ChatThread[]> => fetchJson<ChatThread[]>('/api/chats'),
 
   deleteChat: (conversation_id: string): Promise<{ success: boolean }> =>
     fetchJson(`/conversations/${conversation_id}`, { method: 'DELETE' }),
+
+  // Storage & Telegram Cloud Vault
+  getStorageStatus: (): Promise<StorageStatus> => fetchJson<StorageStatus>('/api/storage/status'),
+
+  testTelegram: (data?: { bot_token?: string; channel_id?: string }): Promise<TelegramTestResult> =>
+    fetchJson<TelegramTestResult>('/api/storage/test', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+
+  startStorageSync: (): Promise<{ ok: boolean; message: string }> =>
+    fetchJson<{ ok: boolean; message: string }>('/api/storage/sync', { method: 'POST' }),
+
+  getStorageSyncStatus: (): Promise<StorageSyncProgress> =>
+    fetchJson<StorageSyncProgress>('/api/storage/sync/status'),
+
+  getVaultBackups: (): Promise<VaultBackupsResponse> =>
+    fetchJson<VaultBackupsResponse>('/api/storage/backups'),
+
+  triggerVaultBackup: (): Promise<VaultBackupResult> =>
+    fetchJson<VaultBackupResult>('/api/storage/backup', { method: 'POST' }),
+
+  triggerVaultRestore: (): Promise<VaultRestoreResult> =>
+    fetchJson<VaultRestoreResult>('/api/storage/restore', { method: 'POST' }),
+
+  getStorageTopics: (): Promise<{ ok: boolean; topics: { data: number; general: number; backup: number } }> =>
+    fetchJson('/api/storage/topics'),
+
+  regenerateThumbnails: (): Promise<{ ok: boolean; regenerated: number; message: string }> =>
+    fetchJson('/api/storage/thumbnails/regenerate', { method: 'POST' }),
 };
+
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (err) {
+    // fallback below
+  }
+
+  try {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    const successful = document.execCommand('copy');
+    textArea.remove();
+    return successful;
+  } catch (err) {
+    console.error('Failed to copy to clipboard', err);
+    return false;
+  }
+}

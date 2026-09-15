@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useBridge } from './hooks/useBridge';
 import { useGallery } from './hooks/useGallery';
 import { ChatView } from './components/chat/ChatView';
@@ -11,16 +11,39 @@ import { GalleryItem } from './types';
 import { api } from './lib/api';
 
 export function App() {
-  const [currentTab, setCurrentTab] = useState<'chat' | 'gallery' | 'settings'>('chat');
+  // Restore initial active tab: URL hash takes priority, otherwise always default to 'chat' (the Homepage)
+  const [currentTab, setCurrentTab] = useState<'chat' | 'gallery' | 'settings'>(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (hash === 'chat' || hash === 'gallery' || hash === 'settings') {
+      return hash;
+    }
+    return 'chat';
+  });
+
   const [isAccountsOpen, setIsAccountsOpen] = useState(false);
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState(false);
   const [viewerItem, setViewerItem] = useState<GalleryItem | null>(null);
+  const [referenceImage, setReferenceImage] = useState<GalleryItem | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('bridge:theme') === 'dark';
   });
+  const [isMobileNavVisible, setIsMobileNavVisible] = useState(true);
 
   const bridge = useBridge();
   const gallery = useGallery();
+  const isInitialLoad = useRef(true);
+
+
+  // Ensure initial hash reflects active tab
+  useEffect(() => {
+    const currentHash = window.location.hash.replace('#', '');
+    if (!currentHash || (currentHash !== 'chat' && currentHash !== 'gallery')) {
+      window.history.replaceState(null, '', `#${currentTab}`);
+    }
+    try {
+      localStorage.setItem('bridge:tab', currentTab);
+    } catch (e) {}
+  }, []);
 
   // Handle dark mode class on <html>
   useEffect(() => {
@@ -33,11 +56,152 @@ export function App() {
     }
   }, [isDarkMode]);
 
+  // Default page is always a brand new chat session
+  useEffect(() => {
+    bridge.newChat();
+    isInitialLoad.current = false;
+  }, []);
+
+  // Keep live refs for popstate handler
+  const viewerItemRef = useRef(viewerItem);
+  const isAccountsOpenRef = useRef(isAccountsOpen);
+  const isSidebarOpenMobileRef = useRef(isSidebarOpenMobile);
+  const currentTabRef = useRef(currentTab);
+
+  useEffect(() => {
+    viewerItemRef.current = viewerItem;
+  }, [viewerItem]);
+
+  useEffect(() => {
+    isAccountsOpenRef.current = isAccountsOpen;
+  }, [isAccountsOpen]);
+
+  useEffect(() => {
+    isSidebarOpenMobileRef.current = isSidebarOpenMobile;
+  }, [isSidebarOpenMobile]);
+
+  useEffect(() => {
+    currentTabRef.current = currentTab;
+  }, [currentTab]);
+
+  // Save state to URL hash, localStorage, and /api/state on changes
+  useEffect(() => {
+    if (isInitialLoad.current) return;
+
+    const state = {
+      currentTab,
+      activeConvId: bridge.activeConvId,
+    };
+
+    try {
+      localStorage.setItem('bridge:state', JSON.stringify(state));
+      localStorage.setItem('bridge:tab', currentTab);
+    } catch (e) {}
+
+    // Persist to backend server endpoint
+    api.saveState(state).catch(() => {});
+  }, [currentTab, bridge.activeConvId, viewerItem?.id]);
+
+  // Universal browser & hardware back button handling
+  useEffect(() => {
+    const handlePopState = () => {
+      // 1. Close viewer modal if open
+      if (viewerItemRef.current) {
+        setViewerItem(null);
+        return;
+      }
+      // 2. Close accounts drawer if open
+      if (isAccountsOpenRef.current) {
+        setIsAccountsOpen(false);
+        return;
+      }
+      // 3. Close mobile sidebar if open
+      if (isSidebarOpenMobileRef.current) {
+        setIsSidebarOpenMobile(false);
+        return;
+      }
+      // 4. Navigate tabs from URL hash
+      const hash = window.location.hash.replace('#', '');
+      if (hash === 'gallery') {
+        setCurrentTab('gallery');
+      } else {
+        setCurrentTab('chat');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handlePopState);
+    };
+  }, []);
+
   const activeAccount = bridge.accounts.find((a) => a.is_active) || bridge.accounts[0] || null;
 
-  // Viewer navigation
+  // Tab navigation with history push
+  const handleSelectTab = (tab: 'chat' | 'gallery' | 'settings') => {
+    if (tab === 'settings') {
+      handleOpenAccounts();
+      return;
+    }
+    setIsMobileNavVisible(true);
+    if (tab === currentTab) return;
+    setCurrentTab(tab);
+    window.history.pushState({ tab }, '', `#${tab}`);
+    try {
+      localStorage.setItem('bridge:tab', tab);
+    } catch (e) {}
+  };
+
+  const handleGoBackFromGallery = () => {
+    bridge.newChat();
+    handleSelectTab('chat');
+  };
+
+  const handleFullPageRefresh = async () => {
+    // Native mobile app style full-page refresh, preserving active hash URL
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    window.location.reload();
+  };
+
+  // Accounts drawer navigation
+  const handleOpenAccounts = () => {
+    setIsAccountsOpen(true);
+    window.history.pushState({ drawer: 'accounts' }, '', window.location.hash || '#chat');
+  };
+
+  const handleCloseAccounts = () => {
+    setIsAccountsOpen(false);
+    if (window.history.state?.drawer === 'accounts') {
+      window.history.back();
+    }
+  };
+
+  // Mobile sidebar navigation
+  const handleOpenSidebarMobile = () => {
+    setIsSidebarOpenMobile(true);
+    window.history.pushState({ drawer: 'sidebar' }, '', window.location.hash || '#chat');
+  };
+
+  const handleCloseSidebarMobile = () => {
+    setIsSidebarOpenMobile(false);
+    if (window.history.state?.drawer === 'sidebar') {
+      window.history.back();
+    }
+  };
+
+  // Viewer navigation with history push
   const handleOpenViewer = (item: GalleryItem) => {
     setViewerItem(item);
+    window.history.pushState({ modal: 'viewer', id: item.id }, '', window.location.hash || '#chat');
+  };
+
+  const handleCloseViewer = () => {
+    setViewerItem(null);
+    if (window.history.state?.modal === 'viewer') {
+      window.history.back();
+    }
   };
 
   const handleViewerNext = () => {
@@ -66,8 +230,21 @@ export function App() {
     if (item.conversation_id) {
       bridge.selectThread(item.conversation_id);
     }
-    setCurrentTab('chat');
+    setViewerItem(null);
+    handleSelectTab('chat');
   };
+
+  // Remix / Prompt with this Image feature
+  const handlePromptWithImage = (item: GalleryItem) => {
+    setReferenceImage(item);
+    setViewerItem(null);
+    handleSelectTab('chat');
+  };
+
+  const handleToggleFavorite = useCallback((id: string) => {
+    gallery.toggleFavorite(id);
+    setViewerItem((prev) => (prev && prev.id === id ? { ...prev, favorite: !prev.favorite } : prev));
+  }, [gallery.toggleFavorite]);
 
   const handleDeleteThread = async (convId: string) => {
     try {
@@ -87,15 +264,33 @@ export function App() {
       <DesktopSidebar
         threads={bridge.threads}
         activeConvId={bridge.activeConvId}
-        onSelectThread={bridge.selectThread}
-        onNewChat={() => bridge.selectThread(null)}
+        onSelectThread={(id, targetAccount) => {
+          if (targetAccount && targetAccount !== activeAccount?.alias) {
+            const matchedAcc = bridge.accounts.find(
+              (a) => a.alias === targetAccount || a.id === targetAccount
+            );
+            if (matchedAcc) {
+              api.switchAccount(matchedAcc.alias || matchedAcc.id).then(() => {
+                bridge.refreshAccounts();
+              }).catch((e) => console.error('Failed to switch account:', e));
+            }
+          }
+          bridge.selectThread(id);
+          handleSelectTab('chat');
+          setIsSidebarOpenMobile(false);
+        }}
+        onNewChat={() => {
+          bridge.selectThread(null);
+          handleSelectTab('chat');
+          setIsSidebarOpenMobile(false);
+        }}
         onDeleteThread={handleDeleteThread}
         activeAccount={activeAccount}
-        onOpenAccounts={() => setIsAccountsOpen(true)}
+        onOpenAccounts={handleOpenAccounts}
         currentTab={currentTab}
-        onSelectTab={setCurrentTab}
+        onSelectTab={handleSelectTab}
         isOpenMobile={isSidebarOpenMobile}
-        onCloseMobile={() => setIsSidebarOpenMobile(false)}
+        onCloseMobile={handleCloseSidebarMobile}
       />
 
       {/* ── Main Content Stage ── */}
@@ -108,55 +303,72 @@ export function App() {
             retryCount={bridge.retryCount}
             activeAccount={activeAccount}
             activeConvId={bridge.activeConvId}
-            onSend={bridge.generate}
+            onSend={async (req) => {
+              setReferenceImage(null);
+              return await bridge.generate(req);
+            }}
             onClearThread={() => bridge.selectThread(null)}
             onOpenViewer={handleOpenViewer}
-            onOpenAccounts={() => setIsAccountsOpen(true)}
-            onOpenSidebar={() => setIsSidebarOpenMobile(true)}
+            onOpenAccounts={handleOpenAccounts}
+            onOpenSidebar={handleOpenSidebarMobile}
             onContinueThread={(convId) => {
               bridge.selectThread(convId);
-              setCurrentTab('chat');
+              handleSelectTab('chat');
             }}
-            onToggleFavorite={gallery.toggleFavorite}
+            onToggleFavorite={handleToggleFavorite}
+            referenceImage={referenceImage}
+            onClearReference={() => setReferenceImage(null)}
+            onPromptWithImage={handlePromptWithImage}
+            onRefresh={handleFullPageRefresh}
           />
         )}
 
         {currentTab === 'gallery' && (
           <GalleryView
             items={gallery.items}
+            sections={gallery.sections}
             total={gallery.total}
             isLoading={gallery.isLoading}
             hasMore={gallery.hasMore}
             searchQuery={gallery.searchQuery}
             onSearchChange={gallery.setSearchQuery}
-            activeFilter="all"
-            onFilterChange={() => {}}
+            activeFilter={gallery.activeFilter}
+            onFilterChange={gallery.setActiveFilter}
+            sortBy={gallery.sortBy}
+            onSortByChange={gallery.setSortBy}
+            groupBy={gallery.groupBy}
+            onGroupByChange={gallery.setGroupBy}
+            layoutMode={gallery.layoutMode}
+            onLayoutModeChange={gallery.setLayoutMode}
             accountFilter={gallery.accountFilter}
             onAccountFilterChange={gallery.setAccountFilter}
             accounts={bridge.accounts}
             onLoadMore={gallery.loadMore}
             onOpenViewer={handleOpenViewer}
-            onToggleFavorite={gallery.toggleFavorite}
+            onToggleFavorite={handleToggleFavorite}
+            onRefresh={handleFullPageRefresh}
+            activeAccount={activeAccount}
+            onOpenAccounts={handleOpenAccounts}
+            onOpenSidebar={handleOpenSidebarMobile}
+            onGoHome={handleGoBackFromGallery}
+            onPromptWithImage={handlePromptWithImage}
+            onToggleChrome={setIsMobileNavVisible}
           />
         )}
 
         {/* ── Mobile Bottom Navigation (Visible on < 1024px) ── */}
         <MobileBottomNav
           activeTab={currentTab}
-          onSelectTab={(tab) => {
-            if (tab === 'settings') {
-              setIsAccountsOpen(true);
-            } else {
-              setCurrentTab(tab);
-            }
-          }}
+          onSelectTab={handleSelectTab}
+          isVisible={currentTab === 'chat' ? true : isMobileNavVisible}
+          fixed={currentTab === 'gallery'}
         />
       </main>
 
       {/* ── Accounts & Settings Drawer ── */}
       <AccountsDrawer
         isOpen={isAccountsOpen}
-        onClose={() => setIsAccountsOpen(false)}
+        onClose={handleCloseAccounts}
         accounts={bridge.accounts}
         telemetry={bridge.telemetry}
         onRefreshAccounts={bridge.refreshAccounts}
@@ -169,12 +381,13 @@ export function App() {
         item={viewerItem}
         items={gallery.items.length > 0 ? gallery.items : viewerItem ? [viewerItem] : []}
         isOpen={Boolean(viewerItem)}
-        onClose={() => setViewerItem(null)}
+        onClose={handleCloseViewer}
         onSelectNext={handleViewerNext}
         onSelectPrev={handleViewerPrev}
-        onToggleFavorite={gallery.toggleFavorite}
+        onToggleFavorite={handleToggleFavorite}
         onDelete={gallery.deleteItem}
         onContinueInChat={handleContinueInChat}
+        onPromptWithImage={handlePromptWithImage}
       />
     </div>
   );

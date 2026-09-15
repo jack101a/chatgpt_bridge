@@ -13,7 +13,7 @@ class _FakeCore:
     async def ask(self, prompt, model=None, conversation_id=None):
         return {"text": f"echo:{prompt}", "conversation_id": conversation_id or ""}
 
-    async def generate_image(self, prompt, timeout_s=180):
+    async def generate_image(self, prompt, timeout_s=180, **kwargs):
         return {"path": "/tmp/x.png", "prompt": prompt}
 
 
@@ -21,7 +21,7 @@ class _FailingCore:
     async def ask(self, prompt, model=None, conversation_id=None):
         raise AuthError("no session")
 
-    async def generate_image(self, prompt, timeout_s=180):
+    async def generate_image(self, prompt, timeout_s=180, **kwargs):
         raise ShapeChangedError("shape broke")
 
 
@@ -56,6 +56,7 @@ def test_image_ok(client):
         "path": "/tmp/x.png",
         "prompt": "a fox",
         "image_url": "/images/x.png",
+        "thumbnail_url": "/thumbnails/x.webp",
     }
 
 
@@ -72,7 +73,10 @@ def test_image_with_conversation_id_and_max_tries(monkeypatch):
     resp = client.post("/image", json={"prompt": "a fox", "conversation_id": "c-123", "max_tries": 7})
     assert resp.status_code == 200
     assert resp.json()["conversation_id"] == "c-123"
-    assert calls == [("a fox", 180, {"max_retries": 7, "conversation_id": "c-123"})]
+    assert calls[0][0] == "a fox"
+    assert calls[0][1] == 360
+    assert calls[0][2]["max_retries"] == 7
+    assert calls[0][2]["conversation_id"] == "c-123"
 
 
 def test_ask_error_maps_to_502(monkeypatch):
@@ -87,7 +91,7 @@ def test_ask_error_maps_to_502(monkeypatch):
 
 def test_image_denied_maps_to_502(monkeypatch):
     class _DeniedCore:
-        async def generate_image(self, prompt, timeout_s=180):
+        async def generate_image(self, prompt, timeout_s=180, **kwargs):
             raise GenerationDeniedError("denied", kind="deterministic")
 
     monkeypatch.setattr(daemon, "_get_core", lambda: _DeniedCore())

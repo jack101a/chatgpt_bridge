@@ -1,11 +1,11 @@
 import React from 'react';
-import { Plus, MessageSquare, Image as ImageIcon, Settings2, Trash2, X } from 'lucide-react';
+import { Plus, MessageSquare, Image as ImageIcon, Settings2, Trash2, X, Sparkles } from 'lucide-react';
 import { ChatThread, Account } from '../../types';
 
 interface DesktopSidebarProps {
   threads: ChatThread[];
   activeConvId: string | null;
-  onSelectThread: (convId: string | null) => void;
+  onSelectThread: (convId: string | null, targetAccount?: string | null) => void;
   onNewChat: () => void;
   onDeleteThread: (convId: string) => void;
   activeAccount: Account | null;
@@ -34,38 +34,44 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       {/* Mobile Backdrop */}
       {isOpenMobile && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm"
           onClick={onCloseMobile}
+          className="lg:hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-40 animate-fade"
         />
       )}
 
-      {/* Sidebar Container */}
+      {/* Sidebar Shell */}
       <aside
-        className={`fixed lg:static top-0 bottom-0 left-0 z-40 w-[260px] flex flex-col bg-[#f7f7f8] dark:bg-[#18181b] border-r border-[#e5e5e5] dark:border-[#27272a] transition-transform duration-200 ease-in-out ${
+        className={`fixed lg:static top-0 bottom-0 left-0 z-50 w-72 lg:w-64 bg-[#f9f9f9] dark:bg-[#18181b] border-r border-[#e5e5e5] dark:border-[#27272a] flex flex-col transition-transform duration-300 ease-in-out ${
           isOpenMobile ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        {/* Header with Logo & New Chat */}
+        {/* Header: App Title & New Chat */}
         <div className="p-3 border-b border-[#e5e5e5] dark:border-[#27272a] flex items-center justify-between">
-          <div className="flex items-center gap-2 px-1">
-            <div className="w-6 h-6 rounded-lg bg-[#10a37f] text-white flex items-center justify-center font-bold text-xs shadow-sm">
-              B
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-sm">
+              <Sparkles size={16} />
             </div>
-            <span className="font-semibold text-sm text-[#0d0d0d] dark:text-white tracking-tight">
-              Bridge
-            </span>
+            <div>
+              <h1 className="font-semibold text-sm leading-tight text-[#0d0d0d] dark:text-white">
+                Bridge
+              </h1>
+              <span className="text-[10px] text-[#6e6e80] dark:text-[#a1a1aa] block leading-none">
+                ChatGPT Studio
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-1">
             <button
               onClick={() => {
                 onNewChat();
+                onSelectTab('chat');
                 onCloseMobile();
               }}
-              className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-zinc-800 text-gray-600 dark:text-gray-300 hover:text-black dark:hover:text-white transition-all"
+              className="p-1.5 rounded-lg text-gray-500 hover:text-black dark:text-gray-400 dark:hover:text-white hover:bg-gray-200/50 dark:hover:bg-zinc-800/50 transition-colors"
               title="New Chat"
             >
-              <Plus size={18} />
+              <Plus size={17} />
             </button>
             <button
               onClick={onCloseMobile}
@@ -76,7 +82,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs (Desktop) */}
+        {/* Primary Navigation */}
         <div className="p-2 space-y-1 border-b border-[#e5e5e5] dark:border-[#27272a]">
           <button
             onClick={() => {
@@ -90,8 +96,9 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             }`}
           >
             <MessageSquare size={16} />
-            Chat Studio
+            Chat & Studio
           </button>
+
           <button
             onClick={() => {
               onSelectTab('gallery');
@@ -130,14 +137,29 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                       : 'text-[#6e6e80] dark:text-[#a1a1aa] hover:bg-gray-200/60 dark:hover:bg-zinc-800/50'
                   }`}
                   onClick={() => {
-                    onSelectThread(t.conversation_id);
+                    onSelectThread(t.conversation_id, t.account_used);
                     onSelectTab('chat');
                     onCloseMobile();
                   }}
                 >
-                  <span className="truncate flex-1 pr-2">
-                    {t.title || t.last_prompt || 'Untitled thread'}
-                  </span>
+                  <div className="flex-1 min-w-0 pr-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate flex-1">
+                        {t.title || t.last_prompt || 'Untitled thread'}
+                      </span>
+                      {t.account_used && (
+                        <span
+                          className={`text-[9.5px] px-1.5 py-0.5 rounded font-mono font-medium flex-shrink-0 ${
+                            t.account_used === activeAccount?.alias
+                              ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-zinc-500/15 text-zinc-500 dark:text-zinc-400'
+                          }`}
+                        >
+                          {t.account_used}
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
                   <button
                     onClick={(e) => {

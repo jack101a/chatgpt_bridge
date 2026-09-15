@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { SlidersHorizontal, ArrowUp, Sparkles, X, Image as ImageIcon } from 'lucide-react';
-import { ImageRequest } from '../../types';
+import { ImageRequest, GalleryItem } from '../../types';
 
 interface ComposerProps {
   onSend: (req: ImageRequest) => void;
   isGenerating: boolean;
   activeConvId: string | null;
   onClearThread: () => void;
+  referenceImage?: GalleryItem | null;
+  onClearReference?: () => void;
 }
 
 export const Composer: React.FC<ComposerProps> = ({
@@ -14,13 +16,22 @@ export const Composer: React.FC<ComposerProps> = ({
   isGenerating,
   activeConvId,
   onClearThread,
+  referenceImage,
+  onClearReference,
 }) => {
   const [promptText, setPromptText] = useState('');
-  const [aspect, setAspect] = useState<'1:1' | '3:4' | '16:9'>('1:1');
+  const [aspect, setAspect] = useState<string>('Original');
   const [showLayers, setShowLayers] = useState(false);
   const [layer1, setLayer1] = useState('');
   const [layer2, setLayer2] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-focus textarea when referenceImage is attached or a thread is selected
+  useEffect(() => {
+    if ((referenceImage || activeConvId) && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [referenceImage, activeConvId]);
 
   // Auto-grow textarea
   useEffect(() => {
@@ -37,10 +48,11 @@ export const Composer: React.FC<ComposerProps> = ({
 
     onSend({
       prompt: promptText.trim(),
-      aspect,
+      aspect: aspect === 'Original' ? null : aspect,
       tweaked_prompt: layer1.trim() || null,
       tweaked_prompt_2: layer2.trim() || null,
       conversation_id: activeConvId || null,
+      reference_image: referenceImage ? referenceImage.id : null,
     });
 
     setPromptText('');
@@ -91,21 +103,54 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
         )}
 
+        {/* ── Attached Reference Image Pill ── */}
+        {referenceImage && (
+          <div className="flex items-center gap-2.5 px-3 py-2 bg-emerald-500/10 dark:bg-emerald-950/40 border-b border-emerald-500/20 animate-fade">
+            <img
+              src={referenceImage.url}
+              alt="Reference"
+              className="w-8 h-8 rounded-lg object-cover border border-emerald-500/40 shadow-sm flex-shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-600 dark:text-emerald-400">
+                  Image Reference
+                </span>
+                <span className="text-[11px] font-mono text-zinc-500 truncate max-w-[120px] sm:max-w-[180px]">
+                  {referenceImage.id}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-700 dark:text-zinc-300 truncate">
+                {referenceImage.prompt || 'Attached reference for image-to-image'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClearReference}
+              className="p-1 rounded-full text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-black/5 dark:hover:bg-white/5 transition-all flex-shrink-0"
+              title="Remove reference image"
+              aria-label="Remove reference image"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
         {/* ── Top Controls: Aspect Ratios + Continuity Badge ── */}
         <div className="flex items-center justify-between px-3 pt-2.5 pb-1 gap-2 flex-wrap">
-          <div className="flex items-center gap-1">
-            {(['1:1', '3:4', '16:9'] as const).map((ratio) => (
+          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+            {(['Original', '1:1', '9:16', '16:9', '4:5', '3:4'] as const).map((ratio) => (
               <button
                 key={ratio}
                 type="button"
                 onClick={() => setAspect(ratio)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all ${
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all whitespace-nowrap ${
                   aspect === ratio
-                    ? 'bg-[#0d0d0d] text-white dark:bg-white dark:text-black'
+                    ? 'bg-[#0d0d0d] text-white dark:bg-white dark:text-black shadow-xs'
                     : 'bg-[#f4f4f5] dark:bg-[#2b2b2f] text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white'
                 }`}
               >
-                {ratio}
+                {ratio === 'Original' ? '✦ Original' : ratio}
               </button>
             ))}
           </div>
@@ -152,7 +197,11 @@ export const Composer: React.FC<ComposerProps> = ({
             value={promptText}
             onChange={(e) => setPromptText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Describe what you want to create…"
+            placeholder={
+              referenceImage
+                ? 'Describe changes or additions using this reference…'
+                : 'Describe what you want to create…'
+            }
             className="flex-1 max-h-[180px] bg-transparent border-0 outline-none resize-none text-[14px] leading-relaxed placeholder:text-gray-400 dark:placeholder:text-gray-500 text-[#0d0d0d] dark:text-white font-sans py-1"
           />
 

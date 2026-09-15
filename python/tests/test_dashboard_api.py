@@ -44,6 +44,7 @@ def test_env(tmp_path, monkeypatch):
     meta_file = state_dir / "gallery_index.json"
     favs_file = state_dir / "favorites.json"
     settings_file = state_dir / "settings.json"
+    state_file = state_dir / "client_state.json"
 
     # Patch daemon paths
     monkeypatch.setattr(daemon, "STATE_DIR", state_dir)
@@ -51,6 +52,7 @@ def test_env(tmp_path, monkeypatch):
     monkeypatch.setattr(daemon, "META_FILE", meta_file)
     monkeypatch.setattr(daemon, "FAVS_FILE", favs_file)
     monkeypatch.setattr(daemon, "SETTINGS_FILE", settings_file)
+    monkeypatch.setattr(daemon, "STATE_FILE", state_file)
 
     mock_core = _MockCore(state_dir)
     monkeypatch.setattr(daemon, "_get_core", lambda: mock_core)
@@ -297,3 +299,37 @@ def test_websocket_connection_and_broadcast(test_env):
         # Send text keepalive
         websocket.send_text("ping")
     assert len(daemon._ws_clients) == 0
+
+
+def test_client_state_endpoints(test_env):
+    client = test_env["client"]
+    # Initial state default
+    get_res = client.get("/api/state")
+    assert get_res.status_code == 200
+    data = get_res.json()
+    assert data["currentTab"] == "chat"
+    assert data["activeConvId"] is None
+
+    # Update state
+    post_res = client.post(
+        "/api/state",
+        json={
+            "currentTab": "gallery",
+            "activeConvId": "conv-1234",
+            "viewerImageId": "img_test_567",
+        },
+    )
+    assert post_res.status_code == 200
+    saved = post_res.json()
+    assert saved["currentTab"] == "gallery"
+    assert saved["activeConvId"] == "conv-1234"
+    assert saved["viewerImageId"] == "img_test_567"
+    assert "lastUpdated" in saved
+
+    # Verify persisted in subsequent GET
+    get_res2 = client.get("/api/state")
+    assert get_res2.status_code == 200
+    data2 = get_res2.json()
+    assert data2["currentTab"] == "gallery"
+    assert data2["activeConvId"] == "conv-1234"
+    assert data2["viewerImageId"] == "img_test_567"

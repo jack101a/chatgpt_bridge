@@ -5,14 +5,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+log = logging.getLogger("chatgpt_bridge.daemon")
+
+from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -24,6 +27,30 @@ from .errors import (
     GenerationDeniedError,
     ShapeChangedError,
 )
+from .storage_manager import (
+    DEFAULT_QUOTA_MB,
+    compute_directory_size,
+    evict_to_budget,
+    generate_vault_manifest,
+    get_backup_history,
+    get_storage_stats,
+    record_backup_history,
+    restore_vault_manifest,
+)
+from .telegram_storage import (
+    TelegramStorageError,
+    delete_chat_message,
+    discover_forum_topics,
+    download_file_from_telegram,
+    get_pinned_manifest_doc,
+    pin_chat_message,
+    prune_backup_history,
+    send_photo_to_telegram,
+    upload_document_to_telegram,
+    upload_vault_manifest,
+    verify_telegram_connection,
+)
+from .thumbnails import generate_thumbnail, regenerate_all_thumbnails
 
 try:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -33,9 +60,12 @@ except Exception:  # pragma: no cover - playwright always present at runtime
 STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
 DAEMON_JSON = STATE_DIR / "daemon.json"
 IMAGES_DIR = STATE_DIR / "images"
+THUMBNAILS_DIR = STATE_DIR / "thumbnails"
 META_FILE = STATE_DIR / "gallery_index.json"
 FAVS_FILE = STATE_DIR / "favorites.json"
 SETTINGS_FILE = STATE_DIR / "settings.json"
+STATE_FILE = STATE_DIR / "client_state.json"
+VAULT_BACKUPS_FILE = STATE_DIR / "vault_backups.json"
 DASH_HTML = Path(__file__).parent / "dashboard.html"
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 FRONTEND_DIST_ALT = Path(__file__).parent / "dist"
@@ -89,11 +119,12 @@ class AskRequest(BaseModel):
 
 class ImageRequest(BaseModel):
     prompt: str = Field(..., description="Image prompt description")
-    timeout_s: int = Field(default=180, ge=1, description="Timeout in seconds for generation")
+    timeout_s: int = Field(default=360, ge=1, description="Timeout in seconds for generation")
     max_tries: int | None = Field(default=None, description="Max retries on refusal (defaults to server config, e.g. 10)")
     conversation_id: str | None = Field(default=None, description="Optional conversation ID for continuity")
     tweaked_prompt: str | None = Field(default=None, description="Optional softer prompt for retries 6-7")
     tweaked_prompt_2: str | None = Field(default=None, description="Optional further refined prompt for retries 8-10")
+    reference_image: str | None = Field(default=None, description="Optional reference image ID or filename or URL to attach")
 
 
 class SwitchAccountRequest(BaseModel):
@@ -103,6 +134,7 @@ class SwitchAccountRequest(BaseModel):
 class GalleryItem(BaseModel):
     id: str = Field(..., description="Filename stem / image ID")
     url: str = Field(..., description="Web URL path to the image")
+    thumbnail_url: str | None = Field(default=None, description="Web URL path to the lightweight thumbnail")
     prompt: str | None = Field(default=None, description="Original prompt text")
     tweaked_prompt: str | None = Field(default=None, description="Level 1 softened prompt")
     tweaked_prompt_2: str | None = Field(default=None, description="Level 2 refined prompt")
@@ -113,6 +145,9 @@ class GalleryItem(BaseModel):
     md5: str = Field(default="", description="MD5 hash of image file")
     duration_s: float | None = Field(default=None, description="Generation duration in seconds")
     favorite: bool = Field(default=False, description="Whether marked as favorite")
+    tg_file_id: str | None = Field(default=None, description="Telegram cloud storage file ID")
+    tg_message_id: int | None = Field(default=None, description="Telegram message ID in channel")
+    is_local: bool = Field(default=True, description="Whether full-resolution PNG is currently cached locally")
 
 
 class GalleryPage(BaseModel):
@@ -127,6 +162,7 @@ class ChatSummary(BaseModel):
     thumbnails: list[str]
     last_active: float
     last_prompt: str | None = None
+    account_used: str | None = None
 
 
 class CookieImport(BaseModel):
@@ -137,6 +173,19 @@ class CookieImport(BaseModel):
 class SettingsPatch(BaseModel):
     auto_switch: bool | None = None
     max_retries: int | None = None
+    max_chats: int | None = None
+    telegram_storage_enabled: bool | None = None
+    telegram_bot_token: str | None = None
+    telegram_channel_id: str | None = None
+    storage_quota_mb: int | None = None
+    telegram_topic_data: int | None = None
+    telegram_topic_general: int | None = None
+    telegram_topic_backup: int | None = None
+
+
+class TelegramTestRequest(BaseModel):
+    bot_token: str | None = None
+    channel_id: str | None = None
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -175,6 +224,10 @@ async def index_generation(
     conversation_id: str | None = None,
     account_used: str | None = None,
     duration_s: float | None = None,
+    tg_file_id: str | None = None,
+    tg_message_id: int | None = None,
+    tg_channel_id: str | int | None = None,
+    is_local: bool = True,
 ) -> dict | None:
     if not path.exists() or not path.is_file():
         return None
@@ -182,6 +235,8 @@ async def index_generation(
         data = path.read_bytes()
         entry = {
             "id": path.stem,
+            "url": f"/images/{path.name}",
+            "thumbnail_url": f"/thumbnails/{path.stem}.webp",
             "prompt": prompt,
             "tweaked_prompt": tweaked_prompt,
             "tweaked_prompt_2": tweaked_prompt_2,
@@ -191,6 +246,10 @@ async def index_generation(
             "size_bytes": len(data),
             "md5": hashlib.md5(data).hexdigest(),
             "duration_s": duration_s,
+            "tg_file_id": tg_file_id,
+            "tg_message_id": tg_message_id,
+            "tg_channel_id": str(tg_channel_id) if tg_channel_id else None,
+            "is_local": is_local,
         }
         async with _meta_lock:
             idx = _load_json(META_FILE, {})
@@ -212,6 +271,8 @@ def _get_core() -> ChatGPT:
             _core.auto_switch = bool(settings["auto_switch"])
         if "max_retries" in settings:
             _core.max_retries = int(settings["max_retries"])
+        if "max_chats" in settings and hasattr(_core, "pool"):
+            _core.pool.max_chats = int(settings["max_chats"])
     return _core
 
 
@@ -271,11 +332,42 @@ async def status() -> dict:
     }
 
 
+async def _align_account_for_conversation(cid: str | None) -> None:
+    """If conversation is owned by another configured account, auto-switch to it."""
+    if not cid:
+        return
+    cid = cid.strip()
+    core = _get_core()
+    meta = _load_json(META_FILE, {})
+    owner_alias = None
+    for entry in meta.values():
+        if entry.get("conversation_id") == cid and entry.get("account_used"):
+            owner_alias = entry["account_used"]
+            break
+    if owner_alias and hasattr(core, "account_manager"):
+        active = core.account_manager.get_active_account()
+        if active and active.alias != owner_alias:
+            owner_acc = core.account_manager.find_account(owner_alias)
+            if owner_acc and not owner_acc.is_rate_limited:
+                log.info(
+                    "Auto-aligning account to conversation owner: %s -> %s for cid %s",
+                    active.alias,
+                    owner_alias,
+                    cid,
+                )
+                try:
+                    await core.switch_account(owner_acc.id)
+                except Exception as e:
+                    log.warning("Failed to auto-align account to %s: %s", owner_alias, e)
+
+
 @app.post("/ask")
 async def ask(req: AskRequest) -> dict:
     """Send a text prompt to ChatGPT and return the response."""
     async with _lock:
         try:
+            if req.conversation_id:
+                await _align_account_for_conversation(req.conversation_id)
             return await _get_core().ask(
                 req.prompt, model=req.model, conversation_id=req.conversation_id
             )
@@ -299,10 +391,29 @@ async def image(req: ImageRequest) -> dict:
                 kwargs["max_retries"] = req.max_tries
             if req.conversation_id is not None:
                 kwargs["conversation_id"] = req.conversation_id
+                await _align_account_for_conversation(req.conversation_id)
             if req.tweaked_prompt is not None:
                 kwargs["tweaked_prompt"] = req.tweaked_prompt
             if req.tweaked_prompt_2 is not None:
                 kwargs["tweaked_prompt_2"] = req.tweaked_prompt_2
+            if req.reference_image:
+                ref = req.reference_image.strip()
+                if ref.startswith("/images/"):
+                    ref = ref[len("/images/"):]
+                elif ref.startswith("images/"):
+                    ref = ref[len("images/"):]
+                ref_path = IMAGES_DIR / ref
+                if not ref_path.exists() and not ref.endswith(".png"):
+                    ref_path = IMAGES_DIR / f"{ref}.png"
+                if ref_path.exists():
+                    kwargs["image_path"] = ref_path
+                elif Path(ref).exists():
+                    kwargs["image_path"] = Path(ref)
+
+            async def progress_cb(data: dict) -> None:
+                await ws_broadcast(data)
+
+            kwargs["on_progress"] = progress_cb
             result = await _get_core().generate_image(
                 req.prompt, timeout_s=req.timeout_s, **kwargs
             )
@@ -310,8 +421,59 @@ async def image(req: ImageRequest) -> dict:
             if "path" in result:
                 p = Path(result["path"])
                 result["image_url"] = f"/images/{p.name}"
-                # Asynchronously index in gallery sidecar
+                result["thumbnail_url"] = f"/thumbnails/{p.stem}.webp"
                 duration = round(time.time() - t0, 2)
+
+                # 1. Generate lightweight WebP thumbnail
+                if p.exists():
+                    try:
+                        thumb_dest = THUMBNAILS_DIR / f"{p.stem}.webp"
+                        generate_thumbnail(p, dest_path=thumb_dest)
+                    except Exception as exc:
+                        log.warning("Failed to generate thumbnail for %s: %s", p.name, exc)
+
+                # 2. Upload to Telegram Cloud Vault (Data topic for file, General topic for photo)
+                settings = _load_json(SETTINGS_FILE, {})
+                tg_enabled = bool(settings.get("telegram_storage_enabled", False))
+                tg_token = settings.get("telegram_bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+                tg_chat_id = settings.get("telegram_channel_id") or os.environ.get("TELEGRAM_STORAGE_CHANNEL_ID") or os.environ.get("TELEGRAM_STORAGE_CHAT_ID", "")
+                data_topic_id = settings.get("telegram_topic_data", 8)
+                general_topic_id = settings.get("telegram_topic_general", 1)
+
+                tg_file_id = None
+                tg_message_id = None
+                if tg_enabled and tg_token and tg_chat_id and p.exists():
+                    # 2a. Post uncompressed full-res PNG file to "Data" topic
+                    try:
+                        caption = f"🎨 {req.prompt[:500]}"
+                        tg_res = await upload_document_to_telegram(
+                            token=tg_token,
+                            chat_id=tg_chat_id,
+                            file_path=p,
+                            caption=caption,
+                            message_thread_id=data_topic_id,
+                        )
+                        tg_file_id = tg_res.get("file_id")
+                        tg_message_id = tg_res.get("message_id")
+                        log.info("Backed up %s to Telegram Data topic (file_id=%s, msg_id=%s)", p.name, tg_file_id, tg_message_id)
+                    except Exception as exc:
+                        log.error("Telegram Data topic document upload failed for %s: %s", p.name, exc)
+
+                    # 2b. Post pure visual photo to "General" topic (highest quality, pure image view)
+                    try:
+                        photo_res = await send_photo_to_telegram(
+                            token=tg_token,
+                            chat_id=tg_chat_id,
+                            file_path=p,
+                            caption=None,  # Pure image view, zero caption clutter
+                            message_thread_id=general_topic_id,
+                        )
+                        log.info("Sent %s to Telegram General topic as photo (msg_id=%s)", p.name, photo_res.get("message_id"))
+                    except Exception as exc:
+                        log.warning("Telegram General topic photo send failed for %s: %s", p.name, exc)
+
+
+                # 3. Asynchronously index in gallery sidecar
                 await index_generation(
                     p,
                     prompt=req.prompt,
@@ -320,7 +482,22 @@ async def image(req: ImageRequest) -> dict:
                     conversation_id=result.get("conversation_id"),
                     account_used=result.get("account_used"),
                     duration_s=duration,
+                    tg_file_id=tg_file_id,
+                    tg_message_id=tg_message_id,
+                    tg_channel_id=tg_chat_id if tg_file_id else None,
+                    is_local=True,
                 )
+
+                # 4. Prune local cache to budget quota
+                quota_mb = int(settings.get("storage_quota_mb", DEFAULT_QUOTA_MB))
+                favs = set(_load_json(FAVS_FILE, []))
+                idx = _load_json(META_FILE, {})
+                evicted = evict_to_budget(IMAGES_DIR, quota_mb, favs, idx)
+                if evicted:
+                    async with _meta_lock:
+                        _save_json(META_FILE, idx)
+                    await ws_broadcast({"type": "storage_evicted", "evicted": evicted})
+
             return result
         except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, GenerationDeniedError, PlaywrightTimeoutError) as exc:
             return _error_response(exc)
@@ -328,11 +505,69 @@ async def image(req: ImageRequest) -> dict:
 
 @app.get("/images/{filename}")
 async def get_image(filename: str):
-    """Serve downloaded generated images directly over HTTP."""
+    """Serve downloaded generated images directly over HTTP, streaming from Telegram if evicted."""
     file_path = IMAGES_DIR / filename
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(file_path, media_type="image/png")
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(file_path, media_type="image/png")
+
+    # Check if image was evicted but exists in Telegram Cloud Vault
+    stem = Path(filename).stem
+    idx = _load_json(META_FILE, {})
+    item = idx.get(stem)
+    if item and item.get("tg_file_id"):
+        settings = _load_json(SETTINGS_FILE, {})
+        tg_token = settings.get("telegram_bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        if tg_token:
+            try:
+                log.info("Serving evicted image %s on-demand from Telegram Cloud Vault...", stem)
+                raw = await download_file_from_telegram(tg_token, item["tg_file_id"])
+                # Re-cache locally
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                file_path.write_bytes(raw)
+                item["is_local"] = True
+                async with _meta_lock:
+                    _save_json(META_FILE, idx)
+                return Response(content=raw, media_type="image/png")
+            except Exception as exc:
+                log.error("Failed to stream image %s from Telegram: %s", stem, exc)
+                raise HTTPException(status_code=502, detail=f"Failed to retrieve image from Telegram: {exc}")
+
+    raise HTTPException(status_code=404, detail="Image not found")
+
+
+@app.get("/thumbnails/{filename}")
+async def get_thumbnail(filename: str):
+    """Serve low-res WebP thumbnail, auto-generating on-demand if missing."""
+    stem = Path(filename).stem
+    thumb_path = THUMBNAILS_DIR / f"{stem}.webp"
+    if thumb_path.exists() and thumb_path.is_file():
+        return FileResponse(thumb_path, media_type="image/webp")
+
+    # Auto-generate thumbnail from local full-res PNG
+    png_path = IMAGES_DIR / f"{stem}.png"
+    if png_path.exists() and png_path.is_file():
+        try:
+            generate_thumbnail(png_path, dest_path=thumb_path)
+            return FileResponse(thumb_path, media_type="image/webp")
+        except Exception as exc:
+            log.warning("Failed to auto-generate thumbnail for %s: %s", stem, exc)
+            return FileResponse(png_path, media_type="image/png")
+
+    # If local PNG was evicted, check if we can generate thumbnail from Telegram
+    idx = _load_json(META_FILE, {})
+    item = idx.get(stem)
+    if item and item.get("tg_file_id"):
+        settings = _load_json(SETTINGS_FILE, {})
+        tg_token = settings.get("telegram_bot_token") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        if tg_token:
+            try:
+                raw = await download_file_from_telegram(tg_token, item["tg_file_id"])
+                generate_thumbnail(raw, dest_path=thumb_path)
+                return FileResponse(thumb_path, media_type="image/webp")
+            except Exception as exc:
+                log.warning("Failed to generate thumbnail from Telegram for %s: %s", stem, exc)
+
+    raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 
 @app.post("/conversations/new")
@@ -483,11 +718,19 @@ async def api_gallery(
     now = time.time()
     if filter == "today":
         items = [e for e in items if now - e.get("created_at", 0) < 86400]
+    elif filter == "week":
+        items = [e for e in items if now - e.get("created_at", 0) < 7 * 86400]
+    elif filter == "month":
+        items = [e for e in items if now - e.get("created_at", 0) < 30 * 86400]
+    elif filter == "year":
+        items = [e for e in items if now - e.get("created_at", 0) < 365 * 86400]
     elif filter == "favorites":
         items = [e for e in items if e["id"] in favs]
 
     if conversation_id:
         items = [e for e in items if e.get("conversation_id") == conversation_id]
+
+    total = len(items)
 
     if cursor:
         if "_" in cursor:
@@ -498,7 +741,6 @@ async def api_gallery(
             items = [e for e in items if str(int(e.get("created_at", 0) * 1000)) < cursor]
 
     page = items[:limit]
-    total = len(items)
 
     res_items: list[GalleryItem] = []
     for e in page:
@@ -506,6 +748,7 @@ async def api_gallery(
             GalleryItem(
                 id=e["id"],
                 url=f"/images/{e['id']}.png",
+                thumbnail_url=f"/thumbnails/{e['id']}.webp",
                 prompt=e.get("prompt"),
                 tweaked_prompt=e.get("tweaked_prompt"),
                 tweaked_prompt_2=e.get("tweaked_prompt_2"),
@@ -516,6 +759,9 @@ async def api_gallery(
                 md5=e.get("md5", ""),
                 duration_s=e.get("duration_s"),
                 favorite=e["id"] in favs,
+                tg_file_id=e.get("tg_file_id"),
+                tg_message_id=e.get("tg_message_id"),
+                is_local=(IMAGES_DIR / f"{e['id']}.png").exists(),
             )
         )
 
@@ -550,6 +796,7 @@ async def api_gallery_one(gid: str) -> GalleryItem:
     return GalleryItem(
         id=e["id"],
         url=f"/images/{e['id']}.png",
+        thumbnail_url=f"/thumbnails/{e['id']}.webp",
         prompt=e.get("prompt"),
         tweaked_prompt=e.get("tweaked_prompt"),
         tweaked_prompt_2=e.get("tweaked_prompt_2"),
@@ -560,6 +807,9 @@ async def api_gallery_one(gid: str) -> GalleryItem:
         md5=e.get("md5", ""),
         duration_s=e.get("duration_s"),
         favorite=e["id"] in favs,
+        tg_file_id=e.get("tg_file_id"),
+        tg_message_id=e.get("tg_message_id"),
+        is_local=(IMAGES_DIR / f"{e['id']}.png").exists(),
     )
 
 
@@ -631,6 +881,7 @@ async def api_chats() -> list[ChatSummary]:
         thumbs = [f"/images/{e['id']}.png" for e in imgs[:4] if "id" in e]
         last_active = imgs[0]["created_at"] if imgs else 0.0
         last_prompt = imgs[0].get("prompt") if imgs else None
+        account_used = imgs[0].get("account_used") if imgs else None
         out.append(
             ChatSummary(
                 conversation_id=cid,
@@ -638,6 +889,7 @@ async def api_chats() -> list[ChatSummary]:
                 thumbnails=thumbs,
                 last_active=last_active,
                 last_prompt=last_prompt,
+                account_used=account_used,
             )
         )
     return sorted(out, key=lambda c: c.last_active, reverse=True)
@@ -684,20 +936,50 @@ async def get_settings() -> dict:
     core = _get_core()
     auto_sw = getattr(core, "auto_switch", True)
     max_ret = getattr(core, "max_retries", 10)
-    return _load_json(SETTINGS_FILE, {"auto_switch": auto_sw, "max_retries": max_ret})
+    max_c = getattr(core.pool, "max_chats", 25) if hasattr(core, "pool") else 25
+    s = _load_json(
+        SETTINGS_FILE,
+        {
+            "auto_switch": auto_sw,
+            "max_retries": max_ret,
+            "max_chats": max_c,
+            "telegram_storage_enabled": False,
+            "telegram_bot_token": os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+            "telegram_channel_id": os.environ.get("TELEGRAM_STORAGE_CHANNEL_ID") or os.environ.get("TELEGRAM_STORAGE_CHAT_ID", ""),
+            "storage_quota_mb": DEFAULT_QUOTA_MB,
+            "telegram_topic_data": 8,
+            "telegram_topic_general": 1,
+            "telegram_topic_backup": 5,
+        },
+    )
+    if "auto_switch" not in s:
+        s["auto_switch"] = auto_sw
+    if "max_retries" not in s:
+        s["max_retries"] = max_ret
+    if "max_chats" not in s:
+        s["max_chats"] = max_c
+    if "telegram_storage_enabled" not in s:
+        s["telegram_storage_enabled"] = False
+    if "telegram_bot_token" not in s:
+        s["telegram_bot_token"] = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if "telegram_channel_id" not in s:
+        s["telegram_channel_id"] = os.environ.get("TELEGRAM_STORAGE_CHANNEL_ID") or os.environ.get("TELEGRAM_STORAGE_CHAT_ID", "")
+    if "storage_quota_mb" not in s:
+        s["storage_quota_mb"] = DEFAULT_QUOTA_MB
+    if "telegram_topic_data" not in s:
+        s["telegram_topic_data"] = 8
+    if "telegram_topic_general" not in s:
+        s["telegram_topic_general"] = 1
+    if "telegram_topic_backup" not in s:
+        s["telegram_topic_backup"] = 5
+    return s
 
 
 @app.patch("/api/settings")
 async def patch_settings(p: SettingsPatch) -> dict:
     """Update runtime settings dynamically."""
     core = _get_core()
-    s = _load_json(
-        SETTINGS_FILE,
-        {
-            "auto_switch": getattr(core, "auto_switch", True),
-            "max_retries": getattr(core, "max_retries", 10),
-        },
-    )
+    s = await get_settings()
     if p.auto_switch is not None:
         s["auto_switch"] = p.auto_switch
         if hasattr(core, "auto_switch"):
@@ -706,9 +988,457 @@ async def patch_settings(p: SettingsPatch) -> dict:
         s["max_retries"] = p.max_retries
         if hasattr(core, "max_retries"):
             core.max_retries = p.max_retries
+    if p.max_chats is not None:
+        s["max_chats"] = p.max_chats
+        if hasattr(core, "pool"):
+            core.pool.max_chats = p.max_chats
+    if p.telegram_storage_enabled is not None:
+        s["telegram_storage_enabled"] = p.telegram_storage_enabled
+    if p.telegram_bot_token is not None:
+        s["telegram_bot_token"] = p.telegram_bot_token.strip()
+    if p.telegram_channel_id is not None:
+        s["telegram_channel_id"] = p.telegram_channel_id.strip()
+    if p.telegram_topic_data is not None:
+        s["telegram_topic_data"] = p.telegram_topic_data
+    if p.telegram_topic_general is not None:
+        s["telegram_topic_general"] = p.telegram_topic_general
+    if p.telegram_topic_backup is not None:
+        s["telegram_topic_backup"] = p.telegram_topic_backup
+    if p.storage_quota_mb is not None:
+        s["storage_quota_mb"] = p.storage_quota_mb
+        # Trigger immediate re-budget
+        favs = set(_load_json(FAVS_FILE, []))
+        idx = _load_json(META_FILE, {})
+        evicted = evict_to_budget(IMAGES_DIR, p.storage_quota_mb, favs, idx)
+        if evicted:
+            async with _meta_lock:
+                _save_json(META_FILE, idx)
+            await ws_broadcast({"type": "storage_evicted", "evicted": evicted})
 
     _save_json(SETTINGS_FILE, s)
     return s
+
+
+# ── Storage & Telegram Cloud Vault API ──
+
+
+_sync_progress: dict[str, Any] = {
+    "running": False,
+    "total": 0,
+    "current": 0,
+    "uploaded": 0,
+    "thumbnails": 0,
+    "evicted": 0,
+    "error": None,
+}
+
+
+@app.get("/api/storage/status")
+async def api_storage_status() -> dict:
+    """Live metrics on cache budget, thumbnail usage, and Telegram cloud vault."""
+    settings = await get_settings()
+    quota_mb = int(settings.get("storage_quota_mb", DEFAULT_QUOTA_MB))
+    idx = _load_json(META_FILE, {})
+    stats = get_storage_stats(IMAGES_DIR, THUMBNAILS_DIR, idx, quota_mb=quota_mb)
+    stats["telegram_storage_enabled"] = bool(settings.get("telegram_storage_enabled", False))
+    stats["telegram_channel_id"] = settings.get("telegram_channel_id", "")
+    stats["telegram_topic_data"] = settings.get("telegram_topic_data", 8)
+    stats["telegram_topic_general"] = settings.get("telegram_topic_general", 1)
+    stats["telegram_topic_backup"] = settings.get("telegram_topic_backup", 5)
+    has_token = bool(settings.get("telegram_bot_token"))
+    has_channel = bool(settings.get("telegram_channel_id"))
+    stats["has_credentials"] = has_token and has_channel
+    stats["sync_status"] = _sync_progress
+    return stats
+
+
+@app.post("/api/storage/test")
+async def api_storage_test(body: TelegramTestRequest | None = None) -> dict:
+    """Test Telegram bot connection and channel write access."""
+    settings = await get_settings()
+    token = (body and body.bot_token) or settings.get("telegram_bot_token", "")
+    chat_id = (body and body.channel_id) or settings.get("telegram_channel_id", "")
+    try:
+        res = await verify_telegram_connection(token, chat_id)
+        return res
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@app.get("/api/storage/topics")
+async def api_storage_topics() -> dict:
+    """Discover forum topics or return configured topic thread IDs."""
+    settings = await get_settings()
+    token = settings.get("telegram_bot_token", "")
+    chat_id = settings.get("telegram_channel_id", "")
+    res = await discover_forum_topics(token, chat_id)
+    # Allow settings overrides if configured
+    if "topics" in res:
+        if settings.get("telegram_topic_data"):
+            res["topics"]["data"] = settings["telegram_topic_data"]
+        if settings.get("telegram_topic_general"):
+            res["topics"]["general"] = settings["telegram_topic_general"]
+        if settings.get("telegram_topic_backup"):
+            res["topics"]["backup"] = settings["telegram_topic_backup"]
+    return res
+
+
+@app.post("/api/storage/thumbnails/regenerate")
+async def api_storage_regenerate_thumbnails() -> dict:
+    """Regenerate crisp 720p HD WebP thumbnails for all local images."""
+    count = regenerate_all_thumbnails(IMAGES_DIR, THUMBNAILS_DIR, max_size=720, quality=85, overwrite=True)
+    return {"ok": True, "regenerated": count, "message": f"Regenerated {count} crisp HD thumbnails"}
+
+
+
+async def _run_storage_sync():
+    global _sync_progress
+    settings = await get_settings()
+    tg_token = settings.get("telegram_bot_token", "")
+    tg_chat_id = settings.get("telegram_channel_id", "")
+    quota_mb = int(settings.get("storage_quota_mb", DEFAULT_QUOTA_MB))
+
+    idx = _load_json(META_FILE, {})
+    all_keys = list(idx.keys())
+    if IMAGES_DIR.exists():
+        for p in IMAGES_DIR.glob("*.png"):
+            if p.stem not in idx:
+                all_keys.append(p.stem)
+
+    _sync_progress["running"] = True
+    _sync_progress["total"] = len(all_keys)
+    _sync_progress["current"] = 0
+    _sync_progress["uploaded"] = 0
+    _sync_progress["thumbnails"] = 0
+    _sync_progress["evicted"] = 0
+    _sync_progress["error"] = None
+
+    try:
+        for stem in all_keys:
+            png_path = IMAGES_DIR / f"{stem}.png"
+            thumb_path = THUMBNAILS_DIR / f"{stem}.webp"
+
+            # 1. Ensure thumbnail exists
+            if not thumb_path.exists() and png_path.exists():
+                try:
+                    generate_thumbnail(png_path, dest_path=thumb_path)
+                    _sync_progress["thumbnails"] += 1
+                except Exception as e:
+                    log.warning("Sync thumbnail failed for %s: %s", stem, e)
+
+            # 2. Upload to Telegram if not already backed up
+            item = idx.get(stem, {})
+            if not item.get("tg_file_id") and png_path.exists() and tg_token and tg_chat_id:
+                try:
+                    prompt = item.get("prompt") or "Generated art"
+                    caption = f"🎨 {prompt[:500]}"
+                    data_topic_id = settings.get("telegram_topic_data", 8)
+                    general_topic_id = settings.get("telegram_topic_general", 1)
+
+                    # 2a. Upload lossless file to Data topic
+                    tg_res = await upload_document_to_telegram(
+                        token=tg_token,
+                        chat_id=tg_chat_id,
+                        file_path=png_path,
+                        caption=caption,
+                        message_thread_id=data_topic_id,
+                    )
+                    item["tg_file_id"] = tg_res.get("file_id")
+                    item["tg_message_id"] = tg_res.get("message_id")
+                    item["tg_channel_id"] = tg_chat_id
+                    item["is_local"] = True
+                    idx[stem] = item
+                    _sync_progress["uploaded"] += 1
+
+                    # 2b. Send pure visual photo to General topic
+                    try:
+                        await send_photo_to_telegram(
+                            token=tg_token,
+                            chat_id=tg_chat_id,
+                            file_path=png_path,
+                            caption=None,
+                            message_thread_id=general_topic_id,
+                        )
+                    except Exception as pe:
+                        log.warning("Sync sendPhoto to General failed for %s: %s", stem, pe)
+                except Exception as e:
+                    log.error("Sync upload failed for %s: %s", stem, e)
+                # Polite pacing to respect Telegram rate limits
+                await asyncio.sleep(0.8)
+
+            _sync_progress["current"] += 1
+            if _sync_progress["current"] % 5 == 0:
+                async with _meta_lock:
+                    _save_json(META_FILE, idx)
+                await ws_broadcast({"type": "storage_sync_progress", "progress": _sync_progress})
+                await asyncio.sleep(0.02)
+
+        # 3. Post-sync eviction to quota (strict quota invariant)
+        favs = set(_load_json(FAVS_FILE, []))
+        evicted = evict_to_budget(IMAGES_DIR, quota_mb, favs, idx)
+        _sync_progress["evicted"] = len(evicted)
+
+        async with _meta_lock:
+            _save_json(META_FILE, idx)
+        await ws_broadcast({"type": "storage_sync_complete", "progress": _sync_progress})
+    except Exception as exc:
+        _sync_progress["error"] = str(exc)
+        log.error("Storage sync failed: %s", exc)
+    finally:
+        _sync_progress["running"] = False
+
+
+@app.post("/api/storage/sync")
+async def api_storage_sync() -> dict:
+    """Trigger background migration/sync of existing images to Telegram."""
+    global _sync_progress
+    if _sync_progress["running"]:
+        return {"ok": False, "message": "Sync is already in progress", "progress": _sync_progress}
+    asyncio.create_task(_run_storage_sync())
+    return {"ok": True, "message": "Storage sync started in background"}
+
+
+@app.get("/api/storage/sync/status")
+async def api_storage_sync_status() -> dict:
+    """Query progress of background storage sync."""
+    return _sync_progress
+
+
+async def perform_vault_manifest_backup(auto_pin: bool = True) -> dict[str, Any]:
+    """Compile and upload the daily JSON manifest to Telegram Backup topic, pin it, and prune old snapshots."""
+    from datetime import datetime, timezone
+    settings = await get_settings()
+    tg_token = settings.get("telegram_bot_token", "")
+    tg_chat_id = settings.get("telegram_channel_id", "")
+    backup_topic_id = settings.get("telegram_topic_backup", 5)
+
+    if not (tg_token and tg_chat_id and settings.get("telegram_storage_enabled", False)):
+        raise HTTPException(status_code=400, detail="Telegram storage is not configured or enabled")
+
+    async with _meta_lock:
+        manifest = generate_vault_manifest(IMAGES_DIR, META_FILE, FAVS_FILE)
+
+    manifest_bytes = json.dumps(manifest, indent=2).encode("utf-8")
+    now_dt = datetime.now(timezone.utc)
+    date_str = now_dt.strftime("%Y-%m-%d_%H%M%S")
+    date_readable = now_dt.strftime("%Y-%m-%d %H:%M UTC")
+    filename = f"bridge_vault_manifest_{now_dt.strftime('%Y%m%d')}.json"
+    caption = (
+        f"📦 Bridge Vault Manifest\n"
+        f"Date: {date_readable}\n"
+        f"Items: {manifest['total_images']} | Favorites: {len(manifest['favorites'])}\n"
+        f"Keys: tg_file_id, filename, md5"
+    )
+
+    upload_res = await upload_vault_manifest(
+        token=tg_token,
+        chat_id=tg_chat_id,
+        manifest_bytes=manifest_bytes,
+        filename=filename,
+        caption=caption,
+        auto_pin=auto_pin,
+        message_thread_id=backup_topic_id,
+    )
+
+    msg_id = upload_res.get("message_id")
+    file_id = upload_res.get("file_id")
+    if msg_id:
+        record_backup_history(
+            history_file=VAULT_BACKUPS_FILE,
+            message_id=msg_id,
+            filename=filename,
+            date_str=date_readable,
+            count=manifest["total_images"],
+            file_id=file_id,
+        )
+        # Auto-prune messages older than the last 7 daily snapshots (Strict FIFO)
+        deleted = await prune_backup_history(tg_token, tg_chat_id, VAULT_BACKUPS_FILE, max_keep=7)
+        if deleted:
+            log.info("Pruned %d old vault backup manifests from Telegram (FIFO)", len(deleted))
+
+    await ws_broadcast({"type": "vault_backup_complete", "backup": {
+        "filename": filename,
+        "date_str": date_readable,
+        "total_images": manifest["total_images"],
+    }})
+
+    return {
+        "ok": True,
+        "message_id": msg_id,
+        "file_id": file_id,
+        "filename": filename,
+        "date_str": date_readable,
+        "total_images": manifest["total_images"],
+        "favorites": len(manifest["favorites"]),
+        "pinned": upload_res.get("pinned", False),
+    }
+
+
+async def perform_vault_manifest_restore() -> dict[str, Any]:
+    """Download pinned manifest from Telegram and restore gallery index & favorites."""
+    settings = await get_settings()
+    tg_token = settings.get("telegram_bot_token", "")
+    tg_chat_id = settings.get("telegram_channel_id", "")
+    if not (tg_token and tg_chat_id):
+        raise HTTPException(status_code=400, detail="Telegram credentials missing")
+
+    pinned_doc = await get_pinned_manifest_doc(tg_token, tg_chat_id)
+    file_id = None
+    file_name = None
+    if pinned_doc and pinned_doc.get("file_id"):
+        file_id = pinned_doc["file_id"]
+        file_name = pinned_doc.get("file_name")
+    else:
+        # Fallback to latest backup from history if pinned message lookup didn't yield doc
+        history = get_backup_history(VAULT_BACKUPS_FILE)
+        if history and history[-1].get("file_id"):
+            file_id = history[-1]["file_id"]
+            file_name = history[-1].get("filename")
+
+    if not file_id:
+        raise HTTPException(status_code=404, detail="No pinned or recorded vault manifest found in Telegram chat")
+
+    raw_bytes = await download_file_from_telegram(tg_token, file_id)
+    try:
+        manifest_data = json.loads(raw_bytes.decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse manifest JSON: {e}")
+
+    async with _meta_lock:
+        res = restore_vault_manifest(manifest_data, META_FILE, FAVS_FILE)
+
+    await ws_broadcast({"type": "vault_restored", "restored": res})
+    return {
+        "ok": True,
+        "filename": file_name,
+        "restored_images": res["restored_images"],
+        "restored_favorites": res["restored_favorites"],
+    }
+
+
+async def _daily_vault_backup_worker():
+    """Background task that ensures a vault manifest backup runs daily."""
+    await asyncio.sleep(30)
+    while True:
+        try:
+            settings = _load_json(SETTINGS_FILE, {})
+            if (
+                settings.get("telegram_storage_enabled")
+                and settings.get("telegram_bot_token")
+                and settings.get("telegram_channel_id")
+            ):
+                history = get_backup_history(VAULT_BACKUPS_FILE)
+                now = time.time()
+                last_time = history[-1]["timestamp"] if history else 0
+                if (now - last_time) >= 86400:  # 24 hours
+                    log.info("Running automated daily Telegram Vault manifest backup...")
+                    await perform_vault_manifest_backup(auto_pin=True)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.warning("Daily vault backup worker error: %s", e)
+        await asyncio.sleep(3600)  # Check hourly
+
+
+@app.on_event("startup")
+async def on_startup():
+    """Application startup lifecycle: initialize workers and auto-restore if database is empty."""
+    # 1. Start background daily vault backup worker
+    asyncio.create_task(_daily_vault_backup_worker())
+
+    # 2. Check if gallery is empty and Telegram credentials are set for zero-touch auto-restore
+    try:
+        idx = _load_json(META_FILE, {})
+        settings = _load_json(SETTINGS_FILE, {})
+        if (
+            len(idx) == 0
+            and settings.get("telegram_storage_enabled")
+            and settings.get("telegram_bot_token")
+            and settings.get("telegram_channel_id")
+        ):
+            log.info("Fresh server / empty gallery index detected on startup. Attempting auto-restore from Telegram Vault...")
+            await perform_vault_manifest_restore()
+    except Exception as e:
+        log.info("Startup auto-restore skipped or failed: %s", e)
+
+
+@app.post("/api/storage/backup")
+async def api_storage_backup() -> dict[str, Any]:
+    """Trigger manual vault manifest backup & upload to Telegram."""
+    return await perform_vault_manifest_backup(auto_pin=True)
+
+
+@app.post("/api/storage/restore")
+async def api_storage_restore() -> dict[str, Any]:
+    """Trigger manual restore of gallery index from pinned Telegram manifest."""
+    return await perform_vault_manifest_restore()
+
+
+@app.get("/api/storage/backups")
+async def api_storage_backups() -> dict[str, Any]:
+    """Query backup manifest history and latest status."""
+    history = get_backup_history(VAULT_BACKUPS_FILE)
+    return {
+        "total_backups": len(history),
+        "latest": history[-1] if history else None,
+        "history": history[-7:],
+    }
+
+
+@app.get("/api/state")
+async def get_client_state() -> dict:
+    """Retrieve persisted UI client state (active tab, conversation, viewer modal, etc.)."""
+    return _load_json(
+        STATE_FILE,
+        {
+            "currentTab": "chat",
+            "activeConvId": None,
+            "viewerImageId": None,
+            "lastUpdated": time.time(),
+        },
+    )
+
+
+@app.post("/api/state")
+async def save_client_state(state: dict = Body(...)) -> dict:
+    """Persist UI client state so page reloads seamlessly restore full session context."""
+    current = _load_json(STATE_FILE, {})
+    current.update(state)
+    current["lastUpdated"] = time.time()
+    _save_json(STATE_FILE, current)
+    return current
+
+
+# ── Full-Text & Vector Search API ──
+
+
+@app.get("/api/search")
+async def api_search(q: str = Query(..., min_length=1)) -> list[dict]:
+    """Search images by prompt and metadata with fuzzy matching."""
+    idx = _load_json(META_FILE, {})
+    query = q.lower().strip()
+    matched = []
+    for item in idx.values():
+        score = 0
+        prompt = (item.get("prompt") or "").lower()
+        tw1 = (item.get("tweaked_prompt") or "").lower()
+        tw2 = (item.get("tweaked_prompt_2") or "").lower()
+        tags = " ".join(item.get("tags") or []).lower()
+
+        if query in prompt:
+            score += 10
+        if query in tw1 or query in tw2:
+            score += 5
+        if query in tags:
+            score += 8
+        if any(term in prompt for term in query.split()):
+            score += 2
+
+        if score > 0:
+            matched.append((score, item))
+
+    matched.sort(key=lambda x: (x[0], x[1].get("created_at", 0)), reverse=True)
+    return [m[1] for m in matched[:100]]
 
 
 @app.get("/api/telemetry")
@@ -726,6 +1456,7 @@ async def api_telemetry() -> dict:
         {
             "auto_switch": getattr(core, "auto_switch", True),
             "max_retries": getattr(core, "max_retries", 10),
+            "max_chats": getattr(core.pool, "max_chats", 25) if hasattr(core, "pool") else 25,
         },
     )
 

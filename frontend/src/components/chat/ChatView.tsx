@@ -1,8 +1,9 @@
 import React, { useRef, useEffect } from 'react';
 import { Menu, Sparkles, Settings2, Loader2 } from 'lucide-react';
-import { ChatMessage, GalleryItem, Account, ImageRequest } from '../../types';
+import { GalleryItem, Account, ChatMessage, ImageRequest } from '../../types';
 import { MessageBubble } from './MessageBubble';
 import { Composer } from './Composer';
+import { PullToRefresh } from '../common/PullToRefresh';
 
 interface ChatViewProps {
   messages: ChatMessage[];
@@ -11,13 +12,17 @@ interface ChatViewProps {
   retryCount: number;
   activeAccount: Account | null;
   activeConvId: string | null;
-  onSend: (req: ImageRequest) => void;
+  onSend: (req: ImageRequest) => Promise<any>;
   onClearThread: () => void;
   onOpenViewer: (item: GalleryItem) => void;
   onOpenAccounts: () => void;
   onOpenSidebar: () => void;
-  onContinueThread: (convId: string, promptText: string) => void;
+  onContinueThread: (convId: string) => void;
   onToggleFavorite?: (id: string) => void;
+  referenceImage?: GalleryItem | null;
+  onClearReference?: () => void;
+  onPromptWithImage?: (item: GalleryItem) => void;
+  onRefresh?: () => Promise<void> | void;
 }
 
 const SUGGESTIONS = [
@@ -41,6 +46,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onOpenSidebar,
   onContinueThread,
   onToggleFavorite,
+  referenceImage,
+  onClearReference,
+  onPromptWithImage,
+  onRefresh,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -52,7 +61,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }, [messages.length, isGenerating]);
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#ffffff] dark:bg-[#121214] overflow-hidden">
+    <div className="flex-1 min-h-0 flex flex-col w-full bg-[#ffffff] dark:bg-[#121214] overflow-hidden">
       {/* ── Top Header ── */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-[#e5e5e5] dark:border-[#27272a] bg-white/80 dark:bg-[#121214]/80 backdrop-blur-md z-10 flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -96,7 +105,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </header>
 
       {/* ── Scrollable Chat Thread ── */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
+      <PullToRefresh ref={scrollRef} onRefresh={onRefresh} className="px-4 py-4 space-y-2">
         {/* Empty state suggestions */}
         {messages.length === 0 && !isGenerating && (
           <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto py-12 px-2 animate-fade">
@@ -132,6 +141,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             onOpenViewer={onOpenViewer}
             onContinueThread={onContinueThread}
             onToggleFavorite={onToggleFavorite}
+            onPromptWithImage={onPromptWithImage}
           />
         ))}
 
@@ -162,7 +172,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </div>
           </div>
         )}
-      </div>
+      </PullToRefresh>
 
       {/* ── Fixed Bottom Composer ── */}
       <div className="flex-shrink-0 bg-white dark:bg-[#121214] border-t border-[#f0f0f0] dark:border-[#1e1e22]">
@@ -171,6 +181,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
           isGenerating={isGenerating}
           activeConvId={activeConvId}
           onClearThread={onClearThread}
+          referenceImage={referenceImage}
+          onClearReference={onClearReference}
         />
       </div>
     </div>

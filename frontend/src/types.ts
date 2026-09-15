@@ -5,6 +5,14 @@ export interface ImageRequest {
   conversation_id?: string | null;
   aspect?: '1:1' | '3:4' | '16:9' | string | null;
   timeout_s?: number;
+  reference_image?: string | null;
+}
+
+export interface ClientState {
+  currentTab: 'chat' | 'gallery' | 'settings';
+  activeConvId?: string | null;
+  viewerImageId?: string | null;
+  lastUpdated?: number;
 }
 
 export interface ImageResult {
@@ -20,6 +28,7 @@ export interface ImageResult {
 export interface GalleryItem {
   id: string;
   url: string;
+  thumbnail_url?: string | null;
   prompt: string | null;
   tweaked_prompt: string | null;
   tweaked_prompt_2: string | null;
@@ -30,12 +39,29 @@ export interface GalleryItem {
   md5: string | null;
   duration_s: number | null;
   favorite: boolean;
+  tg_file_id?: string | null;
+  tg_message_id?: number | null;
+  is_local?: boolean;
 }
 
 export interface GalleryResponse {
   items: GalleryItem[];
   next_cursor: string | null;
   total: number;
+}
+
+export type GalleryTimeFilter = 'all' | 'today' | 'week' | 'month' | 'year' | 'favorites';
+
+export type GallerySortBy = 'newest' | 'oldest' | 'duration' | 'size' | 'retries';
+
+export type GalleryGroupBy = 'all' | 'day' | 'week' | 'month' | 'year';
+
+export type GalleryLayoutMode = 'grid' | 'feed';
+
+export interface TimelineSection {
+  key: string;
+  label: string;
+  items: GalleryItem[];
 }
 
 export interface Account {
@@ -60,7 +86,52 @@ export interface Telemetry {
   settings?: {
     auto_switch: boolean;
     max_retries: number;
+    max_chats?: number;
+    telegram_storage_enabled?: boolean;
+    telegram_bot_token?: string;
+    telegram_channel_id?: string;
+    storage_quota_mb?: number;
   };
+}
+
+export interface StorageSyncProgress {
+  running: boolean;
+  total: number;
+  current: number;
+  uploaded: number;
+  thumbnails: number;
+  evicted: number;
+  error: string | null;
+}
+
+export interface StorageStatus {
+  cache_used_bytes: number;
+  cache_used_mb: number;
+  thumbnail_used_bytes: number;
+  thumbnail_used_mb: number;
+  cache_limit_bytes: number;
+  cache_limit_mb: number;
+  percent_used: number;
+  total_images: number;
+  cloud_backed_count: number;
+  local_full_count: number;
+  evicted_count: number;
+  is_unlimited: boolean;
+  telegram_storage_enabled: boolean;
+  telegram_channel_id: string;
+  telegram_topic_data?: number;
+  telegram_topic_general?: number;
+  telegram_topic_backup?: number;
+  has_credentials: boolean;
+  sync_status: StorageSyncProgress;
+}
+
+export interface TelegramTestResult {
+  ok: boolean;
+  bot_username?: string;
+  bot_id?: number;
+  can_write?: boolean;
+  error?: string | null;
 }
 
 export interface ChatThread {
@@ -69,6 +140,7 @@ export interface ChatThread {
   last_active: number;
   turns: number;
   title?: string;
+  account_used?: string | null;
 }
 
 export interface ChatMessage {
@@ -85,4 +157,37 @@ export interface ChatMessage {
   tweaked_prompt?: string | null;
   tweaked_prompt_2?: string | null;
   retries?: number;
+  referenceImage?: string | null;
 }
+
+export interface VaultBackupItem {
+  message_id: number;
+  filename: string;
+  date_str: string;
+  total_images: number;
+  timestamp: number;
+}
+
+export interface VaultBackupsResponse {
+  total_backups: number;
+  latest: VaultBackupItem | null;
+  history: VaultBackupItem[];
+}
+
+export interface VaultBackupResult {
+  ok: boolean;
+  message_id: number;
+  filename: string;
+  date_str: string;
+  total_images: number;
+  favorites: number;
+  pinned: boolean;
+}
+
+export interface VaultRestoreResult {
+  ok: boolean;
+  filename: string;
+  restored_images: number;
+  restored_favorites: number;
+}
+

@@ -4,17 +4,20 @@ import {
   Download,
   Copy,
   MessageSquareShare,
-  Star,
   Check,
   RotateCw,
+  Sparkles,
+  Heart,
 } from 'lucide-react';
 import { ChatMessage, GalleryItem } from '../../types';
+import { copyToClipboard } from '../../lib/api';
 
 interface MessageBubbleProps {
   message: ChatMessage;
   onOpenViewer: (item: GalleryItem) => void;
   onContinueThread: (convId: string, promptText: string) => void;
   onToggleFavorite?: (id: string) => void;
+  onPromptWithImage?: (item: GalleryItem) => void;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -22,6 +25,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   onOpenViewer,
   onContinueThread,
   onToggleFavorite,
+  onPromptWithImage,
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -41,18 +45,25 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     favorite: Boolean(message.fav),
   };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(message.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(message.content);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   // User Message
   if (message.role === 'user') {
     return (
       <div className="flex justify-end mb-4 animate-fade-up">
-        <div className="max-w-[85%] sm:max-w-md bg-[#f4f4f5] dark:bg-[#2b2b2f] text-[#0d0d0d] dark:text-white px-4 py-2.5 rounded-2xl text-[14.5px] leading-relaxed shadow-sm">
-          {message.content}
+        <div className="max-w-[85%] sm:max-w-md bg-[#f4f4f5] dark:bg-[#2b2b2f] text-[#0d0d0d] dark:text-white px-4 py-2.5 rounded-2xl text-[14.5px] leading-relaxed shadow-sm space-y-1.5">
+          {message.referenceImage && (
+            <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md w-fit">
+              <span>🖼️ ref: {message.referenceImage}</span>
+            </div>
+          )}
+          <div>{message.content}</div>
         </div>
       </div>
     );
@@ -96,7 +107,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           <img
             src={message.imageUrl}
             alt={message.content}
-            className="w-full aspect-square object-cover"
+            className="w-full h-auto max-h-[580px] object-contain rounded-2xl block mx-auto"
             loading="lazy"
           />
 
@@ -105,8 +116,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               e.stopPropagation();
               onOpenViewer(asGalleryItem);
             }}
-            className="absolute top-3 right-3 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Inspect fullscreen"
+            className="absolute bottom-2.5 right-2.5 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all shadow-lg active:scale-95"
+            title="Inspect & View Fullscreen"
           >
             <Maximize2 size={16} />
           </button>
@@ -127,18 +138,30 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           {onToggleFavorite && (
             <button
               onClick={() => onToggleFavorite(message.id)}
-              className="hover:text-amber-500 transition-colors"
+              className="hover:text-rose-500 active:scale-90 transition-all p-1"
+              title={message.fav ? 'Favorited' : 'Add to favorites'}
             >
-              <Star
-                size={14}
-                className={message.fav ? 'text-amber-400 fill-amber-400' : ''}
+              <Heart
+                size={15}
+                className={message.fav ? 'text-rose-500 fill-rose-500 drop-shadow-[0_0_6px_rgba(244,63,94,0.4)]' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'}
               />
             </button>
           )}
         </div>
 
         {/* Quick Actions Row */}
-        <div className="flex items-center gap-2 mt-2.5">
+        <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+          {onPromptWithImage && (
+            <button
+              onClick={() => onPromptWithImage(asGalleryItem)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-xs font-semibold transition-all active:scale-95"
+              title="Attach this image as reference and prompt for a remix"
+            >
+              <Sparkles size={13} />
+              Remix
+            </button>
+          )}
+
           {message.conversation_id && (
             <button
               onClick={() => onContinueThread(message.conversation_id!, message.content)}

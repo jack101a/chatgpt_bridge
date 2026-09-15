@@ -131,6 +131,7 @@ export function useBridge() {
           role: 'user',
           type: 'text',
           content: req.prompt,
+          referenceImage: req.reference_image || undefined,
         },
       ]);
 
@@ -185,6 +186,18 @@ export function useBridge() {
     [activeConvId, isGenerating, refreshTelemetry, refreshThreads]
   );
 
+  const refreshChat = useCallback(async () => {
+    await Promise.all([
+      refreshThreads(),
+      refreshAccounts(),
+      activeConvId ? selectThread(activeConvId) : Promise.resolve(),
+    ]);
+  }, [refreshThreads, refreshAccounts, selectThread, activeConvId]);
+
+  const newChat = useCallback(() => {
+    selectThread(null);
+  }, [selectThread]);
+
   return {
     accounts,
     telemetry,
@@ -196,9 +209,11 @@ export function useBridge() {
     retryCount,
     wsConnected,
     selectThread,
+    newChat,
     generate,
     refreshAccounts,
     refreshTelemetry,
     refreshThreads,
+    refreshChat,
   };
 }
