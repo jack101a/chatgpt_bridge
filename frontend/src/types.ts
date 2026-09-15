@@ -191,3 +191,14 @@ export interface VaultRestoreResult {
   restored_favorites: number;
 }
 
+export interface LLMConfig {
+  base_url: string;
+  api_key: string;
+  model: string;
+}
+
+export interface LLMTestResult {
+  ok: boolean;
+  message?: string;
+}
+

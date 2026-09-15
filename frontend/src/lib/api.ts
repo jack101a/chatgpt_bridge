@@ -12,6 +12,8 @@ import {
   VaultBackupsResponse,
   VaultBackupResult,
   VaultRestoreResult,
+  LLMConfig,
+  LLMTestResult,
 } from '../types';
 
 export async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -132,6 +134,21 @@ export const api = {
 
   regenerateThumbnails: (): Promise<{ ok: boolean; regenerated: number; message: string }> =>
     fetchJson('/api/storage/thumbnails/regenerate', { method: 'POST' }),
+
+  // LLM Config
+  getLLMConfig: (): Promise<LLMConfig> => fetchJson<LLMConfig>('/api/llm/config'),
+
+  saveLLMConfig: (config: LLMConfig): Promise<{ ok: boolean }> =>
+    fetchJson<{ ok: boolean }>('/api/llm/config', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }),
+
+  testLLMConnection: (config?: LLMConfig): Promise<LLMTestResult> =>
+    fetchJson<LLMTestResult>('/api/llm/test', {
+      method: 'POST',
+      body: JSON.stringify(config || {}),
+    }),
 };
 
 export async function copyToClipboard(text: string): Promise<boolean> {

@@ -29,6 +29,8 @@ import {
   StorageSyncProgress,
   TelegramTestResult,
   VaultBackupsResponse,
+  LLMConfig,
+  LLMTestResult,
 } from '../../types';
 import { api } from '../../lib/api';
 
@@ -79,6 +81,13 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
   const [vaultMsg, setVaultMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isRegeneratingThumbs, setIsRegeneratingThumbs] = useState(false);
   const [thumbMsg, setThumbMsg] = useState<string | null>(null);
+
+  // AI Director States
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>({ base_url: '', api_key: '', model: '' });
+  const [showLlmKey, setShowLlmKey] = useState(false);
+  const [isTestingLlm, setIsTestingLlm] = useState(false);
+  const [llmTestResult, setLlmTestResult] = useState<LLMTestResult | null>(null);
+  const [llmSaveMsg, setLlmSaveMsg] = useState<string | null>(null);
 
   // Swipe-down-to-close gesture states
   const [drawerDragY, setDrawerDragY] = useState(0);
@@ -223,6 +232,10 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
     api.getSettings().then((s) => {
       if (s.telegram_bot_token) setTgToken(s.telegram_bot_token);
       if (s.telegram_channel_id) setTgChannel(s.telegram_channel_id);
+    }).catch(() => {});
+    
+    api.getLLMConfig().then((c) => {
+      if (c) setLlmConfig(c);
     }).catch(() => {});
   }, [isOpen, fetchStorage, fetchBackups]);
 
@@ -387,6 +400,34 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
     } finally {
       setIsRegeneratingThumbs(false);
     }
+  };
+
+  const handleTestLLMConnection = async () => {
+    setIsTestingLlm(true);
+    setLlmTestResult(null);
+    try {
+      const res = await api.testLLMConnection(llmConfig);
+      setLlmTestResult(res);
+    } catch (err: any) {
+      setLlmTestResult({ ok: false, message: err.message });
+    } finally {
+      setIsTestingLlm(false);
+    }
+  };
+
+  const handleSaveLLMConfig = async () => {
+    try {
+      setLlmSaveMsg(null);
+      await api.saveLLMConfig(llmConfig);
+      setLlmSaveMsg('Saved AI Director settings!');
+      setTimeout(() => setLlmSaveMsg(null), 3000);
+    } catch (err: any) {
+      alert(`Failed to save LLM Config: ${err.message}`);
+    }
+  };
+
+  const applyLlmPreset = (preset: Partial<LLMConfig>) => {
+    setLlmConfig(prev => ({ ...prev, ...preset }));
   };
 
   if (!isOpen) return null;
@@ -1021,6 +1062,65 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* ── Section: AI Director Settings ── */}
+          <div className="space-y-3 pt-2 border-t border-[#e5e5e5] dark:border-[#2a2a2e]">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6e6e80] dark:text-[#a1a1aa]">
+              AI Director Settings
+            </h3>
+            
+            <div className="p-3 rounded-2xl bg-[#f7f7f8] dark:bg-[#202024] border border-[#e5e5e5] dark:border-[#2c2c30] space-y-3">
+              <div>
+                <p className="text-xs font-medium text-[#0d0d0d] dark:text-white">Provider Presets</p>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.openai.com/v1', model: 'gpt-4o' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white active:scale-95 transition-all">OpenAI</button>
+                  <button onClick={() => applyLlmPreset({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-3-5-sonnet' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white active:scale-95 transition-all">OpenRouter</button>
+                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white active:scale-95 transition-all">DeepSeek</button>
+                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.groq.com/openai/v1', model: 'llama3-8b-8192' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white active:scale-95 transition-all">Groq</button>
+                  <button onClick={() => applyLlmPreset({ base_url: 'http://localhost:11434/v1', model: 'llama3' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white active:scale-95 transition-all">Ollama</button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-gray-700 dark:text-gray-300">Base URL</label>
+                <input type="text" value={llmConfig.base_url} onChange={(e) => setLlmConfig({...llmConfig, base_url: e.target.value})} placeholder="https://api.openai.com/v1" className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200 dark:border-zinc-700 font-mono text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500 transition-colors" />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-gray-700 dark:text-gray-300 flex items-center justify-between">
+                  <span>API Key</span>
+                  <button type="button" onClick={() => setShowLlmKey(!showLlmKey)} className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1">
+                    {showLlmKey ? <EyeOff size={11} /> : <Eye size={11} />}
+                    <span>{showLlmKey ? 'Hide' : 'Show'}</span>
+                  </button>
+                </label>
+                <input type={showLlmKey ? 'text' : 'password'} value={llmConfig.api_key} onChange={(e) => setLlmConfig({...llmConfig, api_key: e.target.value})} placeholder="sk-..." className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200 dark:border-zinc-700 font-mono text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500 transition-colors" />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-gray-700 dark:text-gray-300">Model</label>
+                <input type="text" value={llmConfig.model} onChange={(e) => setLlmConfig({...llmConfig, model: e.target.value})} placeholder="gpt-4o" className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200 dark:border-zinc-700 font-mono text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500 transition-colors" />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button type="button" onClick={handleTestLLMConnection} disabled={isTestingLlm || !llmConfig.base_url} className="flex-1 py-2 px-3 rounded-xl bg-white dark:bg-[#2b2b30] hover:bg-gray-100 dark:hover:bg-[#383840] border border-gray-200 dark:border-gray-700 text-xs font-medium text-[#0d0d0d] dark:text-white flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50">
+                  {isTestingLlm ? <><Loader2 size={13} className="animate-spin text-emerald-500" /><span>Testing...</span></> : <><CheckCircle2 size={13} className="text-emerald-500" /><span>Test Connection</span></>}
+                </button>
+                <button type="button" onClick={handleSaveLLMConfig} className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs">
+                  <Check size={13} />
+                  <span>Save Config</span>
+                </button>
+              </div>
+
+              {llmTestResult && (
+                <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${llmTestResult.ok ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : 'bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'}`}>
+                  {llmTestResult.ok ? <><CheckCircle2 size={15} className="flex-shrink-0 text-emerald-500" /><span className="truncate">{llmTestResult.message || 'Connected successfully!'}</span></> : <><AlertCircle size={15} className="flex-shrink-0 text-rose-500" /><span className="truncate">{llmTestResult.message || 'Connection failed'}</span></>}
+                </div>
+              )}
+
+              {llmSaveMsg && <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">{llmSaveMsg}</p>}
             </div>
           </div>
 
