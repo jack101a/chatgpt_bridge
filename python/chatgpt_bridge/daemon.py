@@ -51,6 +51,7 @@ from .telegram_storage import (
     verify_telegram_connection,
 )
 from .thumbnails import generate_thumbnail, regenerate_all_thumbnails
+from .llm_client import OpenAICompatibleClient, mask_api_key
 
 try:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -181,11 +182,30 @@ class SettingsPatch(BaseModel):
     telegram_topic_data: int | None = None
     telegram_topic_general: int | None = None
     telegram_topic_backup: int | None = None
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
 
 
 class TelegramTestRequest(BaseModel):
     bot_token: str | None = None
     channel_id: str | None = None
+
+
+class LLMConfigPayload(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
+
+
+class LLMTestRequest(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -972,6 +992,12 @@ async def get_settings() -> dict:
         s["telegram_topic_general"] = 1
     if "telegram_topic_backup" not in s:
         s["telegram_topic_backup"] = 5
+    if "llm_base_url" not in s:
+        s["llm_base_url"] = os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    if "llm_api_key" not in s:
+        s["llm_api_key"] = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+    if "llm_model" not in s:
+        s["llm_model"] = os.environ.get("LLM_MODEL", "gpt-4o")
     return s
 
 
@@ -1004,6 +1030,12 @@ async def patch_settings(p: SettingsPatch) -> dict:
         s["telegram_topic_general"] = p.telegram_topic_general
     if p.telegram_topic_backup is not None:
         s["telegram_topic_backup"] = p.telegram_topic_backup
+    if p.llm_base_url is not None:
+        s["llm_base_url"] = p.llm_base_url.strip()
+    if p.llm_api_key is not None and "****" not in p.llm_api_key:
+        s["llm_api_key"] = p.llm_api_key.strip()
+    if p.llm_model is not None:
+        s["llm_model"] = p.llm_model.strip()
     if p.storage_quota_mb is not None:
         s["storage_quota_mb"] = p.storage_quota_mb
         # Trigger immediate re-budget
@@ -1017,6 +1049,94 @@ async def patch_settings(p: SettingsPatch) -> dict:
 
     _save_json(SETTINGS_FILE, s)
     return s
+
+
+# ── AI Director & LLM Configuration API ──
+
+
+@app.get("/api/llm/config")
+async def get_llm_config() -> dict:
+    """Retrieve OpenAI-compatible LLM configuration with masked API key."""
+    settings = _load_json(SETTINGS_FILE, {})
+    raw_key = settings.get("llm_api_key") or os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+    base_url = settings.get("llm_base_url") or os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    model = settings.get("llm_model") or os.environ.get("LLM_MODEL", "gpt-4o")
+    masked = mask_api_key(raw_key)
+
+    return {
+        "base_url": base_url,
+        "api_key": masked,
+        "model": model,
+        "has_key": bool(raw_key),
+        "llm_base_url": base_url,
+        "llm_api_key": masked,
+        "llm_model": model,
+    }
+
+
+@app.post("/api/llm/config")
+async def post_llm_config(payload: LLMConfigPayload) -> dict:
+    """Update OpenAI-compatible LLM configuration in settings.json."""
+    settings = _load_json(SETTINGS_FILE, {})
+
+    new_base_url = payload.base_url if payload.base_url is not None else payload.llm_base_url
+    new_api_key = payload.api_key if payload.api_key is not None else payload.llm_api_key
+    new_model = payload.model if payload.model is not None else payload.llm_model
+
+    if new_base_url is not None:
+        settings["llm_base_url"] = new_base_url.strip()
+    if new_api_key is not None:
+        key_str = new_api_key.strip()
+        if "****" not in key_str:
+            settings["llm_api_key"] = key_str
+    if new_model is not None:
+        settings["llm_model"] = new_model.strip()
+
+    _save_json(SETTINGS_FILE, settings)
+
+    raw_key = settings.get("llm_api_key", "")
+    base_url = settings.get("llm_base_url", "https://api.openai.com/v1")
+    model = settings.get("llm_model", "gpt-4o")
+    masked = mask_api_key(raw_key)
+
+    return {
+        "ok": True,
+        "base_url": base_url,
+        "api_key": masked,
+        "model": model,
+        "has_key": bool(raw_key),
+        "llm_base_url": base_url,
+        "llm_api_key": masked,
+        "llm_model": model,
+    }
+
+
+@app.post("/api/llm/test")
+async def post_llm_test(payload: LLMTestRequest | None = None) -> dict:
+    """Validate connection to OpenAI-compatible LLM endpoint."""
+    settings = _load_json(SETTINGS_FILE, {})
+
+    req_base = (payload.base_url if payload and payload.base_url is not None else (payload.llm_base_url if payload else None))
+    req_key = (payload.api_key if payload and payload.api_key is not None else (payload.llm_api_key if payload else None))
+
+    base_url = (req_base.strip() if req_base else "") or settings.get("llm_base_url") or os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+    if req_key and "****" not in req_key:
+        api_key = req_key.strip()
+    else:
+        api_key = settings.get("llm_api_key") or os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+
+    client = OpenAICompatibleClient()
+    ok, message, models = await client.test_connection(base_url=base_url, api_key=api_key)
+
+    res: dict[str, Any] = {
+        "ok": ok,
+        "message": message,
+        "models": models,
+    }
+    if not ok:
+        res["error"] = message
+    return res
 
 
 # ── Storage & Telegram Cloud Vault API ──
