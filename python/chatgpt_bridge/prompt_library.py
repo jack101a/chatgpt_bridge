@@ -1,6 +1,11 @@
 import json
 import os
+from pathlib import Path
 import uuid
+
+STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
+DEFAULT_CUSTOM_CHIPS_FILE = STATE_DIR / "custom_chips.json"
+
 
 class PromptLibrary:
     STANDARD_CATEGORIES = {
@@ -29,14 +34,14 @@ class PromptLibrary:
 
     def __init__(self, db_path=None):
         if db_path is None:
-            # Default path in the same directory or somewhere configurable
-            self.db_path = os.path.join(os.path.dirname(__file__), "custom_chips.json")
+            self.db_path = str(DEFAULT_CUSTOM_CHIPS_FILE)
         else:
-            self.db_path = db_path
+            self.db_path = str(db_path)
             
         self._ensure_db()
 
     def _ensure_db(self):
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         if not os.path.exists(self.db_path):
             with open(self.db_path, "w") as f:
                 json.dump([], f)
