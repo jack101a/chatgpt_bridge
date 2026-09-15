@@ -1282,11 +1282,6 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
             )}
           </div>
 
-          {/* Quick Tip Footer */}
-          <div className="p-2.5 px-4 border-t border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#18181b] flex items-center justify-between text-[11px] text-[#6e6e80] dark:text-[#a1a1aa] shrink-0">
-            <span>💡 Tap any colored chip in the prompt above to search or type a custom trait.</span>
-            <span className="font-mono text-[10px]">ChatGPT Bridge 4o</span>
-          </div>
 
           {/* Desktop Left-Column Action Bar */}
           <div className="hidden lg:flex p-3 px-4 border-t border-[#e5e5e5] dark:border-[#27272a] bg-white dark:bg-[#141417] items-center justify-between gap-3 shrink-0">
@@ -1462,8 +1457,8 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     </button>
                   </div>
 
-                  {/* Step Confirmation & Next Action Bar */}
-                  <div className="p-3.5 bg-white dark:bg-[#18181b] border-t border-gray-100 dark:border-zinc-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                  {/* Step Confirmation & Next Action Bar (Desktop only, mobile uses sticky footer) */}
+                  <div className="hidden lg:flex p-3.5 bg-white dark:bg-[#18181b] border-t border-gray-100 dark:border-zinc-800 flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
                     <button
                       onClick={handleGenerateCurrentStep}
                       disabled={isGenerating}

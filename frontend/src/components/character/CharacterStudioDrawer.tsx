@@ -126,7 +126,7 @@ export function CharacterStudioDrawer({
                       >
                         {char.is_locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
                       </button>
-                      <button onClick={() => setEditingChar(char)} className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm">
+                      <button onClick={() => setEditingChar(char)} className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-all active:scale-95">
                         Edit
                       </button>
                     </div>
@@ -161,7 +161,7 @@ export function CharacterStudioDrawer({
                 <input 
                   value={editingChar.name || ''} 
                   onChange={e => setEditingChar({...editingChar, name: e.target.value})}
-                  className="w-full bg-transparent border border-gray-300 dark:border-white/20 rounded-lg p-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                  className="w-full bg-transparent border border-gray-300 dark:border-white/20 rounded-lg p-2 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
                   placeholder="E.g., Anya"
                 />
               </div>
@@ -171,7 +171,7 @@ export function CharacterStudioDrawer({
                 <textarea 
                   value={editingChar.visual_dna || ''} 
                   onChange={e => setEditingChar({...editingChar, visual_dna: e.target.value})}
-                  className="w-full bg-transparent border border-gray-300 dark:border-white/20 rounded-lg p-2 h-24 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                  className="w-full bg-transparent border border-gray-300 dark:border-white/20 rounded-lg p-2 h-24 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
                   placeholder="Core visual traits (e.g., 20yo, pink hair, green eyes)..."
                 />
                 <p className="text-xs text-gray-500 mt-1">Tip: Keep it focused on invariant physical traits.</p>
@@ -182,7 +182,7 @@ export function CharacterStudioDrawer({
                 <textarea 
                   value={editingChar.persona || ''} 
                   onChange={e => setEditingChar({...editingChar, persona: e.target.value})}
-                  className="w-full bg-transparent border border-gray-300 dark:border-white/20 rounded-lg p-2 h-24 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                  className="w-full bg-transparent border border-gray-300 dark:border-white/20 rounded-lg p-2 h-24 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
                   placeholder="Personality, background, system instructions..."
                 />
               </div>
@@ -195,7 +195,7 @@ export function CharacterStudioDrawer({
                       const newW = { id: Date.now().toString(), name: 'New Outfit', description: '' };
                       setEditingChar({...editingChar, wardrobes: [...(editingChar.wardrobes || []), newW]});
                     }}
-                    className="text-xs text-blue-500 hover:underline"
+                    className="text-xs text-emerald-600 dark:text-emerald-400 font-medium hover:underline"
                   >
                     + Add Outfit
                   </button>
@@ -246,7 +246,7 @@ export function CharacterStudioDrawer({
                 <button 
                   onClick={handleSave} 
                   disabled={loading || !editingChar.name || !editingChar.visual_dna}
-                  className="w-full py-3 bg-white text-black dark:bg-white dark:text-black font-semibold rounded-xl hover:bg-gray-100 disabled:opacity-50"
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
                 >
                   {loading ? 'Saving...' : 'Save Character'}
                 </button>

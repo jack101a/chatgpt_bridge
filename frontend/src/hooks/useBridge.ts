@@ -6,7 +6,18 @@ export function useBridge() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
   const [threads, setThreads] = useState<ChatThread[]>([]);
-  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [activeConvId, setActiveConvId] = useState<string | null>(() => {
+    try {
+      const saved = localStorage.getItem('bridge:active_conv_id');
+      if (saved) return saved;
+      const state = localStorage.getItem('bridge:state');
+      if (state) {
+        const parsed = JSON.parse(state);
+        if (parsed?.activeConvId) return parsed.activeConvId;
+      }
+    } catch (e) {}
+    return null;
+  });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressStatus, setProgressStatus] = useState<string | null>(null);
@@ -92,6 +103,13 @@ export function useBridge() {
   // Load thread history when activeConvId changes
   const selectThread = useCallback(async (convId: string | null) => {
     setActiveConvId(convId);
+    try {
+      if (convId) {
+        localStorage.setItem('bridge:active_conv_id', convId);
+      } else {
+        localStorage.removeItem('bridge:active_conv_id');
+      }
+    } catch (e) {}
     if (!convId) {
       setMessages([]);
       return;
@@ -115,6 +133,13 @@ export function useBridge() {
       setMessages(threadMessages);
     } catch (e) {
       console.error('Failed to load thread messages', e);
+    }
+  }, []);
+
+  // Hydrate active thread messages on initial load
+  useEffect(() => {
+    if (activeConvId) {
+      selectThread(activeConvId);
     }
   }, []);
 

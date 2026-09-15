@@ -13,12 +13,23 @@ import { GalleryItem, CharacterCard } from './types';
 import { api } from './lib/api';
 
 export function App() {
-  // Restore initial active tab: URL hash takes priority, otherwise always default to 'chat' (the Homepage)
+  // Restore initial active tab: URL hash takes priority, then localStorage, otherwise 'chat'
   const [currentTab, setCurrentTab] = useState<'chat' | 'gallery' | 'generator' | 'settings'>(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash === 'chat' || hash === 'gallery' || hash === 'generator' || hash === 'settings') {
       return hash;
     }
+    try {
+      const savedTab = localStorage.getItem('bridge:tab');
+      if (savedTab === 'chat' || savedTab === 'gallery' || savedTab === 'generator' || savedTab === 'settings') {
+        return savedTab as any;
+      }
+      const savedState = localStorage.getItem('bridge:state');
+      if (savedState) {
+        const parsed = JSON.parse(savedState);
+        if (parsed?.currentTab) return parsed.currentTab;
+      }
+    } catch (e) {}
     return 'chat';
   });
 
@@ -51,7 +62,6 @@ export function App() {
   const gallery = useGallery();
   const isInitialLoad = useRef(true);
 
-
   // Ensure initial hash reflects active tab
   useEffect(() => {
     const currentHash = window.location.hash.replace('#', '');
@@ -61,6 +71,7 @@ export function App() {
     try {
       localStorage.setItem('bridge:tab', currentTab);
     } catch (e) {}
+    isInitialLoad.current = false;
   }, []);
 
   // Handle dark mode class on <html>
@@ -73,14 +84,6 @@ export function App() {
       localStorage.setItem('bridge:theme', 'light');
     }
   }, [isDarkMode]);
-
-  // Default page initializes a brand new chat session only if user starts on chat tab
-  useEffect(() => {
-    if (currentTab === 'chat') {
-      bridge.newChat();
-    }
-    isInitialLoad.current = false;
-  }, []);
 
   // Keep live refs for popstate handler
   const viewerItemRef = useRef(viewerItem);
@@ -116,6 +119,9 @@ export function App() {
     try {
       localStorage.setItem('bridge:state', JSON.stringify(state));
       localStorage.setItem('bridge:tab', currentTab);
+      if (bridge.activeConvId) {
+        localStorage.setItem('bridge:active_conv_id', bridge.activeConvId);
+      }
     } catch (e) {}
 
     // Persist to backend server endpoint
@@ -177,7 +183,6 @@ export function App() {
   };
 
   const handleGoBackFromGallery = () => {
-    bridge.newChat();
     handleSelectTab('chat');
   };
 
