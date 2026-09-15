@@ -53,6 +53,7 @@ from .telegram_storage import (
 from .thumbnails import generate_thumbnail, regenerate_all_thumbnails
 from .llm_client import OpenAICompatibleClient, mask_api_key
 from .characters import CharacterCard, CharacterListResponse, CharacterManager, WardrobeItem
+from .prompt_library import PromptLibrary
 
 try:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -69,8 +70,11 @@ SETTINGS_FILE = STATE_DIR / "settings.json"
 STATE_FILE = STATE_DIR / "client_state.json"
 VAULT_BACKUPS_FILE = STATE_DIR / "vault_backups.json"
 CHARACTERS_FILE = STATE_DIR / "characters.json"
+PROMPT_LIBRARY_FILE = STATE_DIR / "prompt_library.json"
 DASH_HTML = Path(__file__).parent / "dashboard.html"
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+_prompt_library = PromptLibrary(db_path=str(PROMPT_LIBRARY_FILE))
 FRONTEND_DIST_ALT = Path(__file__).parent / "dist"
 
 
@@ -1738,6 +1742,33 @@ async def api_telemetry() -> dict:
         "browser_busy": _lock.locked(),
         "settings": s,
     }
+
+
+class CustomChipRequest(BaseModel):
+    text: str
+
+
+@app.get("/api/prompt-library")
+async def get_prompt_library():
+    """Retrieve standard categories and user custom preset chips."""
+    return {
+        "standard": _prompt_library.get_standard_categories(),
+        "custom": _prompt_library.get_custom_chips(),
+    }
+
+
+@app.post("/api/prompt-library/custom")
+async def add_custom_chip(req: CustomChipRequest):
+    """Add a new custom preset chip."""
+    chip_id = _prompt_library.add_custom_chip(req.text)
+    return {"id": chip_id, "text": req.text}
+
+
+@app.delete("/api/prompt-library/custom/{chip_id}")
+async def delete_custom_chip(chip_id: str):
+    """Delete a custom preset chip by ID."""
+    _prompt_library.delete_custom_chip(chip_id)
+    return {"status": "ok"}
 
 
 # ── WebSocket Real-time Events ──
