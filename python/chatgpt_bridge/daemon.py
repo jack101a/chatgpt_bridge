@@ -52,7 +52,13 @@ from .telegram_storage import (
 )
 from .thumbnails import generate_thumbnail, regenerate_all_thumbnails
 from .llm_client import OpenAICompatibleClient, mask_api_key
-from .characters import CharacterCard, CharacterListResponse, CharacterManager, WardrobeItem
+from .characters import (
+    CharacterCard,
+    CharacterListResponse,
+    CharacterManager,
+    WardrobeItem,
+)
+from .director import DirectorEngine, StoryboardPlan
 from .prompt_library import PromptLibrary
 
 try:
@@ -284,6 +290,13 @@ class UpdateCharacterRequest(BaseModel):
 
 class LockCharacterPayload(BaseModel):
     locked: bool | None = None
+
+
+class DirectorPlanRequest(BaseModel):
+    intent: str = Field(..., description="The scene intent or prompt")
+    shot_count: int = Field(default=4, description="Number of shots")
+    character_id: str | None = Field(default=None, description="Optional character override. If omitted, uses active character")
+    style_override: str | None = Field(default=None, description="Optional style override")
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -1291,6 +1304,40 @@ async def lock_character_endpoint(
         "locked": active_id == character_id,
         "character": char if active_id == character_id else None,
     }
+
+
+@app.post("/api/director/plan", response_model=StoryboardPlan)
+async def api_director_plan(req: DirectorPlanRequest):
+    mgr = _get_character_manager()
+    char = None
+    if req.character_id:
+        char = mgr.get_character(req.character_id)
+    else:
+        active_id = mgr.get_active_character_id()
+        if active_id:
+            char = mgr.get_character(active_id)
+            
+    if not char:
+        raise HTTPException(status_code=400, detail="No character specified or active")
+
+    settings = _load_json(SETTINGS_FILE, {})
+    base_url = settings.get("llm_base_url", "https://api.openai.com/v1")
+    api_key = settings.get("llm_api_key", "")
+    model = settings.get("llm_model", "gpt-4o")
+
+    llm = OpenAICompatibleClient()
+    engine = DirectorEngine(llm, base_url=base_url, api_key=api_key, model=model)
+    try:
+        plan = await engine.plan_storyboard(
+            intent=req.intent,
+            character=char,
+            shot_count=req.shot_count,
+            style_override=req.style_override
+        )
+        return plan
+    except Exception as e:
+        log.error(f"Director plan error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Storage & Telegram Cloud Vault API ──
