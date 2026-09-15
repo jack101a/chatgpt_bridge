@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, MessageSquare, Image as ImageIcon, Settings2, Trash2, X, Sparkles } from 'lucide-react';
+import { Plus, MessageSquare, Image as ImageIcon, Settings2, Trash2, X, Sparkles, UserCircle2 } from 'lucide-react';
 import { ChatThread, Account } from '../../types';
 
 interface DesktopSidebarProps {
@@ -14,6 +14,7 @@ interface DesktopSidebarProps {
   onSelectTab: (tab: 'chat' | 'gallery' | 'settings') => void;
   isOpenMobile: boolean;
   onCloseMobile: () => void;
+  onOpenCharacterStudio?: () => void;
 }
 
 export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
@@ -28,6 +29,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   onSelectTab,
   isOpenMobile,
   onCloseMobile,
+  onOpenCharacterStudio,
 }) => {
   return (
     <>
@@ -112,6 +114,17 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           >
             <ImageIcon size={16} />
             Gallery
+          </button>
+
+          <button
+            onClick={() => {
+              onOpenCharacterStudio?.();
+              onCloseMobile();
+            }}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all text-[#6e6e80] dark:text-[#a1a1aa] hover:bg-gray-200/50 dark:hover:bg-zinc-800/50`}
+          >
+            <UserCircle2 size={16} />
+            Characters
           </button>
         </div>
 

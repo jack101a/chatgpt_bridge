@@ -202,3 +202,20 @@ export interface LLMTestResult {
   message?: string;
 }
 
+
+export interface WardrobeItem {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface CharacterCard {
+  id: string;
+  name: string;
+  visual_dna: string;
+  persona?: string;
+  roleplay_instructions?: string;
+  wardrobes?: WardrobeItem[];
+  active_wardrobe_id?: string;
+  is_locked?: boolean;
+}

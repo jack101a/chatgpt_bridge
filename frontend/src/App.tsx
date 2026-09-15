@@ -7,7 +7,8 @@ import { AccountsDrawer } from './components/settings/AccountsDrawer';
 import { ImageViewerModal } from './components/viewer/ImageViewerModal';
 import { DesktopSidebar } from './components/navigation/DesktopSidebar';
 import { MobileBottomNav } from './components/navigation/MobileBottomNav';
-import { GalleryItem } from './types';
+import { CharacterStudioDrawer } from './components/character/CharacterStudioDrawer';
+import { GalleryItem, CharacterCard } from './types';
 import { api } from './lib/api';
 
 export function App() {
@@ -22,12 +23,22 @@ export function App() {
 
   const [isAccountsOpen, setIsAccountsOpen] = useState(false);
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState(false);
+  const [isCharacterStudioOpen, setIsCharacterStudioOpen] = useState(false);
+  const [activeCharacter, setActiveCharacter] = useState<CharacterCard | null>(null);
   const [viewerItem, setViewerItem] = useState<GalleryItem | null>(null);
   const [referenceImage, setReferenceImage] = useState<GalleryItem | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('bridge:theme') === 'dark';
   });
   const [isMobileNavVisible, setIsMobileNavVisible] = useState(true);
+
+  // Load active character on startup
+  useEffect(() => {
+    api.getCharacters().then((chars) => {
+      const locked = chars.find((c) => c.is_locked);
+      if (locked) setActiveCharacter(locked);
+    }).catch(() => {});
+  }, []);
 
   const bridge = useBridge();
   const gallery = useGallery();
@@ -291,6 +302,7 @@ export function App() {
         onSelectTab={handleSelectTab}
         isOpenMobile={isSidebarOpenMobile}
         onCloseMobile={handleCloseSidebarMobile}
+        onOpenCharacterStudio={() => setIsCharacterStudioOpen(true)}
       />
 
       {/* ── Main Content Stage ── */}
@@ -374,6 +386,14 @@ export function App() {
         onRefreshAccounts={bridge.refreshAccounts}
         isDarkMode={isDarkMode}
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+      />
+
+      {/* ── Character Studio Drawer ── */}
+      <CharacterStudioDrawer
+        isOpen={isCharacterStudioOpen}
+        onClose={() => setIsCharacterStudioOpen(false)}
+        activeCharacter={activeCharacter}
+        setActiveCharacter={setActiveCharacter}
       />
 
       {/* ── Dual-Mode Fullscreen Image Viewer ── */}

@@ -14,6 +14,7 @@ import {
   VaultRestoreResult,
   LLMConfig,
   LLMTestResult,
+  CharacterCard,
 } from '../types';
 
 export async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -148,6 +149,21 @@ export const api = {
     fetchJson<LLMTestResult>('/api/llm/test', {
       method: 'POST',
       body: JSON.stringify(config || {}),
+    }),
+
+  // Characters
+  getCharacters: (): Promise<CharacterCard[]> => fetchJson<CharacterCard[]>('/api/characters'),
+  
+  saveCharacter: (char: Partial<CharacterCard>): Promise<CharacterCard> =>
+    fetchJson<CharacterCard>('/api/characters', {
+      method: 'POST',
+      body: JSON.stringify(char),
+    }),
+    
+  lockCharacter: (id: string, is_locked: boolean): Promise<{ success: boolean; is_locked: boolean }> =>
+    fetchJson(`/api/characters/${id}/lock`, {
+      method: 'POST',
+      body: JSON.stringify({ is_locked }),
     }),
 };
 
