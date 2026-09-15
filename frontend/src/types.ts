@@ -219,3 +219,18 @@ export interface CharacterCard {
   active_wardrobe_id?: string;
   is_locked?: boolean;
 }
+
+export interface StoryboardShot {
+  description: string;
+  camera_pov: string;
+  prompt: string;
+}
+
+export interface StoryboardPlan {
+  shots: StoryboardShot[];
+}
+
+export interface PromptLibraryData {
+  standard: Record<string, string[]>;
+  custom: Array<{ id: string; text: string }>;
+}

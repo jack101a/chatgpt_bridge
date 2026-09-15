@@ -15,6 +15,9 @@ import {
   LLMConfig,
   LLMTestResult,
   CharacterCard,
+  StoryboardShot,
+  StoryboardPlan,
+  PromptLibraryData,
 } from '../types';
 
 export async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -164,6 +167,33 @@ export const api = {
     fetchJson(`/api/characters/${id}/lock`, {
       method: 'POST',
       body: JSON.stringify({ is_locked }),
+    }),
+
+  // Prompt Library
+  getPromptLibrary: (): Promise<PromptLibraryData> => fetchJson<PromptLibraryData>('/api/prompt-library'),
+
+  addCustomChip: (text: string): Promise<{ id: string }> =>
+    fetchJson<{ id: string }>('/api/prompt-library/custom', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+
+  deleteCustomChip: (id: string): Promise<{ success: boolean }> =>
+    fetchJson<{ success: boolean }>(`/api/prompt-library/custom/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // AI Director & Storyboard
+  planStoryboard: (data: { intent: string; character_id?: string; shot_count: number; style_override?: string }): Promise<StoryboardPlan> =>
+    fetchJson<StoryboardPlan>('/api/director/plan', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  executeStoryboard: (shots: StoryboardShot[]): Promise<{ ok: boolean; message: string }> =>
+    fetchJson<{ ok: boolean; message: string }>('/api/director/execute', {
+      method: 'POST',
+      body: JSON.stringify({ shots }),
     }),
 };
 

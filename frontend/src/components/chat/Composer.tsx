@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { SlidersHorizontal, ArrowUp, Sparkles, X, Image as ImageIcon } from 'lucide-react';
-import { ImageRequest, GalleryItem } from '../../types';
+import { SlidersHorizontal, ArrowUp, Sparkles, X, Image as ImageIcon, Clapperboard, Loader2 } from 'lucide-react';
+import { ImageRequest, GalleryItem, StoryboardShot } from '../../types';
+import { PromptLibraryTray } from '../director/PromptLibraryTray';
+import { StoryboardTray } from '../director/StoryboardTray';
+import { api } from '../../lib/api';
 
 interface ComposerProps {
   onSend: (req: ImageRequest) => void;
@@ -22,8 +25,14 @@ export const Composer: React.FC<ComposerProps> = ({
   const [promptText, setPromptText] = useState('');
   const [aspect, setAspect] = useState<string>('Original');
   const [showLayers, setShowLayers] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
   const [layer1, setLayer1] = useState('');
   const [layer2, setLayer2] = useState('');
+  const [isPlanningStoryboard, setIsPlanningStoryboard] = useState(false);
+  const [storyboardShots, setStoryboardShots] = useState<StoryboardShot[]>([]);
+  const [isStoryboardOpen, setIsStoryboardOpen] = useState(false);
+  const [isExecutingStoryboard, setIsExecutingStoryboard] = useState(false);
+  const [storyboardProgress, setStoryboardProgress] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-focus textarea when referenceImage is attached or a thread is selected
@@ -41,6 +50,49 @@ export const Composer: React.FC<ComposerProps> = ({
       el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
     }
   }, [promptText]);
+
+  const handleInsertModifier = (text: string) => {
+    setPromptText((prev) => {
+      const trimmed = prev.trim();
+      if (!trimmed) return text;
+      return `${trimmed}, ${text}`;
+    });
+  };
+
+  const handlePlanStoryboard = async () => {
+    if (!promptText.trim() || isPlanningStoryboard) return;
+    setIsPlanningStoryboard(true);
+    try {
+      const plan = await api.planStoryboard({
+        intent: promptText.trim(),
+        shot_count: 3,
+      });
+      if (plan?.shots && plan.shots.length > 0) {
+        setStoryboardShots(plan.shots);
+        setIsStoryboardOpen(true);
+      }
+    } catch (err: any) {
+      alert(`Director planning error: ${err.message}`);
+    } finally {
+      setIsPlanningStoryboard(false);
+    }
+  };
+
+  const handleExecuteStoryboard = async (shots: StoryboardShot[]) => {
+    setIsExecutingStoryboard(true);
+    setStoryboardProgress('Dispatching shots to ChatGPT...');
+    try {
+      await api.executeStoryboard(shots);
+      setStoryboardProgress('Sequence running turn-by-turn in background!');
+      setTimeout(() => {
+        setIsExecutingStoryboard(false);
+        setIsStoryboardOpen(false);
+      }, 2500);
+    } catch (err: any) {
+      alert(`Execution failed: ${err.message}`);
+      setIsExecutingStoryboard(false);
+    }
+  };
 
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -71,6 +123,13 @@ export const Composer: React.FC<ComposerProps> = ({
   return (
     <div className="w-full max-w-3xl mx-auto px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
       <div className="flex flex-col bg-[#ffffff] dark:bg-[#1c1c1f] rounded-2xl border border-[#e5e5e5] dark:border-[#2e2e32] shadow-lg shadow-black/5 transition-all focus-within:border-emerald-500/80 focus-within:ring-2 focus-within:ring-emerald-500/15 overflow-hidden">
+        {/* ── Visual Prompt Library Tray (Collapsible) ── */}
+        <PromptLibraryTray
+          isOpen={showLibrary}
+          onClose={() => setShowLibrary(false)}
+          onInsertModifier={handleInsertModifier}
+        />
+
         {/* ── Refinement Layers (Collapsible) ── */}
         {showLayers && (
           <div className="px-3.5 pt-3 pb-2 border-b border-[#f0f0f0] dark:border-[#2a2a2e] space-y-2 bg-[#fbfbfb] dark:bg-[#171719] animate-fade">
@@ -172,6 +231,38 @@ export const Composer: React.FC<ComposerProps> = ({
               </div>
             )}
 
+            {/* Prompt Library Button */}
+            <button
+              type="button"
+              onClick={() => setShowLibrary(!showLibrary)}
+              className={`p-1.5 rounded-lg text-[#6e6e80] hover:text-black dark:text-[#a1a1aa] dark:hover:text-white transition-all ${
+                showLibrary ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40' : ''
+              }`}
+              title="Visual Prompt Library (Camera, Lighting, Film)"
+            >
+              <Sparkles size={15} />
+            </button>
+
+            {/* AI Director Storyboard Planner Button */}
+            <button
+              type="button"
+              onClick={handlePlanStoryboard}
+              disabled={isPlanningStoryboard || !promptText.trim()}
+              className={`p-1.5 rounded-lg transition-all flex items-center gap-1 text-xs font-semibold ${
+                promptText.trim()
+                  ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer'
+                  : 'text-zinc-400 dark:text-zinc-600 opacity-60 cursor-not-allowed'
+              }`}
+              title="AI Director: Generate Storyboard Sequence"
+            >
+              {isPlanningStoryboard ? (
+                <Loader2 size={15} className="animate-spin text-emerald-500" />
+              ) : (
+                <Clapperboard size={15} />
+              )}
+              <span className="hidden md:inline">Director</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setShowLayers(!showLayers)}
@@ -224,6 +315,17 @@ export const Composer: React.FC<ComposerProps> = ({
       <p className="text-center text-[10.5px] text-[#a1a1aa] dark:text-[#71717a] mt-1.5 tracking-tight">
         Powered by your self-hosted infrastructure. More control. More creativity.
       </p>
+
+      {/* ── AI Storyboard Tray Modal/Drawer ── */}
+      <StoryboardTray
+        shots={storyboardShots}
+        onUpdateShots={setStoryboardShots}
+        isOpen={isStoryboardOpen}
+        onClose={() => setIsStoryboardOpen(false)}
+        onExecute={handleExecuteStoryboard}
+        isExecuting={isExecutingStoryboard}
+        progressStatus={storyboardProgress}
+      />
     </div>
   );
 };
