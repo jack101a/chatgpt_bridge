@@ -201,6 +201,8 @@ class CharacterManager:
             characters, _ = self._load()
             return characters.get(character_id)
 
+    get_character = get
+
     def create(self, card_or_data: CharacterCard | dict[str, Any]) -> CharacterCard:
         """Create a new character card and persist it."""
         if isinstance(card_or_data, dict):

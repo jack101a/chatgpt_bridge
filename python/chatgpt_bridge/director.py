@@ -39,20 +39,37 @@ Your output must be JSON matching:
 """
         messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Plan {shot_count} shots for {intent}"}]
         
-        resp = await self.llm.chat_completion(
-            base_url=self.base_url,
-            api_key=self.api_key,
-            model=self.model,
-            messages=messages,
-            json_mode=True
-        )
-        
-        json_str = extract_json(resp)
+        shots_data = []
         try:
+            resp = await self.llm.chat_completion(
+                base_url=self.base_url,
+                api_key=self.api_key,
+                model=self.model,
+                messages=messages,
+                json_mode=True
+            )
+            json_str = extract_json(resp)
             data = json.loads(json_str)
-        except json.JSONDecodeError:
-            data = {"shots": []}
-            
+            shots_data = data.get("shots", [])
+        except Exception as e:
+            logger.warning("LLM storyboard planning failed (%s); generating deterministic fallback shots", e)
+            shots_data = []
+
+        if not shots_data:
+            perspectives = [
+                ("front POV eye-level medium shot", "centered focus"),
+                ("side 3/4 profile dynamic shot", "cinematic depth of field"),
+                ("wide establishing shot", "environmental landscape perspective"),
+                ("close-up detail portrait shot", "focused emotional expression"),
+                ("over-the-shoulder POV shot", "subtle contextual foreground"),
+            ]
+            for idx in range(shot_count):
+                cam_label, lighting_mood = perspectives[idx % len(perspectives)]
+                shots_data.append({
+                    "camera_pov": cam_label,
+                    "description": f"{intent}, {lighting_mood}",
+                })
+
         shots = []
         style = style_override if style_override else character.style_anchor
         vdna = character.visual_dna
@@ -63,7 +80,7 @@ Your output must be JSON matching:
                     wardrobe = w.description
                     break
 
-        for s in data.get("shots", []):
+        for s in shots_data:
             desc = s.get("description", "")
             cam = s.get("camera_pov", "")
             

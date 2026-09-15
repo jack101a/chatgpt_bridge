@@ -52,3 +52,33 @@ async def test_director_plan_storyboard():
     assert "Default Wardrobe" in shot1.prompt
     assert "Low angle, wide shot" in shot1.prompt
     assert "Character standing in a dark alley" in shot1.prompt
+
+
+@pytest.mark.anyio
+async def test_director_plan_storyboard_fallback_on_llm_failure():
+    mock_llm = AsyncMock(spec=OpenAICompatibleClient)
+    mock_llm.chat_completion.side_effect = RuntimeError("Provider unreachable")
+
+    engine = DirectorEngine(mock_llm)
+    char = CharacterCard(
+        name="FallbackHero",
+        visual_dna="emerald eyes, raven hair",
+        style_anchor="Cinematic film",
+        wardrobes=[WardrobeItem(name="Armor", description="silver plate armor")],
+        active_wardrobe_id=None
+    )
+    char.active_wardrobe_id = char.wardrobes[0].id
+
+    plan = await engine.plan_storyboard(
+        intent="Walking through mystical forest",
+        character=char,
+        shot_count=3
+    )
+
+    assert isinstance(plan, StoryboardPlan)
+    assert len(plan.shots) == 3
+    for shot in plan.shots:
+        assert "emerald eyes, raven hair" in shot.prompt
+        assert "silver plate armor" in shot.prompt
+        assert len(shot.camera_pov) > 0
+

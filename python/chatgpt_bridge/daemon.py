@@ -1365,11 +1365,9 @@ async def api_director_plan(req: DirectorPlanRequest):
     mgr = _get_character_manager()
     char = None
     if req.character_id:
-        char = mgr.get_character(req.character_id)
+        char = mgr.get(req.character_id)
     else:
-        active_id = mgr.get_active_character_id()
-        if active_id:
-            char = mgr.get_character(active_id)
+        char = mgr.get_active_character()
             
     if not char:
         raise HTTPException(status_code=400, detail="No character specified or active")
