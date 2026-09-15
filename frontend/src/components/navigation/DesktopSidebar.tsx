@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, MessageSquare, Image as ImageIcon, Settings2, Trash2, X, Sparkles, UserCircle2 } from 'lucide-react';
+import { Plus, MessageSquare, Image as ImageIcon, Settings2, Trash2, X, Sparkles, UserCircle2, Layers } from 'lucide-react';
 import { ChatThread, Account } from '../../types';
 
 interface DesktopSidebarProps {
@@ -10,8 +10,8 @@ interface DesktopSidebarProps {
   onDeleteThread: (convId: string) => void;
   activeAccount: Account | null;
   onOpenAccounts: () => void;
-  currentTab: 'chat' | 'gallery' | 'settings';
-  onSelectTab: (tab: 'chat' | 'gallery' | 'settings') => void;
+  currentTab: 'chat' | 'gallery' | 'generator' | 'settings';
+  onSelectTab: (tab: 'chat' | 'gallery' | 'generator' | 'settings') => void;
   isOpenMobile: boolean;
   onCloseMobile: () => void;
   onOpenCharacterStudio?: () => void;
@@ -114,6 +114,21 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           >
             <ImageIcon size={16} />
             Gallery
+          </button>
+
+          <button
+            onClick={() => {
+              onSelectTab('generator');
+              onCloseMobile();
+            }}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+              currentTab === 'generator'
+                ? 'bg-white dark:bg-[#27272a] text-[#0d0d0d] dark:text-white shadow-sm'
+                : 'text-[#6e6e80] dark:text-[#a1a1aa] hover:bg-gray-200/50 dark:hover:bg-zinc-800/50'
+            }`}
+          >
+            <Layers size={16} />
+            Reference Cards
           </button>
 
           <button

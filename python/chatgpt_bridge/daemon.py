@@ -60,6 +60,13 @@ from .characters import (
 )
 from .director import DirectorEngine, StoryboardPlan, StoryboardShot
 from .prompt_library import PromptLibrary
+from .face_dictionary import (
+    ARCHETYPE_PRESETS,
+    FACE_DICTIONARY,
+    compile_face_card_prompt,
+    compile_visual_dna,
+    randomize_face,
+)
 
 try:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -240,6 +247,10 @@ class CreateCharacterRequest(BaseModel):
     wardrobes: list[WardrobeItem] = Field(default_factory=list)
     active_wardrobe_id: str | None = None
     avatar_image_id: str | None = None
+    face_lock_image_id: str | None = None
+    body_lock_image_id: str | None = None
+    expression_lock_image_id: str | None = None
+    character_lock: dict[str, Any] | None = None
 
     @field_validator("name")
     @classmethod
@@ -267,6 +278,10 @@ class UpdateCharacterRequest(BaseModel):
     wardrobes: list[WardrobeItem] | None = None
     active_wardrobe_id: str | None = None
     avatar_image_id: str | None = None
+    face_lock_image_id: str | None = None
+    body_lock_image_id: str | None = None
+    expression_lock_image_id: str | None = None
+    character_lock: dict[str, Any] | None = None
 
     @field_validator("name")
     @classmethod
@@ -1311,6 +1326,83 @@ async def lock_character_endpoint(
         "active_character_id": active_id,
         "locked": active_id == character_id,
         "character": char if active_id == character_id else None,
+    }
+
+
+# ── Reference Card Generator API ──
+
+
+class FaceCardDataPayload(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class FaceCardRandomizePayload(BaseModel):
+    archetype: str | None = None
+
+
+class FaceCardGeneratePayload(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+    conversation_id: str | None = None
+
+
+@app.get("/api/cards/face/dictionary")
+async def get_face_card_dictionary() -> dict[str, Any]:
+    """Return dynamic data dictionary schema and harmonized archetype presets."""
+    return {
+        "ok": True,
+        "dictionary": FACE_DICTIONARY,
+        "archetypes": ARCHETYPE_PRESETS,
+    }
+
+
+@app.post("/api/cards/face/compile-prompt")
+async def compile_face_card_prompt_endpoint(payload: FaceCardDataPayload) -> dict[str, Any]:
+    """Compile dictionary selections into standard 16:9 prompt template and Visual DNA."""
+    prompt = compile_face_card_prompt(payload.data)
+    visual_dna = compile_visual_dna(payload.data)
+    return {
+        "ok": True,
+        "prompt": prompt,
+        "visual_dna": visual_dna,
+    }
+
+
+@app.post("/api/cards/face/randomize")
+async def randomize_face_card_endpoint(payload: FaceCardRandomizePayload | None = None) -> dict[str, Any]:
+    """Generate a coherent randomized face dictionary payload with compiled prompt."""
+    archetype = payload.archetype if payload else None
+    data = randomize_face(archetype)
+    prompt = compile_face_card_prompt(data)
+    visual_dna = compile_visual_dna(data)
+    return {
+        "ok": True,
+        "data": data,
+        "prompt": prompt,
+        "visual_dna": visual_dna,
+    }
+
+
+@app.post("/api/cards/face/generate")
+async def generate_face_card_endpoint(payload: FaceCardGeneratePayload) -> dict[str, Any]:
+    """Compile prompt and invoke 16:9 image generation engine directly."""
+    prompt = compile_face_card_prompt(payload.data)
+    visual_dna = compile_visual_dna(payload.data)
+    req = ImageRequest(
+        prompt=prompt,
+        conversation_id=payload.conversation_id,
+        metadata={
+            "card_type": "face_identity",
+            "face_data": payload.data,
+            "visual_dna": visual_dna,
+        },
+    )
+    result = await image(req)
+    return {
+        "ok": True,
+        "result": result,
+        "prompt": prompt,
+        "visual_dna": visual_dna,
+        "face_data": payload.data,
     }
 
 

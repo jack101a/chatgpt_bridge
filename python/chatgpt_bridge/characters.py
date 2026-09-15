@@ -61,6 +61,10 @@ class CharacterCard(BaseModel):
     wardrobes: list[WardrobeItem] = Field(default_factory=list, description="Available outfits for this character")
     active_wardrobe_id: str | None = Field(default=None, description="Currently selected wardrobe outfit ID")
     avatar_image_id: str | None = Field(default=None, description="Gallery image ID used as character avatar portrait")
+    face_lock_image_id: str | None = Field(default=None, description="Image ID of the Face Identity Reference Card (Image 1)")
+    body_lock_image_id: str | None = Field(default=None, description="Image ID of the Body Reference Card (Image 2)")
+    expression_lock_image_id: str | None = Field(default=None, description="Image ID of the Expression Reference Card (Image 3)")
+    character_lock: dict[str, Any] | None = Field(default=None, description="Full structured character lock JSON")
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
 

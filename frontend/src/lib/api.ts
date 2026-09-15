@@ -18,6 +18,10 @@ import {
   StoryboardShot,
   StoryboardPlan,
   PromptLibraryData,
+  FaceCardDictionaryResponse,
+  CompilePromptResponse,
+  RandomizeFaceResponse,
+  FaceCardGenerateResponse,
 } from '../types';
 
 export async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -204,6 +208,34 @@ export const api = {
     fetchJson<{ ok: boolean; message: string }>('/api/director/execute', {
       method: 'POST',
       body: JSON.stringify({ shots }),
+    }),
+
+  updateCharacter: (id: string, updates: Partial<CharacterCard>): Promise<CharacterCard> =>
+    fetchJson<CharacterCard>(`/api/characters/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    }),
+
+  // Reference Card Generator
+  getFaceCardDictionary: (): Promise<FaceCardDictionaryResponse> =>
+    fetchJson<FaceCardDictionaryResponse>('/api/cards/face/dictionary'),
+
+  compileFaceCardPrompt: (data: Record<string, any>): Promise<CompilePromptResponse> =>
+    fetchJson<CompilePromptResponse>('/api/cards/face/compile-prompt', {
+      method: 'POST',
+      body: JSON.stringify({ data }),
+    }),
+
+  randomizeFaceCard: (archetype?: string): Promise<RandomizeFaceResponse> =>
+    fetchJson<RandomizeFaceResponse>('/api/cards/face/randomize', {
+      method: 'POST',
+      body: JSON.stringify({ archetype }),
+    }),
+
+  generateFaceCard: (data: Record<string, any>, conversation_id?: string): Promise<FaceCardGenerateResponse> =>
+    fetchJson<FaceCardGenerateResponse>('/api/cards/face/generate', {
+      method: 'POST',
+      body: JSON.stringify({ data, conversation_id }),
     }),
 };
 

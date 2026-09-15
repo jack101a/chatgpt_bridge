@@ -1,9 +1,9 @@
 import React from 'react';
-import { Home, Image as ImageIcon, Settings } from 'lucide-react';
+import { Home, Image as ImageIcon, Layers, Settings } from 'lucide-react';
 
 interface MobileBottomNavProps {
-  activeTab: 'chat' | 'gallery' | 'settings';
-  onSelectTab: (tab: 'chat' | 'gallery' | 'settings') => void;
+  activeTab: 'chat' | 'gallery' | 'generator' | 'settings';
+  onSelectTab: (tab: 'chat' | 'gallery' | 'generator' | 'settings') => void;
   isVisible?: boolean;
   fixed?: boolean;
 }
@@ -24,7 +24,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     }`}>
       <button
         onClick={() => onSelectTab('chat')}
-        className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl transition-all ${
+        className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
           activeTab === 'chat'
             ? 'text-[#10a37f]'
             : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
@@ -36,7 +36,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
       <button
         onClick={() => onSelectTab('gallery')}
-        className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl transition-all ${
+        className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
           activeTab === 'gallery'
             ? 'text-[#10a37f]'
             : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
@@ -47,8 +47,20 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       </button>
 
       <button
+        onClick={() => onSelectTab('generator')}
+        className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
+          activeTab === 'generator'
+            ? 'text-[#10a37f]'
+            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+        }`}
+      >
+        <Layers size={20} />
+        <span className="text-[10px] font-medium tracking-tight">Cards</span>
+      </button>
+
+      <button
         onClick={() => onSelectTab('settings')}
-        className={`flex flex-col items-center gap-1 py-1 px-4 rounded-xl transition-all ${
+        className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
           activeTab === 'settings'
             ? 'text-[#10a37f]'
             : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'

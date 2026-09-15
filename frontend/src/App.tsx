@@ -8,14 +8,15 @@ import { ImageViewerModal } from './components/viewer/ImageViewerModal';
 import { DesktopSidebar } from './components/navigation/DesktopSidebar';
 import { MobileBottomNav } from './components/navigation/MobileBottomNav';
 import { CharacterStudioDrawer } from './components/character/CharacterStudioDrawer';
+import { CardGeneratorView } from './components/generator/CardGeneratorView';
 import { GalleryItem, CharacterCard } from './types';
 import { api } from './lib/api';
 
 export function App() {
   // Restore initial active tab: URL hash takes priority, otherwise always default to 'chat' (the Homepage)
-  const [currentTab, setCurrentTab] = useState<'chat' | 'gallery' | 'settings'>(() => {
+  const [currentTab, setCurrentTab] = useState<'chat' | 'gallery' | 'generator' | 'settings'>(() => {
     const hash = window.location.hash.replace('#', '');
-    if (hash === 'chat' || hash === 'gallery' || hash === 'settings') {
+    if (hash === 'chat' || hash === 'gallery' || hash === 'generator' || hash === 'settings') {
       return hash;
     }
     return 'chat';
@@ -25,6 +26,7 @@ export function App() {
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState(false);
   const [isCharacterStudioOpen, setIsCharacterStudioOpen] = useState(false);
   const [activeCharacter, setActiveCharacter] = useState<CharacterCard | null>(null);
+  const [characters, setCharacters] = useState<CharacterCard[]>([]);
   const [viewerItem, setViewerItem] = useState<GalleryItem | null>(null);
   const [referenceImage, setReferenceImage] = useState<GalleryItem | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -32,13 +34,18 @@ export function App() {
   });
   const [isMobileNavVisible, setIsMobileNavVisible] = useState(true);
 
-  // Load active character on startup
-  useEffect(() => {
+  // Load characters and active lock on startup
+  const fetchCharacters = useCallback(() => {
     api.getCharacters().then((chars) => {
+      setCharacters(chars);
       const locked = chars.find((c) => c.is_locked);
       if (locked) setActiveCharacter(locked);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetchCharacters();
+  }, [fetchCharacters]);
 
   const bridge = useBridge();
   const gallery = useGallery();
@@ -135,6 +142,8 @@ export function App() {
       const hash = window.location.hash.replace('#', '');
       if (hash === 'gallery') {
         setCurrentTab('gallery');
+      } else if (hash === 'generator') {
+        setCurrentTab('generator');
       } else {
         setCurrentTab('chat');
       }
@@ -151,7 +160,7 @@ export function App() {
   const activeAccount = bridge.accounts.find((a) => a.is_active) || bridge.accounts[0] || null;
 
   // Tab navigation with history push
-  const handleSelectTab = (tab: 'chat' | 'gallery' | 'settings') => {
+  const handleSelectTab = (tab: 'chat' | 'gallery' | 'generator' | 'settings') => {
     if (tab === 'settings') {
       handleOpenAccounts();
       return;
@@ -365,6 +374,16 @@ export function App() {
             onGoHome={handleGoBackFromGallery}
             onPromptWithImage={handlePromptWithImage}
             onToggleChrome={setIsMobileNavVisible}
+          />
+        )}
+
+        {currentTab === 'generator' && (
+          <CardGeneratorView
+            characters={characters}
+            onRefreshCharacters={fetchCharacters}
+            onOpenSidebar={handleOpenSidebarMobile}
+            onOpenViewer={handleOpenViewer}
+            onContinueInChat={handleContinueInChat}
           />
         )}
 

@@ -9,7 +9,7 @@ export interface ImageRequest {
 }
 
 export interface ClientState {
-  currentTab: 'chat' | 'gallery' | 'settings';
+  currentTab: 'chat' | 'gallery' | 'generator' | 'settings';
   activeConvId?: string | null;
   viewerImageId?: string | null;
   lastUpdated?: number;
@@ -212,12 +212,58 @@ export interface WardrobeItem {
 export interface CharacterCard {
   id: string;
   name: string;
+  tagline?: string;
   visual_dna: string;
   persona?: string;
   roleplay_instructions?: string;
   wardrobes?: WardrobeItem[];
   active_wardrobe_id?: string;
+  avatar_image_id?: string;
+  face_lock_image_id?: string;
+  body_lock_image_id?: string;
+  expression_lock_image_id?: string;
+  character_lock?: Record<string, any>;
   is_locked?: boolean;
+}
+
+export interface DictionaryField {
+  label: string;
+  type: 'text' | 'single_select' | 'multi_select';
+  default: any;
+  placeholder?: string;
+  options?: string[];
+}
+
+export interface DictionaryCategory {
+  title: string;
+  fields: Record<string, DictionaryField>;
+}
+
+export interface FaceCardDictionaryResponse {
+  ok: boolean;
+  dictionary: Record<string, DictionaryCategory>;
+  archetypes: Record<string, Record<string, any> & { label?: string }>;
+}
+
+export interface CompilePromptResponse {
+  ok: boolean;
+  prompt: string;
+  visual_dna: string;
+}
+
+export interface RandomizeFaceResponse {
+  ok: boolean;
+  data: Record<string, any>;
+  prompt: string;
+  visual_dna: string;
+}
+
+export interface FaceCardGenerateResponse {
+  ok: boolean;
+  result: ImageResult;
+  prompt: string;
+  visual_dna: string;
+  face_data: Record<string, any>;
 }
 
 export interface StoryboardShot {
