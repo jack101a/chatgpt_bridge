@@ -17,7 +17,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDis
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .core import ChatGPT
 from .errors import (
@@ -52,6 +52,7 @@ from .telegram_storage import (
 )
 from .thumbnails import generate_thumbnail, regenerate_all_thumbnails
 from .llm_client import OpenAICompatibleClient, mask_api_key
+from .characters import CharacterCard, CharacterListResponse, CharacterManager, WardrobeItem
 
 try:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -67,6 +68,7 @@ FAVS_FILE = STATE_DIR / "favorites.json"
 SETTINGS_FILE = STATE_DIR / "settings.json"
 STATE_FILE = STATE_DIR / "client_state.json"
 VAULT_BACKUPS_FILE = STATE_DIR / "vault_backups.json"
+CHARACTERS_FILE = STATE_DIR / "characters.json"
 DASH_HTML = Path(__file__).parent / "dashboard.html"
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 FRONTEND_DIST_ALT = Path(__file__).parent / "dist"
@@ -206,6 +208,78 @@ class LLMTestRequest(BaseModel):
     api_key: str | None = None
     llm_base_url: str | None = None
     llm_api_key: str | None = None
+
+
+_character_manager: CharacterManager | None = None
+
+
+def _get_character_manager() -> CharacterManager:
+    global _character_manager
+    if _character_manager is None:
+        _character_manager = CharacterManager(file_path=CHARACTERS_FILE)
+    return _character_manager
+
+
+class CreateCharacterRequest(BaseModel):
+    name: str
+    tagline: str = ""
+    visual_dna: str
+    persona: str = ""
+    style_anchor: str = ""
+    wardrobes: list[WardrobeItem] = Field(default_factory=list)
+    active_wardrobe_id: str | None = None
+    avatar_image_id: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Character name cannot be empty")
+        return s
+
+    @field_validator("visual_dna")
+    @classmethod
+    def validate_visual_dna(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Character visual_dna cannot be empty")
+        return s
+
+
+class UpdateCharacterRequest(BaseModel):
+    name: str | None = None
+    tagline: str | None = None
+    visual_dna: str | None = None
+    persona: str | None = None
+    style_anchor: str | None = None
+    wardrobes: list[WardrobeItem] | None = None
+    active_wardrobe_id: str | None = None
+    avatar_image_id: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str | None) -> str | None:
+        if v is not None:
+            s = v.strip()
+            if not s:
+                raise ValueError("Character name cannot be empty")
+            return s
+        return v
+
+    @field_validator("visual_dna")
+    @classmethod
+    def validate_visual_dna(cls, v: str | None) -> str | None:
+        if v is not None:
+            s = v.strip()
+            if not s:
+                raise ValueError("Character visual_dna cannot be empty")
+            return s
+        return v
+
+
+class LockCharacterPayload(BaseModel):
+    locked: bool | None = None
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -1137,6 +1211,82 @@ async def post_llm_test(payload: LLMTestRequest | None = None) -> dict:
     if not ok:
         res["error"] = message
     return res
+
+
+# ── Character Studio & Active Session Lock API ──
+
+
+@app.get("/api/characters", response_model=CharacterListResponse)
+async def get_characters() -> CharacterListResponse:
+    """Retrieve all saved characters and current session active locked character."""
+    mgr = _get_character_manager()
+    chars = mgr.get_all()
+    active_id = mgr.get_active_character_id()
+    active_char = mgr.get_active_character()
+    return CharacterListResponse(
+        characters=chars,
+        active_character_id=active_id,
+        active_character=active_char,
+    )
+
+
+@app.post("/api/characters", response_model=CharacterCard)
+async def create_character(payload: CreateCharacterRequest) -> CharacterCard:
+    """Create and persist a new character card."""
+    mgr = _get_character_manager()
+    card = CharacterCard(**payload.model_dump())
+    return mgr.create(card)
+
+
+@app.put("/api/characters/{character_id}", response_model=CharacterCard)
+async def update_character(character_id: str, payload: UpdateCharacterRequest) -> CharacterCard:
+    """Update fields of an existing character card."""
+    mgr = _get_character_manager()
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    try:
+        return mgr.update(character_id, updates)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.delete("/api/characters/{character_id}")
+async def delete_character(character_id: str) -> dict[str, Any]:
+    """Delete character by ID and remove active lock if this character was locked."""
+    mgr = _get_character_manager()
+    success = mgr.delete(character_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
+    return {"ok": True, "id": character_id}
+
+
+@app.post("/api/characters/{character_id}/lock")
+async def lock_character_endpoint(
+    character_id: str,
+    payload: LockCharacterPayload | None = None,
+    unlock: bool = Query(default=False),
+) -> dict[str, Any]:
+    """Toggle or set active locked character in session."""
+    mgr = _get_character_manager()
+    char = mgr.get(character_id)
+    if not char:
+        raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
+
+    if unlock or (payload and payload.locked is False):
+        active_id = mgr.lock_character(None)
+    elif payload and payload.locked is True:
+        active_id = mgr.lock_character(character_id, toggle=False)
+    else:
+        active_id = mgr.lock_character(character_id, toggle=True)
+
+    return {
+        "ok": True,
+        "character_id": character_id,
+        "active_character_id": active_id,
+        "locked": active_id == character_id,
+        "character": char if active_id == character_id else None,
+    }
 
 
 # ── Storage & Telegram Cloud Vault API ──
