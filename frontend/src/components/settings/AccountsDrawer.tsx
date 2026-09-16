@@ -442,7 +442,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
 
       {/* Slide-up Bottom Sheet (Mobile) / Center Card (Desktop) */}
       <div
-        className="relative w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-[#ffffff] dark:bg-[#18181b] rounded-t-3xl sm:rounded-3xl border border-[#e5e5e5] dark:border-[#2b2b2f] p-5 shadow-2xl z-10 animate-slide-up space-y-5 will-change-transform"
+        className="relative w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-card text-card-foreground rounded-t-3xl sm:rounded-3xl border border-border p-5 shadow-2xl z-10 animate-slide-up space-y-5 will-change-transform"
         style={{
           transform: drawerDragY > 0 ? `translate3d(0, ${drawerDragY}px, 0)` : undefined,
           transition: isDrawerDragging ? 'none' : 'transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1)',
@@ -458,7 +458,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
           onPointerUp={handleTouchEnd}
           className="w-full py-2 -mt-2 cursor-grab active:cursor-grabbing flex items-center justify-center touch-none select-none sm:hidden"
         >
-          <div className="w-12 h-1.5 rounded-full bg-gray-300 dark:bg-zinc-700 active:bg-gray-400 dark:active:bg-zinc-500 transition-colors" />
+          <div className="w-12 h-1.5 rounded-full bg-muted-foreground/30 active:bg-muted-foreground/50 transition-colors" />
         </div>
 
         {/* Drawer Header (Draggable to close on mobile) */}
@@ -472,16 +472,16 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
           className="flex items-start justify-between touch-none select-none"
         >
           <div>
-            <h2 className="text-lg font-bold tracking-tight text-[#0d0d0d] dark:text-white">
+            <h2 className="text-lg font-bold tracking-tight text-foreground">
               Accounts & Engine
             </h2>
-            <p className="text-xs text-[#6e6e80] dark:text-[#a1a1aa] mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Manage your ChatGPT accounts and self-hosted engine settings.
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-500 hover:text-black dark:hover:text-white transition-all active:scale-95"
+            className="p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-all active:scale-95"
             aria-label="Close"
           >
             <X size={18} />
@@ -491,10 +491,10 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
         {/* ── Section: ChatGPT Accounts ── */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6e6e80] dark:text-[#a1a1aa]">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               ChatGPT Accounts
             </h3>
-            <span className="text-[11px] text-gray-400">Rotates on rate limit</span>
+            <span className="text-[11px] text-muted-foreground/70">Rotates on rate limit</span>
           </div>
 
           <div className="space-y-2">
@@ -510,18 +510,18 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                   key={acc.id}
                   className={`p-3 rounded-2xl border transition-all ${
                     acc.is_active
-                      ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-500/30'
-                      : 'bg-[#f7f7f8] dark:bg-[#202024] border-[#e5e5e5] dark:border-[#2c2c30]'
+                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                      : 'bg-muted/40 border-border'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-black dark:bg-white text-white dark:text-black flex items-center justify-center font-bold text-xs">
+                      <div className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center font-bold text-xs">
                         {acc.alias.slice(0, 1).toUpperCase()}
                       </div>
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <p className="text-xs font-semibold text-[#0d0d0d] dark:text-white">
+                          <p className="text-xs font-semibold text-foreground">
                             {acc.alias}
                           </p>
                           {acc.is_active && (
@@ -530,7 +530,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa] font-mono truncate max-w-[180px]">
+                        <p className="text-[11px] text-muted-foreground font-mono truncate max-w-[180px]">
                           {acc.email || acc.id}
                         </p>
                       </div>
@@ -544,7 +544,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                           {cooldownMinutes}m cooldown
                         </span>
                       ) : (
-                        <span className="text-[11px] font-mono text-gray-400">
+                        <span className="text-[11px] font-mono text-muted-foreground">
                           {acc.total_generations} gens
                         </span>
                       )}
@@ -552,7 +552,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                       {!acc.is_active && (
                         <button
                           onClick={() => handleSwitchAccount(acc.alias)}
-                          className="px-2.5 py-1 rounded-full bg-white dark:bg-[#2b2b30] hover:bg-gray-100 dark:hover:bg-[#383840] border border-gray-200 dark:border-gray-700 text-xs font-medium text-[#0d0d0d] dark:text-white active:scale-95 transition-all shadow-sm"
+                          className="px-2.5 py-1 rounded-full bg-card hover:bg-muted border border-border text-xs font-medium text-foreground active:scale-95 transition-all shadow-xs"
                         >
                           Switch
                         </button>
@@ -566,25 +566,25 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
         </div>
 
         {/* ── Section: Engine Settings ── */}
-        <div className="space-y-3 pt-2 border-t border-[#e5e5e5] dark:border-[#2a2a2e]">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6e6e80] dark:text-[#a1a1aa]">
+        <div className="space-y-3 pt-2 border-t border-border">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Engine Settings
           </h3>
 
           {/* Auto-Switch Toggle */}
-          <div className="flex items-center justify-between p-3 rounded-2xl bg-[#f7f7f8] dark:bg-[#202024] border border-[#e5e5e5] dark:border-[#2c2c30]">
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-muted/40 border border-border">
             <div>
-              <p className="text-xs font-medium text-[#0d0d0d] dark:text-white">
+              <p className="text-xs font-medium text-foreground">
                 Auto-Switch on Rate Limit
               </p>
-              <p className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
+              <p className="text-[11px] text-muted-foreground">
                 Automatically rotates to another standby account
               </p>
             </div>
             <button
               onClick={handleToggleAutoSwitch}
               className={`w-12 h-6 rounded-full transition-colors duration-200 ease-in-out relative focus:outline-none ${
-                isAutoSwitchActive ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-zinc-700'
+                isAutoSwitchActive ? 'bg-emerald-500' : 'bg-muted-foreground/30'
               }`}
             >
               <span
@@ -596,11 +596,11 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
           </div>
 
           {/* Rotatable Chats Pool Limit */}
-          <div className="p-3 rounded-2xl bg-[#f7f7f8] dark:bg-[#202024] border border-[#e5e5e5] dark:border-[#2c2c30] space-y-2">
+          <div className="p-3 rounded-2xl bg-muted/40 border border-border space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <MessageSquare size={14} className="text-emerald-500" />
-                <p className="text-xs font-medium text-[#0d0d0d] dark:text-white">
+                <p className="text-xs font-medium text-foreground">
                   Rotatable Chats Pool
                 </p>
               </div>
@@ -608,7 +608,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                 {currentMaxChats === 0 ? 'Unlimited' : `${currentMaxChats} chats`}
               </span>
             </div>
-            <p className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
+            <p className="text-[11px] text-muted-foreground">
               Max conversations kept before auto-pruning old threads. Set to Unlimited to never auto-delete conversations.
             </p>
             <div className="flex items-center gap-1.5 pt-1 overflow-x-auto no-scrollbar">
@@ -625,8 +625,8 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                   onClick={() => handleUpdateMaxChats(opt.value)}
                   className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all whitespace-nowrap active:scale-95 ${
                     currentMaxChats === opt.value
-                      ? 'bg-[#0d0d0d] text-white dark:bg-white dark:text-black shadow-xs font-semibold'
-                      : 'bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white'
+                      ? 'bg-foreground text-background shadow-xs font-semibold'
+                      : 'bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted'
                   }`}
                 >
                   {opt.label}
@@ -636,23 +636,23 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
           </div>
 
           {/* ── Section: Telegram Cloud Vault & Storage Quota ── */}
-          <div className="space-y-3 pt-2 border-t border-[#e5e5e5] dark:border-[#2a2a2e]">
+          <div className="space-y-3 pt-2 border-t border-border">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Cloud size={14} className="text-sky-500" />
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6e6e80] dark:text-[#a1a1aa]">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Telegram Cloud Vault & Storage
                 </h3>
               </div>
-              {isLoadingStorage && <Loader2 size={12} className="animate-spin text-zinc-400" />}
+              {isLoadingStorage && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
             </div>
 
             {/* Storage Meter & Quota Bar */}
-            <div className="p-3.5 rounded-2xl bg-[#f7f7f8] dark:bg-[#202024] border border-[#e5e5e5] dark:border-[#2c2c30] space-y-3">
+            <div className="p-3.5 rounded-2xl bg-muted/40 border border-border space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <HardDrive size={14} className="text-emerald-500" />
-                  <p className="text-xs font-medium text-[#0d0d0d] dark:text-white">
+                  <p className="text-xs font-medium text-foreground">
                     Local Cache Quota
                   </p>
                 </div>
@@ -662,7 +662,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
               </div>
 
               {/* Quota Progress Meter */}
-              <div className="w-full bg-gray-200 dark:bg-zinc-700/60 rounded-full h-2 overflow-hidden flex">
+              <div className="w-full bg-muted rounded-full h-2 overflow-hidden flex border border-border/40">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
                     (storageStatus?.percent_used ?? 0) > 90
@@ -679,27 +679,27 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
 
               {/* Storage Metric Badges */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] font-mono">
-                <div className="px-2 py-1.5 rounded-lg bg-white dark:bg-[#1a1a1e] border border-gray-200/70 dark:border-zinc-800">
-                  <div className="text-gray-400 uppercase text-[9px]">Thumbnails</div>
-                  <div className="text-zinc-700 dark:text-zinc-300 font-semibold">{storageStatus?.thumbnail_used_mb ?? 0} MB</div>
+                <div className="px-2 py-1.5 rounded-lg bg-card border border-border">
+                  <div className="text-muted-foreground uppercase text-[9px]">Thumbnails</div>
+                  <div className="text-foreground font-semibold">{storageStatus?.thumbnail_used_mb ?? 0} MB</div>
                 </div>
-                <div className="px-2 py-1.5 rounded-lg bg-white dark:bg-[#1a1a1e] border border-gray-200/70 dark:border-zinc-800">
-                  <div className="text-gray-400 uppercase text-[9px]">Local Full-Res</div>
-                  <div className="text-zinc-700 dark:text-zinc-300 font-semibold">{storageStatus?.local_full_count ?? 0} imgs</div>
+                <div className="px-2 py-1.5 rounded-lg bg-card border border-border">
+                  <div className="text-muted-foreground uppercase text-[9px]">Local Full-Res</div>
+                  <div className="text-foreground font-semibold">{storageStatus?.local_full_count ?? 0} imgs</div>
                 </div>
-                <div className="px-2 py-1.5 rounded-lg bg-white dark:bg-[#1a1a1e] border border-gray-200/70 dark:border-zinc-800">
-                  <div className="text-gray-400 uppercase text-[9px]">Cloud Backed</div>
+                <div className="px-2 py-1.5 rounded-lg bg-card border border-border">
+                  <div className="text-muted-foreground uppercase text-[9px]">Cloud Backed</div>
                   <div className="text-sky-600 dark:text-sky-400 font-semibold">{storageStatus?.cloud_backed_count ?? 0} imgs</div>
                 </div>
-                <div className="px-2 py-1.5 rounded-lg bg-white dark:bg-[#1a1a1e] border border-gray-200/70 dark:border-zinc-800">
-                  <div className="text-gray-400 uppercase text-[9px]">Evicted to Cloud</div>
+                <div className="px-2 py-1.5 rounded-lg bg-card border border-border">
+                  <div className="text-muted-foreground uppercase text-[9px]">Evicted to Cloud</div>
                   <div className="text-amber-600 dark:text-amber-400 font-semibold">{storageStatus?.evicted_count ?? 0} imgs</div>
                 </div>
               </div>
 
               {/* Quota Selection Pills */}
               <div className="space-y-1.5 pt-1">
-                <p className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
+                <p className="text-[11px] text-muted-foreground">
                   Auto-evicts oldest non-favorite images when limit is reached. WebP thumbnails are always kept for instant UI display.
                 </p>
                 <div className="flex items-center gap-1.5 pt-1 overflow-x-auto no-scrollbar">
@@ -716,8 +716,8 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                       onClick={() => handleUpdateQuota(opt.value)}
                       className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all whitespace-nowrap active:scale-95 ${
                         currentQuota === opt.value
-                          ? 'bg-[#0d0d0d] text-white dark:bg-white dark:text-black shadow-xs font-semibold'
-                          : 'bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white'
+                          ? 'bg-foreground text-background shadow-xs font-semibold'
+                          : 'bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted'
                       }`}
                     >
                       {opt.label}
@@ -728,14 +728,14 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
             </div>
 
             {/* Telegram Cloud Vault Configuration Card */}
-            <div className="p-3.5 rounded-2xl bg-[#f7f7f8] dark:bg-[#202024] border border-[#e5e5e5] dark:border-[#2c2c30] space-y-3">
+            <div className="p-3.5 rounded-2xl bg-muted/40 border border-border space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-[#0d0d0d] dark:text-white flex items-center gap-1.5">
+                  <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
                     <Cloud size={14} className="text-sky-500" />
                     <span>Telegram Backup Vault</span>
                   </p>
-                  <p className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
+                  <p className="text-[11px] text-muted-foreground">
                     Stores uncompressed original PNGs in your private Telegram channel
                   </p>
                 </div>
@@ -743,7 +743,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                   type="button"
                   onClick={handleToggleTelegram}
                   className={`w-12 h-6 rounded-full transition-colors duration-200 ease-in-out relative focus:outline-none ${
-                    isTgEnabled ? 'bg-sky-500' : 'bg-gray-300 dark:bg-zinc-700'
+                    isTgEnabled ? 'bg-sky-500' : 'bg-muted-foreground/30'
                   }`}
                 >
                   <span
@@ -755,10 +755,10 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
               </div>
 
               {isTgEnabled && (
-                <div className="space-y-3 pt-2 border-t border-gray-200/80 dark:border-zinc-700/60 animate-in fade-in duration-200">
+                <div className="space-y-3 pt-2 border-t border-border animate-in fade-in duration-200">
                   {/* Bot Token Input */}
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-gray-700 dark:text-gray-300 flex items-center justify-between">
+                    <label className="text-[11px] font-medium text-foreground flex items-center justify-between">
                       <span>Bot Token</span>
                       <button
                         type="button"
@@ -774,13 +774,13 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                       value={tgToken}
                       onChange={(e) => setTgToken(e.target.value)}
                       placeholder="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200 dark:border-zinc-700 font-mono text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-sky-500 transition-colors"
+                      className="w-full px-3 py-2 rounded-xl bg-card border border-border font-mono text-xs text-foreground outline-none focus:border-sky-500 transition-colors"
                     />
                   </div>
 
                   {/* Channel / Chat ID Input */}
                   <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-gray-700 dark:text-gray-300">
+                    <label className="text-[11px] font-medium text-foreground">
                       Channel / Group ID
                     </label>
                     <input
@@ -788,9 +788,9 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                       value={tgChannel}
                       onChange={(e) => setTgChannel(e.target.value)}
                       placeholder="@my_vault_channel or -1001234567890"
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200 dark:border-zinc-700 font-mono text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-sky-500 transition-colors"
+                      className="w-full px-3 py-2 rounded-xl bg-card border border-border font-mono text-xs text-foreground outline-none focus:border-sky-500 transition-colors"
                     />
-                    <p className="text-[10px] text-[#6e6e80] dark:text-[#a1a1aa]">
+                    <p className="text-[10px] text-muted-foreground">
                       💡 Create a private channel, add your bot as Admin with "Post Messages" permission.
                     </p>
                   </div>
@@ -801,7 +801,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                       type="button"
                       onClick={handleTestTelegramConnection}
                       disabled={isTestingTg || !tgToken.trim() || !tgChannel.trim()}
-                      className="flex-1 py-2 px-3 rounded-xl bg-white dark:bg-[#2b2b30] hover:bg-gray-100 dark:hover:bg-[#383840] border border-gray-200 dark:border-gray-700 text-xs font-medium text-[#0d0d0d] dark:text-white flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                      className="flex-1 py-2 px-3 rounded-xl bg-card hover:bg-muted border border-border text-xs font-medium text-foreground flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
                     >
                       {isTestingTg ? (
                         <>
@@ -831,8 +831,8 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                     <div
                       className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
                         tgTestResult.ok
-                          ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                          : 'bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                          : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30'
                       }`}
                     >
                       {tgTestResult.ok ? (
@@ -856,43 +856,43 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                   )}
 
                   {/* Forum Topics Status Card */}
-                  <div className="p-3 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200/80 dark:border-zinc-800 space-y-2">
+                  <div className="p-3 rounded-xl bg-card border border-border space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <Layers size={13} className="text-sky-500" />
-                        <p className="text-xs font-semibold text-[#0d0d0d] dark:text-white">
+                        <p className="text-xs font-semibold text-foreground">
                           Forum Topics Routing
                         </p>
                       </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 font-medium">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 font-medium border border-sky-500/20">
                         Active Supergroup
                       </span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
-                      <div className="p-2 rounded-lg bg-gray-50 dark:bg-[#202024] border border-gray-100 dark:border-zinc-800/80">
-                        <div className="flex items-center justify-between text-[#0d0d0d] dark:text-white font-medium">
+                      <div className="p-2 rounded-lg bg-muted/40 border border-border">
+                        <div className="flex items-center justify-between text-foreground font-medium">
                           <span>📁 Data</span>
                           <span className="text-[10px] font-mono text-sky-600 dark:text-sky-400">#8</span>
                         </div>
-                        <p className="text-[10px] text-[#6e6e80] dark:text-[#a1a1aa] mt-0.5 leading-tight">
+                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
                           Full-res uncompressed PNG file documents
                         </p>
                       </div>
-                      <div className="p-2 rounded-lg bg-gray-50 dark:bg-[#202024] border border-gray-100 dark:border-zinc-800/80">
-                        <div className="flex items-center justify-between text-[#0d0d0d] dark:text-white font-medium">
+                      <div className="p-2 rounded-lg bg-muted/40 border border-border">
+                        <div className="flex items-center justify-between text-foreground font-medium">
                           <span>🖼️ General</span>
                           <span className="text-[10px] font-mono text-sky-600 dark:text-sky-400">#1</span>
                         </div>
-                        <p className="text-[10px] text-[#6e6e80] dark:text-[#a1a1aa] mt-0.5 leading-tight">
+                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
                           Pure visual photo viewer at max resolution
                         </p>
                       </div>
-                      <div className="p-2 rounded-lg bg-gray-50 dark:bg-[#202024] border border-gray-100 dark:border-zinc-800/80">
-                        <div className="flex items-center justify-between text-[#0d0d0d] dark:text-white font-medium">
+                      <div className="p-2 rounded-lg bg-muted/40 border border-border">
+                        <div className="flex items-center justify-between text-foreground font-medium">
                           <span>📦 Backup</span>
                           <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">#5</span>
                         </div>
-                        <p className="text-[10px] text-[#6e6e80] dark:text-[#a1a1aa] mt-0.5 leading-tight">
+                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
                           Daily snapshots, 7-day FIFO auto-rotation
                         </p>
                       </div>
@@ -900,13 +900,13 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                   </div>
 
                   {/* Sync Existing Images & Thumbnails Action */}
-                  <div className="p-3 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200/80 dark:border-zinc-800 space-y-2">
+                  <div className="p-3 rounded-xl bg-card border border-border space-y-2">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs font-medium text-[#0d0d0d] dark:text-white">
+                        <p className="text-xs font-medium text-foreground">
                           Sync & Gallery Rendering
                         </p>
-                        <p className="text-[10px] text-[#6e6e80] dark:text-[#a1a1aa]">
+                        <p className="text-[10px] text-muted-foreground">
                           Uploads unbacked images and upgrades thumbnails to crisp 720p HD
                         </p>
                       </div>
@@ -915,7 +915,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                           type="button"
                           onClick={handleRegenerateThumbnails}
                           disabled={isRegeneratingThumbs}
-                          className="px-2.5 py-1.5 rounded-full bg-gray-100 dark:bg-zinc-800 hover:bg-gray-200 dark:hover:bg-zinc-700 text-[#0d0d0d] dark:text-white text-xs font-medium flex items-center gap-1 active:scale-95 transition-all disabled:opacity-50"
+                          className="px-2.5 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-foreground text-xs font-medium flex items-center gap-1 active:scale-95 transition-all disabled:opacity-50 border border-border"
                           title="Regenerate crisp 720p HD WebP thumbnails for all gallery images"
                         >
                           {isRegeneratingThumbs ? (
@@ -929,7 +929,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                           type="button"
                           onClick={handleStartSync}
                           disabled={isSyncing}
-                          className="px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-300 text-xs font-medium flex items-center gap-1.5 hover:bg-sky-100 dark:hover:bg-sky-900/40 active:scale-95 transition-all disabled:opacity-50"
+                          className="px-3 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-700 dark:text-sky-300 text-xs font-medium flex items-center gap-1.5 hover:bg-sky-500/20 active:scale-95 transition-all disabled:opacity-50"
                         >
                           <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
                           <span>{isSyncing ? 'Syncing...' : 'Sync Vault'}</span>
@@ -944,7 +944,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                     {/* Sync Progress Indicator */}
                     {syncStatus && (syncStatus.running || syncStatus.total > 0) && (
                       <div className="space-y-1.5 pt-1">
-                        <div className="flex items-center justify-between text-[10px] font-mono text-gray-500 dark:text-gray-400">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
                           <span>
                             {syncStatus.running ? `Progress: ${syncStatus.current} / ${syncStatus.total}` : 'Sync Complete!'}
                           </span>
@@ -952,7 +952,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                             Uploaded: {syncStatus.uploaded} · Thumbs: {syncStatus.thumbnails} · Evicted: {syncStatus.evicted}
                           </span>
                         </div>
-                        <div className="w-full bg-gray-100 dark:bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden border border-border/30">
                           <div
                             className="bg-sky-500 h-full rounded-full transition-all duration-300"
                             style={{
@@ -968,23 +968,23 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                   </div>
 
                   {/* Daily Vault Backups & Disaster Recovery Card */}
-                  <div className="p-3.5 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200/80 dark:border-zinc-800 space-y-2.5">
+                  <div className="p-3.5 rounded-xl bg-card border border-border space-y-2.5">
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="flex items-center gap-1.5">
                           <Pin size={12} className="text-emerald-500" />
-                          <p className="text-xs font-semibold text-[#0d0d0d] dark:text-white">
+                          <p className="text-xs font-semibold text-foreground">
                             Daily Manifest & Disaster Recovery
                           </p>
                         </div>
-                        <p className="text-[10px] text-[#6e6e80] dark:text-[#a1a1aa] mt-0.5">
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
                           Immutable catalog snapshot with triple identifiers (<span className="font-mono text-[9px]">tg_file_id</span>, <span className="font-mono text-[9px]">filename</span>, <span className="font-mono text-[9px]">md5</span>). Backed up daily & auto-rotates the last 7 snapshots.
                         </p>
                       </div>
                     </div>
 
                     {/* Snapshot Status Banner */}
-                    <div className="px-2.5 py-1.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/40 text-[11px] flex items-center justify-between text-emerald-800 dark:text-emerald-300">
+                    <div className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] flex items-center justify-between text-emerald-800 dark:text-emerald-300">
                       <div className="flex items-center gap-1.5 truncate">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                         <span className="truncate">
@@ -1025,7 +1025,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                         type="button"
                         onClick={handleRestoreNow}
                         disabled={isRestoring || !tgToken.trim()}
-                        className="flex-1 py-1.5 px-3 rounded-lg bg-white dark:bg-[#26262a] hover:bg-gray-100 dark:hover:bg-[#323236] border border-gray-200 dark:border-zinc-700 text-xs font-semibold text-[#0d0d0d] dark:text-white flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                        className="flex-1 py-1.5 px-3 rounded-lg bg-card hover:bg-muted border border-border text-xs font-semibold text-foreground flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
                         title="Restore full gallery catalog from pinned Telegram manifest"
                       >
                         {isRestoring ? (
@@ -1047,8 +1047,8 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                       <div
                         className={`p-2 rounded-lg text-[11px] flex items-center gap-1.5 ${
                           vaultMsg.type === 'success'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                            : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                            : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30'
                         }`}
                       >
                         {vaultMsg.type === 'success' ? (
@@ -1066,47 +1066,47 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
           </div>
 
           {/* ── Section: AI Director Settings ── */}
-          <div className="space-y-3 pt-2 border-t border-[#e5e5e5] dark:border-[#2a2a2e]">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#6e6e80] dark:text-[#a1a1aa]">
+          <div className="space-y-3 pt-2 border-t border-border">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               AI Director Settings
             </h3>
             
-            <div className="p-3 rounded-2xl bg-[#f7f7f8] dark:bg-[#202024] border border-[#e5e5e5] dark:border-[#2c2c30] space-y-3">
+            <div className="p-3 rounded-2xl bg-muted/40 border border-border space-y-3">
               <div>
-                <p className="text-xs font-medium text-[#0d0d0d] dark:text-white">Provider Presets</p>
+                <p className="text-xs font-medium text-foreground">Provider Presets</p>
                 <div className="flex flex-wrap gap-2 pt-2">
-                  <button onClick={() => applyLlmPreset({ base_url: 'http://nim.ajaxhs.home/v1', model: 'nvidia/nemotron-3-super-120b-a12b' })} className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 active:scale-95 transition-all">✦ NVIDIA NIM (120B)</button>
-                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.openai.com/v1', model: 'gpt-4o' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white active:scale-95 transition-all">OpenAI</button>
-                  <button onClick={() => applyLlmPreset({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-3-5-sonnet' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white active:scale-95 transition-all">OpenRouter</button>
-                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white active:scale-95 transition-all">DeepSeek</button>
-                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.groq.com/openai/v1', model: 'llama3-8b-8192' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white active:scale-95 transition-all">Groq</button>
-                  <button onClick={() => applyLlmPreset({ base_url: 'http://localhost:11434/v1', model: 'llama3' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white dark:bg-[#2b2b2f] border border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white active:scale-95 transition-all">Ollama</button>
+                  <button onClick={() => applyLlmPreset({ base_url: 'http://nim.ajaxhs.home/v1', model: 'nvidia/nemotron-3-super-120b-a12b' })} className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 active:scale-95 transition-all">✦ NVIDIA NIM (120B)</button>
+                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.openai.com/v1', model: 'gpt-4o' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all">OpenAI</button>
+                  <button onClick={() => applyLlmPreset({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-3-5-sonnet' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all">OpenRouter</button>
+                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all">DeepSeek</button>
+                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.groq.com/openai/v1', model: 'llama3-8b-8192' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all">Groq</button>
+                  <button onClick={() => applyLlmPreset({ base_url: 'http://localhost:11434/v1', model: 'llama3' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all">Ollama</button>
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-gray-700 dark:text-gray-300">Base URL</label>
-                <input type="text" value={llmConfig.base_url} onChange={(e) => setLlmConfig({...llmConfig, base_url: e.target.value})} placeholder="https://api.openai.com/v1" className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200 dark:border-zinc-700 font-mono text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500 transition-colors" />
+                <label className="text-[11px] font-medium text-foreground">Base URL</label>
+                <input type="text" value={llmConfig.base_url} onChange={(e) => setLlmConfig({...llmConfig, base_url: e.target.value})} placeholder="https://api.openai.com/v1" className="w-full px-3 py-2 rounded-xl bg-card border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500 transition-colors" />
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-gray-700 dark:text-gray-300 flex items-center justify-between">
+                <label className="text-[11px] font-medium text-foreground flex items-center justify-between">
                   <span>API Key</span>
                   <button type="button" onClick={() => setShowLlmKey(!showLlmKey)} className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1">
                     {showLlmKey ? <EyeOff size={11} /> : <Eye size={11} />}
                     <span>{showLlmKey ? 'Hide' : 'Show'}</span>
                   </button>
                 </label>
-                <input type={showLlmKey ? 'text' : 'password'} value={llmConfig.api_key} onChange={(e) => setLlmConfig({...llmConfig, api_key: e.target.value})} placeholder="sk-..." className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200 dark:border-zinc-700 font-mono text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500 transition-colors" />
+                <input type={showLlmKey ? 'text' : 'password'} value={llmConfig.api_key} onChange={(e) => setLlmConfig({...llmConfig, api_key: e.target.value})} placeholder="sk-..." className="w-full px-3 py-2 rounded-xl bg-card border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500 transition-colors" />
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-gray-700 dark:text-gray-300">Model</label>
-                <input type="text" value={llmConfig.model} onChange={(e) => setLlmConfig({...llmConfig, model: e.target.value})} placeholder="gpt-4o" className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#19191c] border border-gray-200 dark:border-zinc-700 font-mono text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500 transition-colors" />
+                <label className="text-[11px] font-medium text-foreground">Model</label>
+                <input type="text" value={llmConfig.model} onChange={(e) => setLlmConfig({...llmConfig, model: e.target.value})} placeholder="gpt-4o" className="w-full px-3 py-2 rounded-xl bg-card border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500 transition-colors" />
               </div>
 
               <div className="flex items-center gap-2 pt-1">
-                <button type="button" onClick={handleTestLLMConnection} disabled={isTestingLlm || !llmConfig.base_url} className="flex-1 py-2 px-3 rounded-xl bg-white dark:bg-[#2b2b30] hover:bg-gray-100 dark:hover:bg-[#383840] border border-gray-200 dark:border-gray-700 text-xs font-medium text-[#0d0d0d] dark:text-white flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50">
+                <button type="button" onClick={handleTestLLMConnection} disabled={isTestingLlm || !llmConfig.base_url} className="flex-1 py-2 px-3 rounded-xl bg-card hover:bg-muted border border-border text-xs font-medium text-foreground flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50">
                   {isTestingLlm ? <><Loader2 size={13} className="animate-spin text-emerald-500" /><span>Testing...</span></> : <><CheckCircle2 size={13} className="text-emerald-500" /><span>Test Connection</span></>}
                 </button>
                 <button type="button" onClick={handleSaveLLMConfig} className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs">
@@ -1116,7 +1116,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
               </div>
 
               {llmTestResult && (
-                <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${llmTestResult.ok ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : 'bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'}`}>
+                <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${llmTestResult.ok ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30'}`}>
                   {llmTestResult.ok ? <><CheckCircle2 size={15} className="flex-shrink-0 text-emerald-500" /><span className="truncate">{llmTestResult.message || 'Connected successfully!'}</span></> : <><AlertCircle size={15} className="flex-shrink-0 text-rose-500" /><span className="truncate">{llmTestResult.message || 'Connection failed'}</span></>}
                 </div>
               )}
@@ -1126,19 +1126,19 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
           </div>
 
           {/* Dark Mode Toggle */}
-          <div className="flex items-center justify-between p-3 rounded-2xl bg-[#f7f7f8] dark:bg-[#202024] border border-[#e5e5e5] dark:border-[#2c2c30]">
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-muted/40 border border-border">
             <div className="flex items-center gap-2">
               {isDarkMode ? <Moon size={16} /> : <Sun size={16} />}
               <div>
-                <p className="text-xs font-medium text-[#0d0d0d] dark:text-white">Appearance</p>
-                <p className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
+                <p className="text-xs font-medium text-foreground">Appearance</p>
+                <p className="text-[11px] text-muted-foreground">
                   {isDarkMode ? 'Dark theme active' : 'Light theme active'}
                 </p>
               </div>
             </div>
             <button
               onClick={onToggleDarkMode}
-              className="px-3 py-1 rounded-full bg-white dark:bg-[#2b2b30] border border-gray-200 dark:border-gray-700 text-xs font-medium text-[#0d0d0d] dark:text-white active:scale-95 transition-all shadow-sm"
+              className="px-3 py-1 rounded-full bg-card border border-border text-xs font-medium text-foreground active:scale-95 transition-all shadow-xs hover:bg-muted"
             >
               {isDarkMode ? 'Light' : 'Dark'}
             </button>
@@ -1147,7 +1147,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
           {/* Import Cookies Action */}
           <button
             onClick={() => setShowCookieModal(true)}
-            className="w-full py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-xs font-medium text-[#0d0d0d] dark:text-white flex items-center justify-center gap-2 transition-all active:scale-98"
+            className="w-full py-2.5 rounded-xl bg-muted hover:bg-muted/80 text-xs font-medium text-foreground flex items-center justify-center gap-2 transition-all active:scale-98 border border-border/50"
           >
             <Key size={14} />
             Import cookies.json
@@ -1155,7 +1155,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
         </div>
 
         {/* Security Notice */}
-        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300 text-[11px]">
+        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 text-[11px]">
           <ShieldCheck size={14} className="flex-shrink-0" />
           <span>Your account data is stored securely on this local machine only.</span>
         </div>
@@ -1163,27 +1163,27 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
         {/* Cookie Import Modal (Child) */}
         {showCookieModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className="w-full max-w-md bg-white dark:bg-[#1f1f23] rounded-2xl p-5 border border-gray-200 dark:border-zinc-700 space-y-4 shadow-2xl">
+            <div className="w-full max-w-md bg-card text-card-foreground rounded-2xl p-5 border border-border space-y-4 shadow-2xl">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[#0d0d0d] dark:text-white">
+                <h3 className="text-sm font-semibold text-foreground">
                   Import Session Cookies
                 </h3>
                 <button
                   onClick={() => setShowCookieModal(false)}
-                  className="text-gray-400 hover:text-black dark:hover:text-white"
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
                   <X size={16} />
                 </button>
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                <label className="text-xs font-medium text-foreground">
                   Target Account:
                 </label>
                 <select
                   value={cookieAccount}
                   onChange={(e) => setCookieAccount(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-xs text-[#0d0d0d] dark:text-white outline-none"
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-xs text-foreground outline-none focus:border-primary"
                 >
                   <option value="">Select an account…</option>
                   {accounts.map((acc) => (
@@ -1195,7 +1195,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                <label className="text-xs font-medium text-foreground">
                   Cookies JSON:
                 </label>
                 <textarea
@@ -1203,17 +1203,17 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                   value={cookieJson}
                   onChange={(e) => setCookieJson(e.target.value)}
                   placeholder='[{"name": "__Secure-next-auth.session-token", "value": "..."}]'
-                  className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 font-mono text-xs text-[#0d0d0d] dark:text-white outline-none"
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border font-mono text-xs text-foreground outline-none focus:border-primary"
                 />
               </div>
 
-              {cookieError && <p className="text-xs text-red-500">{cookieError}</p>}
+              {cookieError && <p className="text-xs text-destructive">{cookieError}</p>}
               {cookieSuccess && <p className="text-xs text-emerald-500 font-medium">{cookieSuccess}</p>}
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   onClick={() => setShowCookieModal(false)}
-                  className="px-4 py-2 rounded-lg text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-800"
+                  className="px-4 py-2 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted"
                 >
                   Cancel
                 </button>

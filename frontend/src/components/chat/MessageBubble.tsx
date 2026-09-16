@@ -5,9 +5,9 @@ import {
   Copy,
   MessageSquareShare,
   Check,
-  RotateCw,
   Sparkles,
   Heart,
+  Bot,
 } from 'lucide-react';
 import { ChatMessage, GalleryItem } from '../../types';
 import { copyToClipboard } from '../../lib/api';
@@ -56,10 +56,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   // User Message
   if (message.role === 'user') {
     return (
-      <div className="flex justify-end mb-4 animate-fade-up">
-        <div className="max-w-[85%] sm:max-w-md bg-[#f4f4f5] dark:bg-[#2b2b2f] text-[#0d0d0d] dark:text-white px-4 py-2.5 rounded-2xl text-[14.5px] leading-relaxed shadow-sm space-y-1.5">
+      <div className="flex justify-end mb-4 animate-fade-in">
+        <div className="max-w-[85%] sm:max-w-md bg-muted text-foreground px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed border border-border shadow-xs space-y-1.5">
           {message.referenceImage && (
-            <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md w-fit">
+            <div className="flex items-center gap-1.5 text-[11px] font-mono text-primary bg-primary/10 px-2 py-0.5 rounded-md w-fit">
               <span>🖼️ ref: {message.referenceImage}</span>
             </div>
           )}
@@ -72,11 +72,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   // Assistant Text Message (Errors, info)
   if (message.type === 'text') {
     return (
-      <div className="flex items-start gap-3 mb-5 animate-fade-up">
-        <div className="w-7 h-7 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5">
-          <RotateCw size={14} />
+      <div className="flex items-start gap-3 mb-5 animate-fade-in">
+        <div className="w-7 h-7 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shrink-0 mt-0.5 shadow-xs">
+          <Bot size={15} />
         </div>
-        <div className="flex-1 text-[14px] text-[#0d0d0d] dark:text-[#f4f4f5] leading-relaxed">
+        <div className="flex-1 text-[14px] text-foreground leading-relaxed">
           {message.content}
         </div>
       </div>
@@ -85,29 +85,27 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   // Assistant Image Message
   return (
-    <div className="flex items-start gap-3 mb-6 animate-fade-up">
+    <div className="flex items-start gap-3 mb-6 animate-fade-in">
       {/* OpenAI / Bridge Avatar */}
-      <div className="w-7 h-7 rounded-full bg-[#0d0d0d] dark:bg-white text-white dark:text-black flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1683a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4947zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1683a.0757.0757 0 0 1-.071 0l-4.8303-2.7866A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1635a.0804.0804 0 0 1-.038-.0567V6.0748a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.4598a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" />
-        </svg>
+      <div className="w-7 h-7 rounded-xl bg-foreground text-background flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
+        <Sparkles size={14} className="text-primary" />
       </div>
 
-      <div className="flex-1 max-w-[500px]">
+      <div className="flex-1 max-w-[520px]">
         <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white">Bridge AI</span>
-          <span className="text-xs text-[#a1a1aa]">Here's your image.</span>
+          <span className="text-xs font-semibold text-foreground">Bridge AI</span>
+          <span className="text-[11px] font-mono text-muted-foreground">Synthesized Artwork</span>
         </div>
 
         {/* Image Container with Expand Button */}
         <div
-          className="group relative rounded-2xl overflow-hidden border border-[#e5e5e5] dark:border-[#2b2b2f] bg-[#f4f4f5] dark:bg-[#18181b] shadow-md cursor-pointer transition-all hover:shadow-xl active:scale-[0.99]"
+          className="group relative rounded-2xl overflow-hidden border border-border bg-card shadow-md cursor-pointer transition-all duration-300 hover:shadow-xl hover:border-primary/30 active:scale-[0.99]"
           onClick={() => onOpenViewer(asGalleryItem)}
         >
           <img
             src={message.imageUrl}
             alt={message.content}
-            className="w-full h-auto max-h-[580px] object-contain rounded-2xl block mx-auto"
+            className="w-full h-auto max-h-[580px] object-contain rounded-2xl block mx-auto group-hover:scale-[1.01] transition-transform duration-300"
             loading="lazy"
           />
 
@@ -116,22 +114,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               e.stopPropagation();
               onOpenViewer(asGalleryItem);
             }}
-            className="absolute bottom-2.5 right-2.5 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all shadow-lg active:scale-95"
+            className="absolute bottom-2.5 right-2.5 p-2 rounded-xl bg-black/70 hover:bg-black/85 text-white backdrop-blur-md opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all shadow-lg active:scale-95"
             title="Inspect & View Fullscreen"
           >
-            <Maximize2 size={16} />
+            <Maximize2 size={15} />
           </button>
         </div>
 
         {/* Metadata Strip in Monospace */}
-        <div className="flex items-center justify-between mt-2 px-1 text-[11px] font-mono text-[#6e6e80] dark:text-[#a1a1aa]">
+        <div className="flex items-center justify-between mt-2 px-1 text-[11px] font-mono text-muted-foreground">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+            <span className="font-semibold text-primary">
               {message.account || 'Primary'}
             </span>
-            <span>·</span>
+            <span>•</span>
             <span>{message.dur ? `${message.dur.toFixed(1)}s` : '—'}</span>
-            <span>·</span>
+            <span>•</span>
             <span>{message.retries && message.retries > 1 ? `${message.retries} tries` : '1 try'}</span>
           </div>
 
@@ -142,11 +140,23 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               title={message.fav ? 'Favorited' : 'Add to favorites'}
             >
               <Heart
-                size={15}
-                className={message.fav ? 'text-rose-500 fill-rose-500 drop-shadow-[0_0_6px_rgba(244,63,94,0.4)]' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'}
+                size={14}
+                className={message.fav ? 'text-rose-500 fill-rose-500' : 'text-muted-foreground hover:text-foreground'}
               />
             </button>
           )}
+        </div>
+
+        {/* Prompt Quote Banner */}
+        <div className="mt-2 px-3 py-1.5 rounded-xl bg-muted/50 border border-border text-xs text-muted-foreground flex items-center justify-between gap-2">
+          <p className="truncate font-sans text-foreground text-[12px]">{message.content}</p>
+          <button
+            onClick={handleCopy}
+            className="shrink-0 p-1 hover:text-foreground text-muted-foreground transition-colors"
+            title="Copy prompt"
+          >
+            {copied ? <Check size={12} className="text-primary" /> : <Copy size={12} />}
+          </button>
         </div>
 
         {/* Quick Actions Row */}
@@ -154,7 +164,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           {onPromptWithImage && (
             <button
               onClick={() => onPromptWithImage(asGalleryItem)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-xs font-semibold transition-all active:scale-95"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/15 hover:bg-primary/25 text-primary text-xs font-semibold transition-all active:scale-95 shadow-2xs"
               title="Attach this image as reference and prompt for a remix"
             >
               <Sparkles size={13} />
@@ -165,25 +175,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           {message.conversation_id && (
             <button
               onClick={() => onContinueThread(message.conversation_id!, message.content)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#f4f4f5] dark:bg-[#2b2b2f] hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/50 dark:hover:text-emerald-400 text-xs font-medium text-[#0d0d0d] dark:text-white transition-all active:scale-95"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-xs font-medium text-foreground transition-all active:scale-95 border border-border"
             >
               <MessageSquareShare size={13} />
               Continue thread
             </button>
           )}
 
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#f4f4f5] dark:bg-[#2b2b2f] hover:bg-gray-200 dark:hover:bg-[#38383e] text-xs font-medium text-[#6e6e80] dark:text-[#d4d4d8] transition-all active:scale-95"
-          >
-            {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-            {copied ? 'Copied' : 'Copy prompt'}
-          </button>
-
           <a
             href={message.imageUrl}
             download={`bridge-${message.id}.png`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#f4f4f5] dark:bg-[#2b2b2f] hover:bg-gray-200 dark:hover:bg-[#38383e] text-xs font-medium text-[#6e6e80] dark:text-[#d4d4d8] transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-xs font-medium text-muted-foreground hover:text-foreground transition-all active:scale-95 border border-border"
           >
             <Download size={13} />
             Download

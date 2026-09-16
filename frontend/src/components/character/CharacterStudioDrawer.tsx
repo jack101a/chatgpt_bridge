@@ -287,27 +287,27 @@ export function CharacterStudioDrawer({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg h-full bg-white dark:bg-[#161618] shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200"
+        className="w-full max-w-lg h-full bg-card text-card-foreground shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200 border-l border-border"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Drawer Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-white/10 shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <UserCircle2 className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-[#0d0d0d] dark:text-white">
+              <h2 className="text-base sm:text-lg font-bold text-foreground">
                 Character Studio
               </h2>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              <p className="text-[11px] text-muted-foreground">
                 {characters.length} character{characters.length === 1 ? '' : 's'} saved · Identity & reference cards
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 text-gray-500 hover:text-black dark:text-gray-400 dark:hover:text-white rounded-xl transition-colors"
+            className="p-2 hover:bg-muted text-muted-foreground hover:text-foreground rounded-xl transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -336,7 +336,7 @@ export function CharacterStudioDrawer({
                 {onNavigateToGenerator && (
                   <button
                     onClick={onNavigateToGenerator}
-                    className="w-full py-2.5 px-3 flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 text-[#0d0d0d] dark:text-white rounded-xl font-medium text-xs border border-[#e5e5e5] dark:border-white/10 transition-all active:scale-95"
+                    className="w-full py-2.5 px-3 flex items-center justify-center gap-2 bg-muted hover:bg-muted/80 text-foreground rounded-xl font-medium text-xs border border-border transition-all active:scale-95"
                   >
                     <Sparkles className="w-4 h-4 text-emerald-500" /> Reference Studio
                   </button>
@@ -411,7 +411,7 @@ export function CharacterStudioDrawer({
                           {/* Info Column */}
                           <div className="flex-1 min-w-0 pr-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-bold text-sm sm:text-base text-[#0d0d0d] dark:text-white truncate">
+                              <span className="font-bold text-sm sm:text-base text-foreground truncate">
                                 {char.name}
                               </span>
                               {char.is_locked && (
@@ -422,12 +422,12 @@ export function CharacterStudioDrawer({
                             </div>
 
                             {char.tagline && (
-                              <div className="text-[11px] text-gray-500 dark:text-gray-400 font-medium truncate mt-0.5">
+                              <div className="text-[11px] text-muted-foreground font-medium truncate mt-0.5">
                                 {char.tagline}
                               </div>
                             )}
 
-                            <div className="text-[11px] text-gray-600 dark:text-gray-300 line-clamp-2 mt-1 leading-relaxed">
+                            <div className="text-[11px] text-muted-foreground line-clamp-2 mt-1 leading-relaxed">
                               {char.visual_dna}
                             </div>
                           </div>
@@ -439,7 +439,7 @@ export function CharacterStudioDrawer({
                               className={`p-2 rounded-xl transition-all active:scale-95 ${
                                 char.is_locked
                                   ? 'bg-emerald-600 text-white shadow-xs'
-                                  : 'bg-gray-200 hover:bg-gray-300 dark:bg-white/10 dark:hover:bg-white/15 text-gray-700 dark:text-gray-300'
+                                  : 'bg-muted hover:bg-muted/80 text-foreground border border-border'
                               }`}
                               title={
                                 char.is_locked
@@ -557,7 +557,7 @@ export function CharacterStudioDrawer({
             <div className="space-y-5 animate-in fade-in duration-150">
               <button
                 onClick={() => setEditingChar(null)}
-                className="text-xs text-gray-500 hover:text-[#0d0d0d] dark:text-gray-400 dark:hover:text-white flex items-center gap-1 font-medium transition-colors"
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 font-medium transition-colors"
               >
                 ← Back to Characters
               </button>
@@ -565,10 +565,10 @@ export function CharacterStudioDrawer({
               {/* Header Title + Lock Status */}
               <div className="flex justify-between items-center">
                 <div>
-                  <h3 className="font-bold text-lg text-[#0d0d0d] dark:text-white">
+                  <h3 className="font-bold text-lg text-foreground">
                     {editingChar.id ? `Edit ${editingChar.name || 'Character'}` : 'New Character'}
                   </h3>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     {editingChar.tagline || 'Visual DNA & Identity Reference'}
                   </p>
                 </div>
@@ -577,8 +577,8 @@ export function CharacterStudioDrawer({
                     onClick={() => handleLockToggle(editingChar as CharacterCard)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium text-xs transition-all active:scale-95 ${
                       editingChar.is_locked
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-gray-200 dark:bg-white/10 text-gray-700 dark:text-gray-300'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-muted hover:bg-muted/80 text-foreground border border-border'
                     }`}
                   >
                     {editingChar.is_locked ? (
@@ -600,9 +600,9 @@ export function CharacterStudioDrawer({
               {(() => {
                 const cards = getCharacterCards(editingChar);
                 return (
-                  <div className="space-y-2 p-3.5 rounded-2xl bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-white/10">
+                  <div className="space-y-2 p-3.5 rounded-2xl bg-muted/40 border border-border">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-[#0d0d0d] dark:text-white flex items-center gap-1.5">
+                      <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
                         <span>Identity Reference Cards & Visual Locks</span>
                       </label>
@@ -750,25 +750,25 @@ export function CharacterStudioDrawer({
 
               {/* Inputs */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-xs font-semibold text-foreground mb-1">
                   Name
                 </label>
                 <input
                   value={editingChar.name || ''}
                   onChange={(e) => setEditingChar({ ...editingChar, name: e.target.value })}
-                  className="w-full bg-transparent border border-gray-300 dark:border-white/15 rounded-xl p-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none text-[#0d0d0d] dark:text-white"
+                  className="w-full bg-background border border-border rounded-xl p-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none text-foreground"
                   placeholder="E.g., Nastya, Nia, Kaya"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-xs font-semibold text-foreground mb-1">
                   Tagline / Archetype
                 </label>
                 <input
                   value={editingChar.tagline || ''}
                   onChange={(e) => setEditingChar({ ...editingChar, tagline: e.target.value })}
-                  className="w-full bg-transparent border border-gray-300 dark:border-white/15 rounded-xl p-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none text-[#0d0d0d] dark:text-white"
+                  className="w-full bg-background border border-border rounded-xl p-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none text-foreground"
                   placeholder="E.g., Slavic Russian woman, early 20s"
                 />
               </div>
@@ -776,21 +776,21 @@ export function CharacterStudioDrawer({
               {/* ── CANONICAL PHYSICAL IDENTITY LOCK SPECIFICATION ── */}
               <div className="space-y-4 pt-1">
                 {/* Header & Mode Switcher */}
-                <div className="flex items-center justify-between gap-2 border-b border-gray-200/80 dark:border-white/10 pb-2.5">
+                <div className="flex items-center justify-between gap-2 border-b border-border pb-2.5">
                   <div className="flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
-                    <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white">
+                    <span className="text-xs font-semibold text-foreground">
                       Physical Identity Specification
                     </span>
                   </div>
-                  <div className="flex items-center bg-gray-100 dark:bg-white/5 p-0.5 rounded-lg border border-gray-200/60 dark:border-white/10 text-[11px]">
+                  <div className="flex items-center bg-muted p-0.5 rounded-lg border border-border text-[11px]">
                     <button
                       type="button"
                       onClick={() => setSpecTab('fields')}
                       className={`px-2.5 py-1 rounded-md font-medium transition-all ${
                         specTab === 'fields'
-                          ? 'bg-white dark:bg-[#1f1f23] text-[#0d0d0d] dark:text-white shadow-xs'
-                          : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                          ? 'bg-card text-foreground shadow-xs'
+                          : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       Structured Fields
@@ -800,8 +800,8 @@ export function CharacterStudioDrawer({
                       onClick={() => setSpecTab('json')}
                       className={`px-2.5 py-1 rounded-md font-medium flex items-center gap-1 transition-all ${
                         specTab === 'json'
-                          ? 'bg-white dark:bg-[#1f1f23] text-[#0d0d0d] dark:text-white shadow-xs'
-                          : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                          ? 'bg-card text-foreground shadow-xs'
+                          : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       <Code2 className="w-3 h-3" />
@@ -814,255 +814,255 @@ export function CharacterStudioDrawer({
                 {specTab === 'fields' ? (
                   <div className="space-y-4">
                     {/* Section 1: Face Identity Lock (Corresponds to Image 1) */}
-                    <div className="p-3.5 rounded-2xl bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-white/10 space-y-3">
-                      <div className="flex items-center justify-between border-b border-gray-200/60 dark:border-white/5 pb-2">
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-[#0d0d0d] dark:text-white">
+                    <div className="p-3.5 rounded-2xl bg-muted/40 border border-border space-y-3">
+                      <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                           <span className="w-2 h-2 rounded-full bg-emerald-500" />
                           <span>Image 1: Face Identity Lock</span>
                         </div>
-                        <span className="text-[10px] text-gray-500 font-mono">facial ground truth</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">facial ground truth</span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div className="sm:col-span-2">
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Face Shape & Structure
                           </label>
                           <input
                             value={physicalId.face.shape}
                             onChange={(e) => updatePhysicalField('face', 'shape', e.target.value)}
                             placeholder="E.g., soft feminine face with fuller plush cheeks"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Eyes & Gaze
                           </label>
                           <input
                             value={physicalId.face.eyes}
                             onChange={(e) => updatePhysicalField('face', 'eyes', e.target.value)}
                             placeholder="E.g., large expressive hazel-brown eyes"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Eyebrows
                           </label>
                           <input
                             value={physicalId.face.brows}
                             onChange={(e) => updatePhysicalField('face', 'brows', e.target.value)}
                             placeholder="E.g., natural dark expressive brows"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Nose
                           </label>
                           <input
                             value={physicalId.face.nose}
                             onChange={(e) => updatePhysicalField('face', 'nose', e.target.value)}
                             placeholder="E.g., small refined natural nose"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Cheeks
                           </label>
                           <input
                             value={physicalId.face.cheeks}
                             onChange={(e) => updatePhysicalField('face', 'cheeks', e.target.value)}
                             placeholder="E.g., full soft cheeks"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Lips
                           </label>
                           <input
                             value={physicalId.face.lips}
                             onChange={(e) => updatePhysicalField('face', 'lips', e.target.value)}
                             placeholder="E.g., soft pink, plush naturally full lips"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Distinctive Features
                           </label>
                           <input
                             value={physicalId.face.distinctive_features}
                             onChange={(e) => updatePhysicalField('face', 'distinctive_features', e.target.value)}
                             placeholder="E.g., subtle natural beauty mark, dimples"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
                       </div>
                     </div>
 
                     {/* Section 2: Skin & Hair Lock (Corresponds to Image 3) */}
-                    <div className="p-3.5 rounded-2xl bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-white/10 space-y-3">
-                      <div className="flex items-center justify-between border-b border-gray-200/60 dark:border-white/5 pb-2">
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-[#0d0d0d] dark:text-white">
+                    <div className="p-3.5 rounded-2xl bg-muted/40 border border-border space-y-3">
+                      <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                           <span className="w-2 h-2 rounded-full bg-emerald-500" />
                           <span>Image 3: Skin & Hair Realism Lock</span>
                         </div>
-                        <span className="text-[10px] text-gray-500 font-mono">surface realism</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">surface realism</span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div className="sm:col-span-2">
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Skin Tone & Undertone
                           </label>
                           <input
                             value={physicalId.skin.tone}
                             onChange={(e) => updatePhysicalField('skin', 'tone', e.target.value)}
                             placeholder="E.g., bright natural milky-white with soft peach-pink warmth"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Skin Texture & Finish
                           </label>
                           <input
                             value={physicalId.skin.texture}
                             onChange={(e) => updatePhysicalField('skin', 'texture', e.target.value)}
                             placeholder="E.g., smooth realistic human skin with subtle pores"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Hair Color
                           </label>
                           <input
                             value={physicalId.hair.color}
                             onChange={(e) => updatePhysicalField('hair', 'color', e.target.value)}
                             placeholder="E.g., dark brown to black"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Hair Length & Volume
                           </label>
                           <input
                             value={physicalId.hair.length}
                             onChange={(e) => updatePhysicalField('hair', 'length', e.target.value)}
                             placeholder="E.g., long, thick, naturally voluminous"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Hair Distinctive Features
                           </label>
                           <input
                             value={physicalId.hair.distinctive_features}
                             onChange={(e) => updatePhysicalField('hair', 'distinctive_features', e.target.value)}
                             placeholder="E.g., warm golden/caramel face-framing strands"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
                       </div>
                     </div>
 
                     {/* Section 3: Body Turnaround Lock (Corresponds to Image 2) */}
-                    <div className="p-3.5 rounded-2xl bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-white/10 space-y-3">
-                      <div className="flex items-center justify-between border-b border-gray-200/60 dark:border-white/5 pb-2">
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-[#0d0d0d] dark:text-white">
+                    <div className="p-3.5 rounded-2xl bg-muted/40 border border-border space-y-3">
+                      <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                           <span className="w-2 h-2 rounded-full bg-emerald-500" />
                           <span>Image 2: Body Proportion Lock</span>
                         </div>
-                        <span className="text-[10px] text-gray-500 font-mono">silhouette & build</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">silhouette & build</span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Physique & Build
                           </label>
                           <input
                             value={physicalId.body.build}
                             onChange={(e) => updatePhysicalField('body', 'build', e.target.value)}
                             placeholder="E.g., soft, dramatic feminine curvy physique"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Silhouette
                           </label>
                           <input
                             value={physicalId.body.silhouette}
                             onChange={(e) => updatePhysicalField('body', 'silhouette', e.target.value)}
                             placeholder="E.g., pronounced hourglass"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Chest / Bust
                           </label>
                           <input
                             value={physicalId.body.chest_bust}
                             onChange={(e) => updatePhysicalField('body', 'chest_bust', e.target.value)}
                             placeholder="E.g., very heavy prominent natural bust"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Waist
                           </label>
                           <input
                             value={physicalId.body.waist}
                             onChange={(e) => updatePhysicalField('body', 'waist', e.target.value)}
                             placeholder="E.g., narrow and clearly defined"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Hips & Thighs
                           </label>
                           <input
                             value={physicalId.body.hips}
                             onChange={(e) => updatePhysicalField('body', 'hips', e.target.value)}
                             placeholder="E.g., wide and rounded"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                             Abdomen / Stomach
                           </label>
                           <input
                             value={physicalId.body.abdomen}
                             onChange={(e) => updatePhysicalField('body', 'abdomen', e.target.value)}
                             placeholder="E.g., soft natural lower-belly fullness, no visible abs"
-                            className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500"
+                            className="w-full bg-background border border-border rounded-xl p-2 text-xs text-foreground outline-none focus:border-emerald-500"
                           />
                         </div>
                       </div>
@@ -1070,14 +1070,14 @@ export function CharacterStudioDrawer({
 
                     {/* Section 4: Turn 0 Identity Lock Rule */}
                     <div>
-                      <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      <label className="block text-[11px] font-medium text-muted-foreground mb-1">
                         Turn 0 Identity Lock Rule (Contract for ChatGPT)
                       </label>
                       <textarea
                         value={lockRule}
                         onChange={(e) => updateLockRule(e.target.value)}
                         rows={3}
-                        className="w-full bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-xl p-2.5 text-xs text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500 leading-relaxed font-sans"
+                        className="w-full bg-background border border-border rounded-xl p-2.5 text-xs text-foreground outline-none focus:border-emerald-500 leading-relaxed font-sans"
                         placeholder="Preserve character across generations without redesigning physical traits..."
                       />
                     </div>
@@ -1086,7 +1086,7 @@ export function CharacterStudioDrawer({
                   /* Mode B: Error-Proof Raw JSON Spec */
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-gray-500">
+                      <span className="text-[11px] text-muted-foreground">
                         Canonical JSON sent to ChatGPT in Turn 0 Handshake:
                       </span>
                       <div className="flex items-center gap-2">
@@ -1096,7 +1096,7 @@ export function CharacterStudioDrawer({
                             setRawImportInput(jsonText);
                             setIsImportModalOpen(true);
                           }}
-                          className="px-2.5 py-1 text-xs font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 text-gray-700 dark:text-gray-300 transition-colors flex items-center gap-1"
+                          className="px-2.5 py-1 text-xs font-medium rounded-lg bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
                         >
                           <UploadCloud className="w-3 h-3" />
                           <span>Import / Paste</span>
@@ -1121,7 +1121,7 @@ export function CharacterStudioDrawer({
                       </div>
                     </div>
 
-                    <div className="relative rounded-xl border border-gray-200 dark:border-white/10 bg-[#0d0d0f] p-3 text-emerald-400 font-mono text-[11px] leading-relaxed overflow-x-auto max-h-96">
+                    <div className="relative rounded-xl border border-border bg-[#0a0a0c] p-3 text-emerald-400 font-mono text-[11px] leading-relaxed overflow-x-auto max-h-96">
                       <pre>{jsonText}</pre>
                     </div>
                   </div>
@@ -1129,14 +1129,14 @@ export function CharacterStudioDrawer({
               </div>
 
               {/* Optional: Wardrobes / Outfits Drawer Toggle */}
-              <div className="pt-2 border-t border-gray-200/80 dark:border-white/10">
+              <div className="pt-2 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setShowWardrobes(!showWardrobes)}
-                  className="w-full flex items-center justify-between py-2 text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-[#0d0d0d] dark:hover:text-white transition-colors"
+                  className="w-full flex items-center justify-between py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <div className="flex items-center gap-1.5">
-                    <Shirt className="w-3.5 h-3.5 text-gray-500" />
+                    <Shirt className="w-3.5 h-3.5 text-muted-foreground" />
                     <span>Saved Wardrobes & Outfits ({editingChar.wardrobes?.length || 0})</span>
                   </div>
                   {showWardrobes ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
@@ -1167,14 +1167,14 @@ export function CharacterStudioDrawer({
                       {editingChar.wardrobes?.map((w, idx) => (
                         <div
                           key={w.id}
-                          className="p-3 border border-gray-200 dark:border-white/10 rounded-xl bg-gray-50/70 dark:bg-white/5 space-y-2 relative"
+                          className="p-3 border border-border rounded-xl bg-muted/40 space-y-2 relative"
                         >
                           <button
                             onClick={() => {
                               const updated = (editingChar.wardrobes || []).filter((ww) => ww.id !== w.id);
                               setEditingChar({ ...editingChar, wardrobes: updated });
                             }}
-                            className="absolute top-2 right-2 text-gray-400 hover:text-red-500 p-1"
+                            className="absolute top-2 right-2 text-muted-foreground hover:text-destructive p-1 transition-colors"
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -1185,7 +1185,7 @@ export function CharacterStudioDrawer({
                               arr[idx].name = e.target.value;
                               setEditingChar({ ...editingChar, wardrobes: arr });
                             }}
-                            className="w-full bg-transparent font-medium border-b border-gray-300 dark:border-white/20 outline-none pb-1 text-xs text-[#0d0d0d] dark:text-white"
+                            className="w-full bg-transparent font-medium border-b border-border outline-none pb-1 text-xs text-foreground focus:border-emerald-500"
                             placeholder="Outfit Name (e.g., Casual Linen)"
                           />
                           <textarea
@@ -1195,10 +1195,10 @@ export function CharacterStudioDrawer({
                               arr[idx].description = e.target.value;
                               setEditingChar({ ...editingChar, wardrobes: arr });
                             }}
-                            className="w-full bg-transparent text-xs resize-none outline-none border-none mt-1 h-12 text-[#0d0d0d] dark:text-white"
+                            className="w-full bg-transparent text-xs resize-none outline-none border-none mt-1 h-12 text-foreground"
                             placeholder="Clothing description..."
                           />
-                          <label className="flex items-center gap-2 text-xs cursor-pointer mt-1 font-medium text-gray-700 dark:text-gray-300">
+                          <label className="flex items-center gap-2 text-xs cursor-pointer mt-1 font-medium text-muted-foreground">
                             <input
                               type="radio"
                               name="active_wardrobe"
@@ -1213,7 +1213,7 @@ export function CharacterStudioDrawer({
                         </div>
                       ))}
                       {(!editingChar.wardrobes || editingChar.wardrobes.length === 0) && (
-                        <p className="text-xs text-gray-500 italic">No wardrobes added.</p>
+                        <p className="text-xs text-muted-foreground italic">No wardrobes added.</p>
                       )}
                     </div>
                   </div>
@@ -1225,7 +1225,7 @@ export function CharacterStudioDrawer({
                 <div className="pt-2">
                   <button
                     onClick={() => handleDelete(editingChar.id!, editingChar.name || 'Character')}
-                    className="w-full py-2.5 px-3 flex items-center justify-center gap-2 border border-red-300 dark:border-red-900/40 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-xl text-xs font-semibold transition-all"
+                    className="w-full py-2.5 px-3 flex items-center justify-center gap-2 border border-destructive/30 text-destructive hover:bg-destructive/10 rounded-xl text-xs font-semibold transition-all"
                   >
                     <Trash2 className="w-4 h-4" /> Delete Character
                   </button>
@@ -1233,7 +1233,7 @@ export function CharacterStudioDrawer({
               )}
 
               {/* Save Button */}
-              <div className="pt-2 border-t border-gray-200 dark:border-white/10 sticky bottom-0 bg-white dark:bg-[#161618] pb-1">
+              <div className="pt-2 border-t border-border sticky bottom-0 bg-card pb-1">
                 <button
                   onClick={handleSave}
                   disabled={loading || !editingChar.name}
@@ -1255,30 +1255,30 @@ export function CharacterStudioDrawer({
           onClick={() => setIsImportModalOpen(false)}
         >
           <div
-            className="w-full max-w-lg bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/15 rounded-2xl shadow-2xl p-5 space-y-4 animate-in zoom-in-95 duration-150"
+            className="w-full max-w-lg bg-card text-card-foreground border border-border rounded-2xl shadow-2xl p-5 space-y-4 animate-in zoom-in-95 duration-150"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <UploadCloud className="w-4 h-4 text-emerald-500" />
-                <h3 className="text-sm font-bold text-[#0d0d0d] dark:text-white">
+                <h3 className="text-sm font-bold text-foreground">
                   Import / Paste Character Lock JSON
                 </h3>
               </div>
               <button
                 onClick={() => setIsImportModalOpen(false)}
-                className="text-gray-400 hover:text-gray-700 dark:hover:text-white p-1 rounded-lg"
+                className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-gray-500 leading-relaxed">
+            <p className="text-xs text-muted-foreground leading-relaxed">
               Paste your character lock JSON below. The parser automatically repairs trailing commas, fixes formatting quirks, strips code fences, and populates all structured fields.
             </p>
 
             {importError && (
-              <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs flex items-start gap-2">
+              <div className="p-2.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span className="leading-snug">{importError}</span>
               </div>
@@ -1292,7 +1292,7 @@ export function CharacterStudioDrawer({
               }}
               rows={10}
               placeholder='{\n  "character_lock": {\n    "physical_identity": {\n      "face": { ... }\n    }\n  }\n}'
-              className="w-full bg-gray-50 dark:bg-[#121214] border border-gray-200 dark:border-white/10 rounded-xl p-3 font-mono text-[11px] text-[#0d0d0d] dark:text-white outline-none focus:border-emerald-500 leading-relaxed"
+              className="w-full bg-background border border-border rounded-xl p-3 font-mono text-[11px] text-foreground outline-none focus:border-emerald-500 leading-relaxed"
             />
 
             <div className="flex items-center justify-end gap-2 pt-1">
@@ -1302,7 +1302,7 @@ export function CharacterStudioDrawer({
                   setIsImportModalOpen(false);
                   setImportError(null);
                 }}
-                className="px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 rounded-xl transition-colors"
+                className="px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-colors"
               >
                 Cancel
               </button>

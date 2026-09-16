@@ -3,24 +3,23 @@ import {
   ArrowUp,
   Sparkles,
   X,
-  Image as ImageIcon,
   Clapperboard,
   Lock,
   User,
   ChevronDown,
   CheckCircle2,
   Layers,
-  Loader2,
+  Square,
+  Smartphone,
+  Tv,
 } from 'lucide-react';
 import {
   ImageRequest,
   GalleryItem,
   CharacterCard,
-  ConversationContract,
 } from '../../types';
 import { PromptLibraryTray } from '../director/PromptLibraryTray';
 import { DirectorModal } from '../director/DirectorModal';
-import { api } from '../../lib/api';
 import { compileRecurringCharacterPrompt } from '../../lib/characterLock';
 
 interface ComposerProps {
@@ -46,17 +45,14 @@ export const Composer: React.FC<ComposerProps> = ({
   characters = [],
   activeCharacter = null,
   onSelectCharacter,
-  onThreadCreated,
 }) => {
   const [promptText, setPromptText] = useState('');
+  const [selectedAspect, setSelectedAspect] = useState<'1:1' | '9:16' | '16:9'>('1:1');
   const [showLibrary, setShowLibrary] = useState(false);
   const [isDirectorModalOpen, setIsDirectorModalOpen] = useState(false);
 
   // Character Lock & Consistency State
   const [isCharacterMenuOpen, setIsCharacterMenuOpen] = useState(false);
-  const [contract, setContract] = useState<ConversationContract | null>(null);
-  const [isHandshaking, setIsHandshaking] = useState(false);
-  const [, setHandshakeStatus] = useState<string | null>(null);
 
   // Clean Delta Mode State
   const [isDeltaMode, setIsDeltaMode] = useState(false);
@@ -68,132 +64,35 @@ export const Composer: React.FC<ComposerProps> = ({
   const [deltaLighting, setDeltaLighting] = useState('');
   const [deltaBackground, setDeltaBackground] = useState('');
 
-  // Identity Drift Re-Anchor State (Image 1 = Face, Image 2 = Body, Image 3 = Expression)
-  const [driftCards, setDriftCards] = useState<('face' | 'body' | 'expression')[]>([]);
-
-  const handleToggleDriftCard = (cardType: 'face' | 'body' | 'expression') => {
-    setDriftCards((prev) =>
-      prev.includes(cardType) ? prev.filter((c) => c !== cardType) : [...prev, cardType]
-    );
-  };
-
-  const handleSelectAllDrift = () => {
-    if (driftCards.length === 3) {
-      setDriftCards([]);
-    } else {
-      setDriftCards(['face', 'body', 'expression']);
-    }
-  };
-
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Auto-fetch contract status when thread changes
-  useEffect(() => {
-    let isMounted = true;
-    if (activeConvId) {
-      api.getConversationContract(activeConvId)
-        .then((c) => {
-          if (isMounted) setContract(c);
-        })
-        .catch(() => {
-          if (isMounted) setContract(null);
-        });
-    } else {
-      setContract(null);
-    }
-    return () => {
-      isMounted = false;
-    };
-  }, [activeConvId]);
-
-  // Close dropdown on outside click
+  // Click outside to dismiss character menu
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setIsCharacterMenuOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Auto-focus textarea when referenceImage is attached or a thread is selected
-  useEffect(() => {
-    if ((referenceImage || activeConvId) && textareaRef.current) {
-      textareaRef.current.focus();
+    if (isCharacterMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [referenceImage, activeConvId]);
+  }, [isCharacterMenuOpen]);
 
-  // Auto-grow textarea
+  // Dynamic textarea height calculation
   useEffect(() => {
-    const el = textareaRef.current;
-    if (el) {
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
     }
   }, [promptText]);
 
-  const handleInsertModifier = (text: string) => {
-    if (isDeltaMode) {
-      setDeltaCamera((prev) => (prev ? `${prev}, ${text}` : text));
-      return;
-    }
-    setPromptText((prev) => {
-      const trimmed = prev.trim();
-      if (!trimmed) return text;
-      return `${trimmed}, ${text}`;
-    });
-  };
-
-  const handlePrimeHandshake = async () => {
-    if (!activeCharacter || isHandshaking) return;
-    setIsHandshaking(true);
-    setHandshakeStatus(`Establishing 3-card identity contract for ${activeCharacter.name}...`);
-    try {
-      const res = await api.handshakeCharacter(activeCharacter.id, activeConvId || 'new');
-      if (res?.conversation_id) {
-        if (!activeConvId && onThreadCreated) {
-          onThreadCreated(res.conversation_id);
-        }
-        setContract({
-          ok: true,
-          conversation_id: res.conversation_id,
-          character_id: activeCharacter.id,
-          character_name: activeCharacter.name,
-          primed: true,
-          card_count: res.card_count,
-        });
-      }
-      setHandshakeStatus(`Contract primed! Locked to ${activeCharacter.name}`);
-      setTimeout(() => setHandshakeStatus(null), 3000);
-    } catch (err: any) {
-      alert(`Handshake failed: ${err.message}`);
-      setHandshakeStatus(null);
-    } finally {
-      setIsHandshaking(false);
-    }
-  };
-
-  const handleSubmit = (e?: React.FormEvent) => {
-    e?.preventDefault();
+  const handleSubmit = () => {
     if (isGenerating) return;
 
-    // Resolve any selected Drift Re-Anchor card image IDs
-    const resolvedDriftImages: string[] = [];
-    if (activeCharacter) {
-      if (driftCards.includes('face') && activeCharacter.face_lock_image_id) {
-        resolvedDriftImages.push(activeCharacter.face_lock_image_id);
-      }
-      if (driftCards.includes('body') && activeCharacter.body_lock_image_id) {
-        resolvedDriftImages.push(activeCharacter.body_lock_image_id);
-      }
-      if (driftCards.includes('expression') && activeCharacter.expression_lock_image_id) {
-        resolvedDriftImages.push(activeCharacter.expression_lock_image_id);
-      }
-    }
-
-    if (isDeltaMode && activeCharacter) {
+    if (isDeltaMode) {
       if (!deltaScene.trim()) return;
 
       const compiledPrompt = compileRecurringCharacterPrompt({
@@ -209,12 +108,11 @@ export const Composer: React.FC<ComposerProps> = ({
       onSend({
         prompt: compiledPrompt,
         conversation_id: activeConvId || null,
+        aspect: selectedAspect,
         reference_image: referenceImage ? referenceImage.id : null,
-        reference_images: resolvedDriftImages.length > 0 ? resolvedDriftImages : undefined,
       });
 
       setDeltaScene('');
-      setDriftCards([]);
       return;
     }
 
@@ -232,12 +130,11 @@ export const Composer: React.FC<ComposerProps> = ({
     onSend({
       prompt: finalPrompt,
       conversation_id: activeConvId || null,
+      aspect: selectedAspect,
       reference_image: referenceImage ? referenceImage.id : null,
-      reference_images: resolvedDriftImages.length > 0 ? resolvedDriftImages : undefined,
     });
 
     setPromptText('');
-    setDriftCards([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -251,243 +148,53 @@ export const Composer: React.FC<ComposerProps> = ({
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
-      <div className="flex flex-col bg-[#ffffff] dark:bg-[#1c1c1f] rounded-2xl border border-[#e5e5e5] dark:border-[#2e2e32] shadow-lg shadow-black/5 transition-all focus-within:border-emerald-500/80 focus-within:ring-2 focus-within:ring-emerald-500/15 relative">
-        {/* ── Visual Prompt Library Tray (Collapsible) ── */}
+    <div className="w-full max-w-4xl mx-auto p-2 sm:p-3 space-y-2 select-none">
+      {/* ── Visual Prompt Library Tray ── */}
+      {showLibrary && (
         <PromptLibraryTray
           isOpen={showLibrary}
           onClose={() => setShowLibrary(false)}
-          onInsertModifier={handleInsertModifier}
+          onInsertModifier={(text: string) => {
+            setPromptText((prev) => (prev ? `${prev}, ${text}` : text));
+            setShowLibrary(false);
+            textareaRef.current?.focus();
+          }}
         />
+      )}
 
-        {/* ── Attached Reference Image Pill ── */}
+      {/* ── Main Floating Capsule Stage ── */}
+      <div className="rounded-2xl border border-border bg-card shadow-lg overflow-hidden transition-all duration-200">
+        {/* ── Active Reference Preview Banner ── */}
         {referenceImage && (
-          <div className="flex items-center gap-2.5 px-3 py-2 bg-emerald-500/10 dark:bg-emerald-950/40 border-b border-emerald-500/20 animate-fade">
-            <img
-              src={referenceImage.url}
-              alt="Reference"
-              className="w-8 h-8 rounded-lg object-cover border border-emerald-500/40 shadow-sm flex-shrink-0"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-600 dark:text-emerald-400">
-                  Image Reference
-                </span>
-                <span className="text-[11px] font-mono text-zinc-500 truncate max-w-[120px] sm:max-w-[180px]">
-                  {referenceImage.id}
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-700 dark:text-zinc-300 truncate">
-                {referenceImage.prompt || 'Attached reference for image-to-image'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClearReference}
-              className="p-1 rounded-full text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-black/5 dark:hover:bg-white/5 transition-all flex-shrink-0"
-              title="Remove reference image"
-              aria-label="Remove reference image"
-            >
-              <X size={15} />
-            </button>
-          </div>
-        )}
-
-        {/* ── Active Character Lock & Turn 0 Handshake Banner ── */}
-        {activeCharacter && (
-          <div className="flex items-center justify-between px-3.5 py-2 bg-emerald-500/10 dark:bg-emerald-950/40 border-b border-emerald-500/20 text-xs text-zinc-800 dark:text-zinc-200 animate-fade">
+          <div className="flex items-center justify-between px-3 py-2 bg-primary/10 border-b border-primary/20 text-xs">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="p-1 rounded-md bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex-shrink-0">
-                <Lock size={12} />
-              </span>
+              <img
+                src={referenceImage.thumbnail_url || referenceImage.url}
+                alt="Reference"
+                className="w-7 h-7 rounded-lg object-cover border border-primary/40 shrink-0"
+              />
               <div className="min-w-0">
-                <span className="font-semibold text-emerald-800 dark:text-emerald-300">
-                  This chat is locked to {activeCharacter.name}
+                <span className="font-semibold text-primary block leading-tight">
+                  Remix Reference Attached
                 </span>
-                <span className="text-zinc-400 dark:text-zinc-500 mx-1.5 hidden sm:inline">·</span>
-                {contract?.primed ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-mono">
-                    <CheckCircle2 size={12} />
-                    Contract Primed (3 Cards Active)
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-amber-600 dark:text-amber-400 font-mono">
-                    Turn 0 Unprimed
-                  </span>
-                )}
+                <span className="text-[11px] text-muted-foreground truncate block">
+                  {referenceImage.prompt || referenceImage.id}
+                </span>
               </div>
             </div>
-
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {!contract?.primed && (
-                <button
-                  type="button"
-                  onClick={handlePrimeHandshake}
-                  disabled={isHandshaking}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-medium shadow-xs transition-all active:scale-95 disabled:opacity-50"
-                  title="Initialize Turn 0 3-Card Ground Truth Handshake"
-                >
-                  {isHandshaking ? (
-                    <>
-                      <Loader2 size={12} className="animate-spin" />
-                      <span>Priming…</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles size={12} />
-                      <span>Initialize Handshake</span>
-                    </>
-                  )}
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setIsDeltaMode(!isDeltaMode)}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${
-                  isDeltaMode
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:text-black dark:hover:text-white'
-                }`}
-                title="Toggle Clean Delta Prompt Mode"
-              >
-                <Layers size={12} />
-                <span>Delta Mode</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Drift Re-Anchor Strategy Toolstrip (Face, Body, Expression) ── */}
-        {activeCharacter && contract?.primed && (
-          <div className="px-3.5 py-1.5 bg-zinc-50 dark:bg-zinc-900/60 border-b border-zinc-200/60 dark:border-zinc-800/70 flex items-center gap-1.5 flex-wrap text-xs">
-            <span className="text-[11px] text-zinc-500 font-medium mr-1 flex items-center gap-1">
-              <span>Drift Re-Anchor:</span>
-            </span>
-
             <button
-              type="button"
-              onClick={() => handleToggleDriftCard('face')}
-              className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-all ${
-                driftCards.includes('face')
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-emerald-500/50'
-              }`}
+              onClick={onClearReference}
+              className="p-1 rounded-lg hover:bg-primary/20 text-primary transition-colors shrink-0"
+              title="Remove reference"
             >
-              Face Card {driftCards.includes('face') ? '✓' : ''}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleToggleDriftCard('body')}
-              className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-all ${
-                driftCards.includes('body')
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-emerald-500/50'
-              }`}
-            >
-              Body Card {driftCards.includes('body') ? '✓' : ''}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleToggleDriftCard('expression')}
-              className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-all ${
-                driftCards.includes('expression')
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-emerald-500/50'
-              }`}
-            >
-              Expression Card {driftCards.includes('expression') ? '✓' : ''}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSelectAllDrift}
-              className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline ml-1"
-            >
-              {driftCards.length === 3 ? 'Clear Re-Anchor' : 'All 3 Cards'}
+              <X size={14} />
             </button>
           </div>
         )}
 
-        {/* ── Clean Delta Prompt Inputs (When Delta Mode is Active) ── */}
-        {isDeltaMode && activeCharacter && (
-          <div className="p-3 bg-zinc-50/90 dark:bg-[#18181b]/90 border-b border-zinc-200/80 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in duration-150">
-            <div className="flex items-center justify-between text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-              <span className="flex items-center gap-1.5">
-                <Layers size={13} className="text-emerald-500" />
-                Clean Delta Mode — {activeCharacter.name}
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsDeltaMode(false)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-              >
-                <X size={14} />
-              </button>
-            </div>
-
-            <div>
-              <textarea
-                rows={2}
-                value={deltaScene}
-                onChange={(e) => setDeltaScene(e.target.value)}
-                placeholder="[SCENE]: What is happening? (e.g. Walking into a sunlit library holding an open book)"
-                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs text-[#0d0d0d] dark:text-white placeholder:text-zinc-400 outline-none focus:border-emerald-500 resize-none leading-relaxed"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input
-                type="text"
-                value={deltaOutfit}
-                onChange={(e) => setDeltaOutfit(e.target.value)}
-                placeholder="[OUTFIT]: Specific clothing or style (optional)"
-                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
-              />
-              <input
-                type="text"
-                value={deltaPose}
-                onChange={(e) => setDeltaPose(e.target.value)}
-                placeholder="[POSE / ACTION]: Specific body posture (optional)"
-                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
-              />
-              <input
-                type="text"
-                value={deltaExpression}
-                onChange={(e) => setDeltaExpression(e.target.value)}
-                placeholder="[EXPRESSION]: Facial expression and eye gaze (optional)"
-                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
-              />
-              <input
-                type="text"
-                value={deltaCamera}
-                onChange={(e) => setDeltaCamera(e.target.value)}
-                placeholder="[CAMERA]: Angle & lens (e.g. 50mm eye-level medium shot)"
-                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
-              />
-              <input
-                type="text"
-                value={deltaLighting}
-                onChange={(e) => setDeltaLighting(e.target.value)}
-                placeholder="[LIGHTING]: Atmosphere (e.g. Warm natural daylight)"
-                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
-              />
-              <input
-                type="text"
-                value={deltaBackground}
-                onChange={(e) => setDeltaBackground(e.target.value)}
-                placeholder="[BACKGROUND]: Environment details"
-                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* ── Top Clean Toolbar: Character Selector + AI Director + Thread Indicator ── */}
-        <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 gap-2 flex-wrap">
-          {/* Left: Prominent Character Card Selector */}
+        {/* ── Top Bar: Character Pill, Aspect Ratio & Tools ── */}
+        <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 gap-2 flex-wrap border-b border-border/50 bg-muted/20">
+          {/* Left: Character Lock Pill & Selector */}
           <div className="flex items-center gap-2" ref={menuRef}>
             <div className="relative">
               <button
@@ -495,45 +202,33 @@ export const Composer: React.FC<ComposerProps> = ({
                 onClick={() => setIsCharacterMenuOpen(!isCharacterMenuOpen)}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
                   activeCharacter
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 shadow-xs hover:bg-emerald-100/70 dark:hover:bg-emerald-950/60'
-                    : 'bg-[#f4f4f5] dark:bg-[#2b2b2f] text-[#0d0d0d] dark:text-white border-transparent hover:bg-gray-200/80 dark:hover:bg-[#34343a]'
+                    ? 'bg-primary/15 text-primary border-primary/30 hover:bg-primary/20 shadow-xs'
+                    : 'bg-muted text-muted-foreground border-border hover:bg-muted/80 hover:text-foreground'
                 }`}
-                title="Select or change character for this chat"
+                title="Select character anchor"
               >
                 {activeCharacter ? (
                   <>
-                    {activeCharacter.avatar_image_id ? (
-                      <img
-                        src={`/images/${activeCharacter.avatar_image_id}`}
-                        alt={activeCharacter.name}
-                        className="w-5 h-5 rounded-full object-cover border border-emerald-500/50"
-                      />
-                    ) : (
-                      <div className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[9px] font-bold flex items-center justify-center">
-                        {activeCharacter.name.slice(0, 2).toUpperCase()}
-                      </div>
-                    )}
+                    <Lock size={12} className="text-primary" />
                     <span className="truncate max-w-[120px]">{activeCharacter.name}</span>
-                    <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-600 text-white font-mono">
+                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-primary text-primary-foreground font-mono">
                       Locked
                     </span>
                   </>
                 ) : (
                   <>
-                    <User size={14} className="text-emerald-600 dark:text-emerald-400" />
-                    <span>Select Character</span>
+                    <User size={13} className="text-muted-foreground" />
+                    <span>Freeform Mode</span>
                   </>
                 )}
-                <ChevronDown size={12} className="opacity-60 ml-0.5" />
+                <ChevronDown size={11} className="opacity-60 ml-0.5" />
               </button>
 
               {isCharacterMenuOpen && (
-                <div className="absolute left-0 bottom-full mb-2 w-64 rounded-2xl bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
-                  <div className="px-3.5 py-2 border-b border-zinc-100 dark:border-zinc-800 text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center justify-between">
-                    <span>Select Character for Chat</span>
-                    <span className="font-mono text-emerald-600 dark:text-emerald-400">
-                      {characters.length} saved
-                    </span>
+                <div className="absolute left-0 bottom-full mb-2 w-64 rounded-2xl bg-card border border-border shadow-2xl py-1.5 z-50 animate-fade-in">
+                  <div className="px-3.5 py-2 border-b border-border text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+                    <span>Active Persona</span>
+                    <span className="font-mono text-primary">{characters.length} cards</span>
                   </div>
 
                   <button
@@ -542,18 +237,18 @@ export const Composer: React.FC<ComposerProps> = ({
                       onSelectCharacter?.(null);
                       setIsCharacterMenuOpen(false);
                     }}
-                    className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors ${
-                      !activeCharacter ? 'font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/20' : 'text-zinc-700 dark:text-zinc-300'
+                    className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center justify-between hover:bg-muted transition-colors ${
+                      !activeCharacter ? 'font-bold text-primary bg-primary/10' : 'text-foreground'
                     }`}
                   >
                     <div>
-                      <div className="font-medium">✦ No Character</div>
-                      <div className="text-[10px] text-zinc-400">Freeform DALL·E generation</div>
+                      <div className="font-medium">✦ Freeform (No Character)</div>
+                      <div className="text-[10px] text-muted-foreground">Direct DALL·E generation</div>
                     </div>
-                    {!activeCharacter && <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />}
+                    {!activeCharacter && <CheckCircle2 size={14} className="text-primary shrink-0" />}
                   </button>
 
-                  <div className="max-h-56 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800/40">
+                  <div className="max-h-56 overflow-y-auto divide-y divide-border/60">
                     {characters.map((c) => (
                       <button
                         key={c.id}
@@ -562,31 +257,23 @@ export const Composer: React.FC<ComposerProps> = ({
                           onSelectCharacter?.(c);
                           setIsCharacterMenuOpen(false);
                         }}
-                        className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors ${
+                        className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center justify-between hover:bg-muted transition-colors ${
                           activeCharacter?.id === c.id
-                            ? 'font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-                            : 'text-zinc-700 dark:text-zinc-300'
+                            ? 'font-bold text-primary bg-primary/10'
+                            : 'text-foreground'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                          {c.avatar_image_id ? (
-                            <img
-                              src={`/images/${c.avatar_image_id}`}
-                              alt={c.name}
-                              className="w-7 h-7 rounded-full object-cover border border-zinc-200 dark:border-zinc-700 flex-shrink-0"
-                            />
-                          ) : (
-                            <div className="w-7 h-7 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
-                              {c.name.slice(0, 2).toUpperCase()}
-                            </div>
-                          )}
+                          <div className="w-6 h-6 rounded-full bg-primary/15 text-primary text-[10px] font-bold flex items-center justify-center shrink-0">
+                            {c.name.slice(0, 2).toUpperCase()}
+                          </div>
                           <div className="min-w-0">
                             <div className="font-semibold truncate">{c.name}</div>
-                            {c.tagline && <div className="text-[10px] text-zinc-400 truncate">{c.tagline}</div>}
+                            {c.tagline && <div className="text-[10px] text-muted-foreground truncate">{c.tagline}</div>}
                           </div>
                         </div>
                         {activeCharacter?.id === c.id && (
-                          <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0" />
+                          <CheckCircle2 size={14} className="text-primary shrink-0" />
                         )}
                       </button>
                     ))}
@@ -594,58 +281,115 @@ export const Composer: React.FC<ComposerProps> = ({
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Right: AI Director Button + Prompt Library + Thread Badge */}
-          <div className="flex items-center gap-2 ml-auto">
+            {/* Delta Mode Switcher */}
+            {activeCharacter && (
+              <button
+                type="button"
+                onClick={() => setIsDeltaMode(!isDeltaMode)}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-mono transition-all border ${
+                  isDeltaMode
+                    ? 'bg-foreground text-background font-semibold border-foreground shadow-xs'
+                    : 'bg-muted text-muted-foreground hover:text-foreground border-border'
+                }`}
+                title="Toggle Clean Delta structured parameters"
+              >
+                <Layers size={12} />
+                <span>Delta</span>
+              </button>
+            )}
+
+            {/* Active Thread Pill */}
             {activeConvId && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-mono border border-emerald-200/60 dark:border-emerald-800/50">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="truncate max-w-[120px] sm:max-w-[180px]">
-                  ↳ Thread: {activeConvId.slice(0, 10)}…
+              <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10.5px] font-mono border border-primary/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                <span className="truncate max-w-[120px]">
+                  ↳ {activeConvId.slice(0, 8)}…
                 </span>
                 <button
                   onClick={onClearThread}
-                  className="hover:text-red-500 ml-0.5"
+                  className="hover:text-destructive ml-0.5"
                   title="Disconnect thread"
                 >
-                  <X size={12} />
+                  <X size={11} />
                 </button>
               </div>
             )}
+          </div>
 
-            {/* AI Director Modal Button */}
+          {/* Center/Right: Aspect Ratio Selector Pills */}
+          <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg border border-border">
+            <button
+              type="button"
+              onClick={() => setSelectedAspect('1:1')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono transition-all ${
+                selectedAspect === '1:1'
+                  ? 'bg-card text-foreground font-semibold shadow-2xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="1:1 Square"
+            >
+              <Square size={10} />
+              <span>1:1</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedAspect('9:16')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono transition-all ${
+                selectedAspect === '9:16'
+                  ? 'bg-card text-foreground font-semibold shadow-2xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="9:16 Mobile Wallpaper"
+            >
+              <Smartphone size={10} />
+              <span>9:16</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedAspect('16:9')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono transition-all ${
+                selectedAspect === '16:9'
+                  ? 'bg-card text-foreground font-semibold shadow-2xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="16:9 Cinema Wide"
+            >
+              <Tv size={10} />
+              <span>16:9</span>
+            </button>
+          </div>
+
+          {/* Right: AI Director Button & Prompt Library */}
+          <div className="flex items-center gap-1.5 ml-auto">
             <button
               type="button"
               onClick={() => setIsDirectorModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/15 dark:bg-emerald-950/40 dark:hover:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold border border-emerald-500/20 transition-all cursor-pointer active:scale-95 shadow-xs"
-              title="AI Director: Story, Plot & Automated Multi-Image Generation"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 text-xs font-semibold border border-rose-500/25 transition-all active:scale-95 shadow-2xs"
+              title="AI Director: Cinematic Storyboard Generator"
             >
-              <Clapperboard size={14} className="text-emerald-600 dark:text-emerald-400" />
-              <span>AI Director</span>
+              <Clapperboard size={13} />
+              <span className="hidden sm:inline">Director</span>
             </button>
 
-            {/* Prompt Library Button */}
             <button
               type="button"
               onClick={() => setShowLibrary(!showLibrary)}
-              className={`p-2 rounded-xl text-[#6e6e80] hover:text-black dark:text-[#a1a1aa] dark:hover:text-white transition-all cursor-pointer ${
-                showLibrary ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40' : 'hover:bg-gray-100 dark:hover:bg-zinc-800'
+              className={`p-1.5 rounded-xl transition-all ${
+                showLibrary
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
               }`}
-              title="Visual Prompt Library (Camera, Lighting, Film)"
+              title="Visual Prompt Library"
             >
-              <Sparkles size={15} />
+              <Sparkles size={14} />
             </button>
           </div>
         </div>
 
-        {/* ── Main Input Row ── */}
+        {/* ── Main Textarea Row ── */}
         {!isDeltaMode ? (
-          <div className="flex items-end gap-2 px-3 pb-2.5 pt-1">
-            <div className="p-1.5 text-gray-400 mb-0.5 hidden sm:block">
-              <ImageIcon size={18} />
-            </div>
-
+          <div className="flex items-end gap-2 px-3.5 py-2">
             <textarea
               ref={textareaRef}
               rows={1}
@@ -654,22 +398,22 @@ export const Composer: React.FC<ComposerProps> = ({
               onKeyDown={handleKeyDown}
               placeholder={
                 referenceImage
-                  ? 'Describe changes or additions using this reference…'
+                  ? 'Describe modifications using this reference…'
                   : activeCharacter
-                  ? `Prompt for ${activeCharacter.name} (or switch to Delta Mode)…`
-                  : 'Describe what you want to create…'
+                  ? `Describe a scene for ${activeCharacter.name}…`
+                  : 'Describe what you want to imagine…'
               }
-              className="flex-1 max-h-[180px] bg-transparent border-0 outline-none resize-none text-[14px] leading-relaxed placeholder:text-gray-400 dark:placeholder:text-gray-500 text-[#0d0d0d] dark:text-white font-sans py-1"
+              className="flex-1 max-h-[180px] bg-transparent border-0 outline-none resize-none text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans py-1"
             />
 
             <button
               type="button"
-              onClick={() => handleSubmit()}
+              onClick={handleSubmit}
               disabled={isGenerating || !promptText.trim()}
-              className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
+              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all ${
                 promptText.trim() && !isGenerating
-                  ? 'bg-[#10a37f] hover:bg-[#0d926e] text-white active:scale-95 shadow-md shadow-emerald-500/20'
-                  : 'bg-gray-100 dark:bg-zinc-800 text-gray-400 cursor-not-allowed'
+                  ? 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-95 shadow-md shadow-emerald-500/25'
+                  : 'bg-muted text-muted-foreground/50 cursor-not-allowed'
               }`}
               aria-label="Send prompt"
             >
@@ -677,30 +421,94 @@ export const Composer: React.FC<ComposerProps> = ({
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-between px-3.5 py-2 bg-white dark:bg-[#1c1c1f]">
-            <span className="text-[11px] text-zinc-500">
-              Clean Delta prompts preserve ground truth with zero token pollution.
-            </span>
-            <button
-              type="button"
-              onClick={() => handleSubmit()}
-              disabled={isGenerating || !deltaScene.trim()}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                deltaScene.trim() && !isGenerating
-                  ? 'bg-[#10a37f] hover:bg-[#0d926e] text-white active:scale-95 shadow-md shadow-emerald-500/20'
-                  : 'bg-gray-100 dark:bg-zinc-800 text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              <span>Generate Delta</span>
-              <ArrowUp size={14} strokeWidth={2.5} />
-            </button>
+          <div className="p-3 space-y-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={deltaScene}
+                onChange={(e) => setDeltaScene(e.target.value)}
+                placeholder="[SCENE]: Location & action (required)"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+              />
+              <input
+                type="text"
+                value={deltaOutfit}
+                onChange={(e) => setDeltaOutfit(e.target.value)}
+                placeholder="[OUTFIT]: Specific clothing"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+              />
+              <input
+                type="text"
+                value={deltaPose}
+                onChange={(e) => setDeltaPose(e.target.value)}
+                placeholder="[POSE]: Posture or gesture"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+              />
+              <input
+                type="text"
+                value={deltaExpression}
+                onChange={(e) => setDeltaExpression(e.target.value)}
+                placeholder="[EXPRESSION]: Facial expression and gaze"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+              />
+              <input
+                type="text"
+                value={deltaCamera}
+                onChange={(e) => setDeltaCamera(e.target.value)}
+                placeholder="[CAMERA]: Lens & POV (e.g. 50mm candid)"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+              />
+              <input
+                type="text"
+                value={deltaLighting}
+                onChange={(e) => setDeltaLighting(e.target.value)}
+                placeholder="[LIGHTING]: Atmosphere & light"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+              />
+              <input
+                type="text"
+                value={deltaBackground}
+                onChange={(e) => setDeltaBackground(e.target.value)}
+                placeholder="[BACKGROUND]: Environment details"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans sm:col-span-2"
+              />
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[11px] text-muted-foreground font-mono">
+                Clean Delta preserves character DNA without token drift.
+              </span>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isGenerating || !deltaScene.trim()}
+                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  deltaScene.trim() && !isGenerating
+                    ? 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-95 shadow-md shadow-emerald-500/25'
+                    : 'bg-muted text-muted-foreground/50 cursor-not-allowed'
+                }`}
+              >
+                <span>Generate Delta</span>
+                <ArrowUp size={14} strokeWidth={2.5} />
+              </button>
+            </div>
           </div>
         )}
       </div>
 
-      <p className="text-center text-[10.5px] text-[#a1a1aa] dark:text-[#71717a] mt-1.5 tracking-tight">
-        Powered by your self-hosted infrastructure. More control. More creativity.
-      </p>
+      {/* ── Micro-Telemetry & Keyboard Hint Footer ── */}
+      <div className="flex items-center justify-between px-2 text-[10.5px] font-mono text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <span>↵ Send</span>
+          <span>•</span>
+          <span>⇧↵ Newline</span>
+          <span>•</span>
+          <span>⌘K Commands</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span>DALL·E 3 Multi-Account</span>
+        </div>
+      </div>
 
       {/* ── AI Storyboard Director Modal ── */}
       <DirectorModal
