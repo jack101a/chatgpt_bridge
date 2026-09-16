@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { GalleryItem } from '../../types';
 import { copyToClipboard } from '../../lib/api';
+import { hapticImpact } from '../../lib/haptics';
 
 interface ImageViewerModalProps {
   item: GalleryItem | null;
@@ -89,6 +90,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     const dt = Math.max(1, Date.now() - drawerTouchStartRef.current.time);
     const velocity = dy / dt;
     if (dy > 50 || (velocity > 0.25 && dy > 15)) {
+      hapticImpact('light');
       setIsInfoDrawerOpen(false);
     }
     setDrawerDragY(0);
@@ -105,6 +107,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const [isInteracting, setIsInteracting] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [swipeX, setSwipeX] = useState(0);
+  const [dismissDragY, setDismissDragY] = useState(0);
   const [showHeartPop, setShowHeartPop] = useState(false);
 
   const touchStartRef = useRef<{ x: number; y: number; time: number }>({
@@ -126,6 +129,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const lastTapRef = useRef<{ time: number; x: number; y: number }>({ time: 0, x: 0, y: 0 });
   const isDraggingRef = useRef(false);
   const isSwipingRef = useRef(false);
+  const isDismissDraggingRef = useRef(false);
   const didDragOrPinchRef = useRef(false);
   const ignoreClickRef = useRef(false);
   const isDoubleTapRef = useRef(false);
@@ -156,6 +160,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setSwipeX(0);
+    setDismissDragY(0);
     setIsTransitioning(false);
     setRotation(0);
     setCopied(false);
@@ -170,12 +175,14 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
   // Option B: Tactile Slide Animation Triggers
   const triggerHeartPop = () => {
+    hapticImpact('medium');
     setShowHeartPop(true);
     setTimeout(() => setShowHeartPop(false), 700);
   };
 
   const triggerNext = () => {
     if (!nextItem || isAnimatingRef.current) return;
+    hapticImpact('selection');
     isAnimatingRef.current = true;
     setIsInteracting(false);
     setIsTransitioning(true);
@@ -192,6 +199,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
   const triggerPrev = () => {
     if (!prevItem || isAnimatingRef.current) return;
+    hapticImpact('selection');
     isAnimatingRef.current = true;
     setIsInteracting(false);
     setIsTransitioning(true);
@@ -243,6 +251,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     if (!item?.prompt) return;
     const ok = await copyToClipboard(item.prompt);
     if (ok) {
+      hapticImpact('light');
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -261,6 +270,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
   // Toggle zoom between 1x and 2.5x
   const toggleZoom = (clientX?: number, clientY?: number) => {
+    hapticImpact('light');
     if (zoom > 1.05) {
       setZoom(1);
       setPan({ x: 0, y: 0 });
@@ -428,8 +438,15 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
         const rawY = panStartRef.current.y + dy;
         setPan(clampPan(rawX, rawY, zoom));
       } else {
-        // Direct horizontal swipe with Option B peeking carousel
-        if (Math.abs(dx) > Math.abs(dy) * 0.8 || isSwipingRef.current) {
+        // Direct vertical swipe-down-to-dismiss (iOS Photos style)
+        if (
+          isDismissDraggingRef.current ||
+          (dy > 12 && Math.abs(dy) > Math.abs(dx) * 1.25 && !isSwipingRef.current)
+        ) {
+          isDismissDraggingRef.current = true;
+          setDismissDragY(Math.max(0, dy));
+        } else if (Math.abs(dx) > Math.abs(dy) * 0.8 || isSwipingRef.current) {
+          // Direct horizontal swipe with Option B peeking carousel
           isSwipingRef.current = true;
           // Apply gentle rubberband resistance at edges
           const isAtLeftEdge = !prevItem && dx > 0;
@@ -464,6 +481,24 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     const dy = touch.clientY - touchStartRef.current.y;
     const dt = Math.max(1, Date.now() - touchStartRef.current.time);
     const distMoved = Math.hypot(dx, dy);
+
+    // iOS Photos-style pull-down dismiss completion
+    if (isDismissDraggingRef.current && zoom <= 1.05) {
+      const velocity = dismissDragY / dt;
+      if (dismissDragY > 100 || (velocity > 0.35 && dismissDragY > 30)) {
+        hapticImpact('light');
+        onClose();
+      } else {
+        setIsTransitioning(true);
+        setDismissDragY(0);
+        setTimeout(() => {
+          setIsTransitioning(false);
+        }, 240);
+      }
+      isDismissDraggingRef.current = false;
+      return;
+    }
+    setDismissDragY(0);
 
     // Option B: Complete horizontal swipe with velocity & distance threshold
     if (isSwipingRef.current && zoom <= 1.05) {
@@ -517,7 +552,12 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     : 'transform 240ms cubic-bezier(0.2, 0.9, 0.3, 1)';
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#000000] flex flex-col select-none overflow-hidden touch-none">
+    <div
+      className="fixed inset-0 z-50 flex flex-col select-none overflow-hidden touch-none transition-colors duration-150"
+      style={{
+        backgroundColor: `rgba(0, 0, 0, ${Math.max(0.2, 1 - dismissDragY / 450)})`,
+      }}
+    >
       {/* ── TOP CONTROLS (Fades away in Full View Mode) ── */}
       <div
         className={`absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-3 sm:px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 transition-opacity duration-200 pointer-events-none ${
@@ -527,7 +567,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
       >
         <button
           onClick={onClose}
-          className="pointer-events-auto w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 border border-white/10 active:scale-95 text-white/90 flex items-center justify-center backdrop-blur-md transition-all shadow-lg"
+          className="pointer-events-auto w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-black/60 hover:bg-black/80 border border-white/10 active:scale-90 text-white/90 flex items-center justify-center backdrop-blur-md transition-all shadow-lg"
           aria-label="Back"
           title="Back"
         >
@@ -557,7 +597,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
                 triggerHeartPop();
               }
             }}
-            className={`w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 border active:scale-95 flex items-center justify-center backdrop-blur-md transition-all shadow-lg ${
+            className={`w-11 h-11 min-w-[44px] min-h-[44px] rounded-full bg-black/60 hover:bg-black/80 border active:scale-90 flex items-center justify-center backdrop-blur-md transition-all shadow-lg ${
               item.favorite
                 ? 'text-rose-500 bg-rose-500/10 border-rose-500/40'
                 : 'text-white/80 border-white/10 hover:text-white'
@@ -613,7 +653,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
         <div
           className="absolute inset-0 flex items-center justify-center select-none"
           style={{
-            transform: `translate3d(${zoom > 1 ? pan.x : swipeX}px, ${zoom > 1 ? pan.y : 0}px, 0) rotate(${rotation}deg) scale(${zoom})`,
+            transform: `translate3d(${zoom > 1 ? pan.x : swipeX}px, ${zoom > 1 ? pan.y : dismissDragY}px, 0) rotate(${rotation}deg) scale(${zoom > 1 ? zoom : Math.max(0.72, 1 - dismissDragY / 1000)})`,
             transformOrigin: 'center center',
             transition: transitionStyle,
             willChange: 'transform',
@@ -716,9 +756,10 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
             data-testid="plan-a-badge"
             onClick={(e) => {
               e.stopPropagation();
+              hapticImpact('light');
               setIsInfoDrawerOpen(true);
             }}
-            className="pointer-events-auto cursor-pointer px-3.5 py-1.5 rounded-full bg-black/75 hover:bg-black/90 border border-white/15 text-[11px] font-mono text-emerald-400 backdrop-blur-xl shadow-xl flex items-center gap-2 transition-all active:scale-95"
+            className="pointer-events-auto cursor-pointer min-h-[40px] px-4 py-1.5 rounded-full bg-black/80 hover:bg-black/95 border border-white/15 text-[11px] font-mono text-emerald-400 backdrop-blur-xl shadow-xl flex items-center gap-2.5 transition-all duration-150 active:scale-95"
             title="Click to view details and prompt"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -731,15 +772,15 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           </div>
         )}
 
-        {/* Floating Glass Pill Toolbar (Thumb-Accessible) */}
+        {/* Floating Glass Pill Toolbar (Thumb-Accessible, 44px HIG targets) */}
         <div
           onClick={(e) => e.stopPropagation()}
-          className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 px-3 py-2 rounded-full bg-[#18181b]/95 border border-white/15 backdrop-blur-2xl shadow-2xl max-w-full overflow-x-auto no-scrollbar"
+          className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 rounded-full bg-[#141416]/90 border border-white/15 backdrop-blur-2xl shadow-2xl max-w-full overflow-x-auto no-scrollbar"
         >
           <button
             onClick={() => triggerPrev()}
             disabled={!prevItem}
-            className={`p-2 rounded-full active:scale-95 transition-all ${
+            className={`min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full active:scale-90 transition-all ${
               prevItem ? 'hover:bg-white/10 text-white/80 hover:text-white' : 'opacity-30 cursor-not-allowed text-white/40'
             }`}
             title="Previous image"
@@ -749,7 +790,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
           <button
             onClick={() => setZoom((z) => Math.min(8, z * 1.5))}
-            className="p-2 rounded-full hover:bg-white/10 active:scale-95 text-white/80 hover:text-white transition-all"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full hover:bg-white/10 active:scale-90 text-white/80 hover:text-white transition-all"
             title="Zoom In"
           >
             <ZoomIn size={18} />
@@ -760,7 +801,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
               setZoom(1);
               setPan({ x: 0, y: 0 });
             }}
-            className="p-2 rounded-full hover:bg-white/10 active:scale-95 text-white/80 hover:text-white transition-all"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full hover:bg-white/10 active:scale-90 text-white/80 hover:text-white transition-all"
             title="Reset Zoom"
           >
             <ZoomOut size={18} />
@@ -768,21 +809,22 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
           <button
             onClick={() => setRotation((r) => (r + 90) % 360)}
-            className="p-2 rounded-full hover:bg-white/10 active:scale-95 text-white/80 hover:text-white transition-all"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full hover:bg-white/10 active:scale-90 text-white/80 hover:text-white transition-all"
             title="Rotate"
           >
             <RotateCw size={18} />
           </button>
 
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
+          <div className="w-px h-5 bg-white/20 mx-0.5 flex-shrink-0" />
 
           {/* Dedicated Info Drawer Button */}
           <button
             onClick={(e) => {
               e.stopPropagation();
+              hapticImpact('light');
               setIsInfoDrawerOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/90 text-xs font-medium active:scale-95 transition-all flex-shrink-0"
+            className="min-h-[44px] flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white/90 text-xs font-medium active:scale-90 transition-all flex-shrink-0"
             title="View Details & Prompt"
           >
             <Info size={15} className="text-emerald-400" />
@@ -793,9 +835,10 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           {onPromptWithImage && (
             <button
               onClick={() => {
+                hapticImpact('medium');
                 onPromptWithImage(item);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold active:scale-95 transition-all shadow-md shadow-emerald-500/30 flex-shrink-0"
+              className="min-h-[44px] flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold active:scale-90 transition-all shadow-md shadow-emerald-500/30 flex-shrink-0"
               title="Attach this image as reference and prompt for new image generation"
             >
               <Sparkles size={14} />
@@ -805,9 +848,10 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
           <button
             onClick={() => {
+              hapticImpact('medium');
               onContinueInChat(item);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/90 text-xs font-medium active:scale-95 transition-all flex-shrink-0"
+            className="min-h-[44px] flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white/90 text-xs font-medium active:scale-90 transition-all flex-shrink-0"
             title="Continue thread in Chat"
           >
             <MessageSquareShare size={15} />
@@ -816,7 +860,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
           <button
             onClick={handleCopyPrompt}
-            className="p-2 rounded-full hover:bg-white/10 active:scale-95 text-white/80 hover:text-white transition-all"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full hover:bg-white/10 active:scale-90 text-white/80 hover:text-white transition-all"
             title={copied ? 'Copied!' : 'Copy prompt'}
           >
             {copied ? <Check size={18} className="text-emerald-400" /> : <Copy size={18} />}
@@ -825,7 +869,8 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           <a
             href={item.url}
             download={`bridge-${item.id}.png`}
-            className="p-2 rounded-full hover:bg-white/10 active:scale-95 text-white/80 hover:text-white transition-all"
+            onClick={() => hapticImpact('light')}
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full hover:bg-white/10 active:scale-90 text-white/80 hover:text-white transition-all"
             title="Download PNG"
           >
             <Download size={18} />
@@ -834,11 +879,12 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           <button
             onClick={() => {
               if (confirm('Delete this image permanently?')) {
+                hapticImpact('heavy');
                 onDelete(item.id);
                 onClose();
               }
             }}
-            className="p-2 rounded-full hover:bg-red-500/20 active:scale-95 text-red-400 hover:text-red-300 transition-all"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full hover:bg-red-500/20 active:scale-90 text-red-400 hover:text-red-300 transition-all"
             title="Delete"
           >
             <Trash2 size={18} />
@@ -847,7 +893,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           <button
             onClick={() => triggerNext()}
             disabled={!nextItem}
-            className={`p-2 rounded-full active:scale-95 transition-all ${
+            className={`min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full active:scale-90 transition-all ${
               nextItem ? 'hover:bg-white/10 text-white/80 hover:text-white' : 'opacity-30 cursor-not-allowed text-white/40'
             }`}
             title="Next image"

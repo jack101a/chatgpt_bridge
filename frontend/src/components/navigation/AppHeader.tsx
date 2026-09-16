@@ -13,6 +13,7 @@ import {
   Keyboard,
 } from 'lucide-react';
 import { CharacterCard } from '../../types';
+import { hapticImpact } from '../../lib/haptics';
 
 export interface AppHeaderProps {
   currentTab: 'chat' | 'gallery' | 'generator' | 'settings';
@@ -60,13 +61,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   };
 
   return (
-    <header className="h-14 w-full border-b border-border bg-card/85 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between z-30 select-none shrink-0 transition-colors">
+    <header className="h-[calc(3.5rem+env(safe-area-inset-top,0px))] pt-[env(safe-area-inset-top,0px)] w-full border-b border-border/80 bg-card/85 backdrop-blur-xl saturate-150 px-3 sm:px-4 flex items-center justify-between z-30 select-none shrink-0 transition-colors">
       {/* Left: Mobile hamburger + App Title */}
-      <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
+      <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
         {onOpenSidebarMobile && (
           <button
-            onClick={onOpenSidebarMobile}
-            className="lg:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
+            onClick={() => {
+              hapticImpact('light');
+              onOpenSidebarMobile();
+            }}
+            className="lg:hidden min-w-[40px] min-h-[40px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all flex items-center justify-center"
             aria-label="Open sidebar"
           >
             <Menu className="w-5 h-5" />
@@ -74,7 +78,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         )}
 
         <div className="flex items-center space-x-2 min-w-0">
-          <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shrink-0 shadow-xs">
+          <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shrink-0 shadow-2xs">
             <Sparkles className="w-4 h-4" />
           </div>
           <div className="flex flex-col min-w-0">
@@ -94,10 +98,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
         {/* Character Lock Status Pill */}
         <button
-          onClick={onOpenCharacters}
-          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-mono transition-all border shrink-0 ${
+          onClick={() => {
+            hapticImpact('light');
+            onOpenCharacters();
+          }}
+          className={`flex items-center space-x-1.5 min-h-[34px] px-3 py-1 rounded-full text-xs font-mono transition-all border shrink-0 active:scale-95 ${
             activeCharacter
-              ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20'
+              ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20 shadow-2xs'
               : 'bg-muted/50 text-muted-foreground border-border hover:text-foreground hover:bg-muted'
           }`}
           title={
@@ -145,8 +152,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
         {/* Mobile Search Button */}
         <button
-          onClick={onOpenCommandPalette}
-          className="sm:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          onClick={() => {
+            hapticImpact('light');
+            onOpenCommandPalette();
+          }}
+          className="sm:hidden min-w-[40px] min-h-[40px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all flex items-center justify-center"
           title="Search / Command Palette"
         >
           <Search className="w-4 h-4" />
@@ -155,8 +165,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         {/* Director Launch Button */}
         {onOpenDirector && (
           <button
-            onClick={onOpenDirector}
-            className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-rose-500 hover:text-rose-400 bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/25 transition-all shadow-xs"
+            onClick={() => {
+              hapticImpact('light');
+              onOpenDirector();
+            }}
+            className="flex items-center space-x-1.5 min-h-[34px] px-2.5 py-1 rounded-xl text-xs font-medium text-rose-500 hover:text-rose-400 bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/25 transition-all active:scale-95 shadow-2xs"
             title="Launch Director Storyboard generator"
           >
             <Clapperboard className="w-3.5 h-3.5" />
@@ -167,8 +180,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         {/* Shortcuts Cheatsheet Button */}
         {onOpenShortcuts && (
           <button
-            onClick={onOpenShortcuts}
-            className="hidden md:flex p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            onClick={() => {
+              hapticImpact('light');
+              onOpenShortcuts();
+            }}
+            className="hidden md:flex min-w-[36px] min-h-[36px] p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all items-center justify-center"
             title="Keyboard Shortcuts (?)"
           >
             <Keyboard className="w-4 h-4" />
@@ -177,8 +193,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
         {/* Account Status Pill */}
         <button
-          onClick={onOpenAccounts}
-          className="flex items-center space-x-1.5 px-2 py-1 rounded-lg text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors"
+          onClick={() => {
+            hapticImpact('light');
+            onOpenAccounts();
+          }}
+          className="flex items-center space-x-1.5 min-h-[34px] px-2.5 py-1 rounded-xl text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-muted border border-border active:scale-95 transition-all"
           title="Account Status & Quotas"
         >
           <span
@@ -195,8 +214,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
         {/* Dark/Light Mode Switcher */}
         <button
-          onClick={onToggleTheme}
-          className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
+          onClick={() => {
+            hapticImpact('light');
+            onToggleTheme();
+          }}
+          className="min-w-[40px] min-h-[40px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-90 transition-all flex items-center justify-center"
           title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         >
           {isDarkMode ? (

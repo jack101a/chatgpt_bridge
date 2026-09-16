@@ -21,6 +21,7 @@ import {
 import { PromptLibraryTray } from '../director/PromptLibraryTray';
 import { DirectorModal } from '../director/DirectorModal';
 import { compileRecurringCharacterPrompt } from '../../lib/characterLock';
+import { hapticImpact } from '../../lib/haptics';
 
 interface ComposerProps {
   onSend: (req: ImageRequest) => void;
@@ -89,11 +90,19 @@ export const Composer: React.FC<ComposerProps> = ({
     }
   }, [promptText]);
 
+  const handleSelectAspect = (aspect: '1:1' | '9:16' | '16:9') => {
+    if (aspect !== selectedAspect) {
+      hapticImpact('selection');
+    }
+    setSelectedAspect(aspect);
+  };
+
   const handleSubmit = () => {
     if (isGenerating) return;
 
     if (isDeltaMode) {
       if (!deltaScene.trim()) return;
+      hapticImpact('medium');
 
       const compiledPrompt = compileRecurringCharacterPrompt({
         scene: deltaScene,
@@ -117,6 +126,7 @@ export const Composer: React.FC<ComposerProps> = ({
     }
 
     if (!promptText.trim()) return;
+    hapticImpact('medium');
 
     const finalPrompt =
       activeCharacter &&
@@ -318,44 +328,44 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
 
           {/* Center/Right: Aspect Ratio Selector Pills */}
-          <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg border border-border">
+          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border">
             <button
               type="button"
-              onClick={() => setSelectedAspect('1:1')}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono transition-all ${
+              onClick={() => handleSelectAspect('1:1')}
+              className={`min-h-[32px] sm:min-h-[26px] px-2.5 py-1 rounded-lg flex items-center justify-center gap-1.5 text-[11px] font-mono transition-all active:scale-95 ${
                 selectedAspect === '1:1'
                   ? 'bg-card text-foreground font-semibold shadow-2xs'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
               title="1:1 Square"
             >
-              <Square size={10} />
+              <Square size={11} />
               <span>1:1</span>
             </button>
             <button
               type="button"
-              onClick={() => setSelectedAspect('9:16')}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono transition-all ${
+              onClick={() => handleSelectAspect('9:16')}
+              className={`min-h-[32px] sm:min-h-[26px] px-2.5 py-1 rounded-lg flex items-center justify-center gap-1.5 text-[11px] font-mono transition-all active:scale-95 ${
                 selectedAspect === '9:16'
                   ? 'bg-card text-foreground font-semibold shadow-2xs'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
               title="9:16 Mobile Wallpaper"
             >
-              <Smartphone size={10} />
+              <Smartphone size={11} />
               <span>9:16</span>
             </button>
             <button
               type="button"
-              onClick={() => setSelectedAspect('16:9')}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono transition-all ${
+              onClick={() => handleSelectAspect('16:9')}
+              className={`min-h-[32px] sm:min-h-[26px] px-2.5 py-1 rounded-lg flex items-center justify-center gap-1.5 text-[11px] font-mono transition-all active:scale-95 ${
                 selectedAspect === '16:9'
                   ? 'bg-card text-foreground font-semibold shadow-2xs'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
               title="16:9 Cinema Wide"
             >
-              <Tv size={10} />
+              <Tv size={11} />
               <span>16:9</span>
             </button>
           </div>
@@ -364,8 +374,11 @@ export const Composer: React.FC<ComposerProps> = ({
           <div className="flex items-center gap-1.5 ml-auto">
             <button
               type="button"
-              onClick={() => setIsDirectorModalOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 text-xs font-semibold border border-rose-500/25 transition-all active:scale-95 shadow-2xs"
+              onClick={() => {
+                hapticImpact('light');
+                setIsDirectorModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 text-xs font-semibold border border-rose-500/25 transition-all active:scale-95 shadow-2xs min-h-[32px]"
               title="AI Director: Cinematic Storyboard Generator"
             >
               <Clapperboard size={13} />
@@ -374,8 +387,11 @@ export const Composer: React.FC<ComposerProps> = ({
 
             <button
               type="button"
-              onClick={() => setShowLibrary(!showLibrary)}
-              className={`p-1.5 rounded-xl transition-all ${
+              onClick={() => {
+                hapticImpact('light');
+                setShowLibrary(!showLibrary);
+              }}
+              className={`p-2 rounded-xl transition-all min-h-[32px] min-w-[32px] flex items-center justify-center ${
                 showLibrary
                   ? 'bg-primary/15 text-primary'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -403,21 +419,21 @@ export const Composer: React.FC<ComposerProps> = ({
                   ? `Describe a scene for ${activeCharacter.name}…`
                   : 'Describe what you want to imagine…'
               }
-              className="flex-1 max-h-[180px] bg-transparent border-0 outline-none resize-none text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans py-1"
+              className="flex-1 max-h-[180px] bg-transparent border-0 outline-none resize-none text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans py-1.5"
             />
 
             <button
               type="button"
               onClick={handleSubmit}
               disabled={isGenerating || !promptText.trim()}
-              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+              className={`w-10 h-10 min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center shrink-0 transition-all ${
                 promptText.trim() && !isGenerating
-                  ? 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-95 shadow-md shadow-emerald-500/25'
+                  ? 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-90 shadow-md shadow-emerald-500/25'
                   : 'bg-muted text-muted-foreground/50 cursor-not-allowed'
               }`}
               aria-label="Send prompt"
             >
-              <ArrowUp size={16} strokeWidth={2.5} />
+              <ArrowUp size={17} strokeWidth={2.5} />
             </button>
           </div>
         ) : (
