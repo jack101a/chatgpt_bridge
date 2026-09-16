@@ -445,3 +445,55 @@ def test_character_consistency_methods(tmp_path: Path):
     assert "[LIGHTING]: Tungsten cafe light and cool rain light" in delta
     # Verify no 400-word essay clutter in delta
     assert "20s, Russian, natural soft, big bust and ass" not in delta
+
+
+def test_character_lock_resilience_and_trailing_commas():
+    from chatgpt_bridge.characters import repair_json_string
+
+    # 1. Test markdown code fences and trailing commas
+    messy_json = """```json
+    {
+      "character_lock": {
+        "physical_identity": {
+          "face": {
+            "shape": "oval face",
+            "eyes": "hazel brown",
+          },
+          "skin": {
+            "tone": "milky white",
+          },
+          "hair": {
+            "color": "dark brown",
+          },
+          "body": {
+            "build": "curvy hourglass",
+            "chest_bust": "heavy natural bust",
+          },
+        },
+        "lock_rule": "Preserve identity",
+      },
+    }
+    ```"""
+
+    repaired = repair_json_string(messy_json)
+    assert repaired is not None
+    assert "character_lock" in repaired
+    assert repaired["character_lock"]["physical_identity"]["face"]["shape"] == "oval face"
+
+    # 2. Test CharacterCard parsing string lock with trailing commas
+    card = CharacterCard(
+        name="Kaya",
+        visual_dna="soft feminine face, hazel eyes",
+        character_lock=messy_json,
+    )
+    lock_dict = card.build_character_lock_dict()
+    assert "character_lock" in lock_dict
+    assert lock_dict["character_lock"]["physical_identity"]["face"]["shape"] == "oval face"
+
+    # 3. Test Handshake prompt generation remains 100% valid JSON for ChatGPT
+    prompt = card.build_contract_handshake_prompt()
+    assert "```json" in prompt
+    json_block = prompt.split("```json\n")[1].split("\n```")[0]
+    parsed_prompt_json = json.loads(json_block)
+    assert parsed_prompt_json["character_lock"]["physical_identity"]["body"]["chest_bust"] == "heavy natural bust"
+

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { CharacterCard, ImageResult, GalleryItem, ChatThread } from '../../types';
 import { api, copyToClipboard } from '../../lib/api';
+import { buildPhysicalIdentityFromCharData, buildCanonicalCharacterLock } from '../../lib/characterLock';
 
 interface ReferenceCardWizardProps {
   characters: CharacterCard[];
@@ -676,8 +677,13 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
       const bodyId = bodyResult?.image_url.split('/').pop() || null;
       const expressionId = expressionResult?.image_url.split('/').pop() || null;
 
+      const charName = charData.character_name || 'Kaya';
+      const physicalIdentity = buildPhysicalIdentityFromCharData(charData);
+      const canonicalLock = buildCanonicalCharacterLock(charName, physicalIdentity);
+
       const structuredLock = {
-        archetype: charData.character_name,
+        ...canonicalLock,
+        archetype: charName,
         charData: { ...charData },
         cards: {
           face: faceId,

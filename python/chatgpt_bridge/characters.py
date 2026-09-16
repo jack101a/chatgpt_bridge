@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import time
 from typing import Any
 import uuid
@@ -49,6 +50,28 @@ class WardrobeItem(BaseModel):
         return s
 
 
+def repair_json_string(raw: str) -> dict[str, Any] | None:
+    """Safely parse JSON strings with trailing commas, markdown fences, or minor syntax issues."""
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
+        cleaned = re.sub(r"\n?```$", "", cleaned).strip()
+    # Strip trailing commas before } or ]
+    cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+    try:
+        data = json.loads(cleaned)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        try:
+            relaxed = re.sub(r"(\w+)\s*:", r'"\1":', cleaned)
+            relaxed = re.sub(r"'([^']*)'", r'"\1"', relaxed)
+            relaxed = re.sub(r",\s*([}\]])", r"\1", relaxed)
+            data = json.loads(relaxed)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+
 class CharacterCard(BaseModel):
     """Full character profile containing Visual DNA, style anchor, and wardrobe items."""
 
@@ -84,6 +107,23 @@ class CharacterCard(BaseModel):
             raise ValueError("Character visual_dna cannot be empty")
         return s
 
+    @field_validator("character_lock", mode="before")
+    @classmethod
+    def validate_character_lock(cls, v: Any) -> dict[str, Any] | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            parsed = repair_json_string(v)
+            if parsed is not None:
+                return parsed
+            try:
+                return json.loads(v)
+            except Exception:
+                return None
+        if isinstance(v, dict):
+            return v
+        return None
+
     def get_active_wardrobe(self) -> WardrobeItem | None:
         """Return the WardrobeItem matching active_wardrobe_id, or None."""
         if not self.active_wardrobe_id:
@@ -117,14 +157,20 @@ class CharacterCard(BaseModel):
     def build_character_lock_dict(self) -> dict[str, Any]:
         """Build compact physical specification JSON following the 3-pillar character lock schema."""
         char_data: dict[str, Any] = {}
-        if isinstance(self.character_lock, dict):
-            if "character_lock" in self.character_lock and isinstance(self.character_lock["character_lock"], dict):
-                inner = self.character_lock["character_lock"]
+        raw_lock = self.character_lock
+        if isinstance(raw_lock, str):
+            parsed = repair_json_string(raw_lock)
+            if parsed:
+                raw_lock = parsed
+
+        if isinstance(raw_lock, dict):
+            if "character_lock" in raw_lock and isinstance(raw_lock["character_lock"], dict):
+                inner = raw_lock["character_lock"]
                 if "physical_identity" in inner:
-                    return self.character_lock
-            if "charData" in self.character_lock and isinstance(self.character_lock["charData"], dict):
-                char_data = self.character_lock["charData"]
-            elif "physical_identity" in self.character_lock:
+                    return raw_lock
+            if "charData" in raw_lock and isinstance(raw_lock["charData"], dict):
+                char_data = raw_lock["charData"]
+            elif "physical_identity" in raw_lock:
                 return {
                     "character_lock": {
                         "references": {
@@ -132,7 +178,7 @@ class CharacterCard(BaseModel):
                             "image_2": "BODY_LOCK — primary body and proportion reference.",
                             "image_3": "EXPRESSION_LOCK — primary expression and facial realism reference.",
                         },
-                        "physical_identity": self.character_lock["physical_identity"],
+                        "physical_identity": raw_lock["physical_identity"],
                         "lock_rule": self.character_lock.get(
                             "lock_rule",
                             (

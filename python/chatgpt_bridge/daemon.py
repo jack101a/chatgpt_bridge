@@ -59,6 +59,7 @@ from .characters import (
     DeltaPromptRequest,
     DeltaPromptResponse,
     WardrobeItem,
+    repair_json_string,
 )
 from .director import DirectorEngine, StoryboardPlan, StoryboardShot
 from .prompt_library import PromptLibrary
@@ -317,6 +318,17 @@ class CreateCharacterRequest(BaseModel):
             raise ValueError("Character visual_dna cannot be empty")
         return s
 
+    @field_validator("character_lock", mode="before")
+    @classmethod
+    def validate_character_lock(cls, v: Any) -> dict[str, Any] | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return repair_json_string(v)
+        if isinstance(v, dict):
+            return v
+        return None
+
 
 class UpdateCharacterRequest(BaseModel):
     name: str | None = None
@@ -351,6 +363,17 @@ class UpdateCharacterRequest(BaseModel):
                 raise ValueError("Character visual_dna cannot be empty")
             return s
         return v
+
+    @field_validator("character_lock", mode="before")
+    @classmethod
+    def validate_character_lock(cls, v: Any) -> dict[str, Any] | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return repair_json_string(v)
+        if isinstance(v, dict):
+            return v
+        return None
 
 
 class LockCharacterPayload(BaseModel):
