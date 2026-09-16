@@ -6,6 +6,7 @@ export interface ImageRequest {
   aspect?: '1:1' | '3:4' | '16:9' | string | null;
   timeout_s?: number;
   reference_image?: string | null;
+  reference_images?: string[] | null;
 }
 
 export interface ClientState {
@@ -215,6 +216,7 @@ export interface CharacterCard {
   tagline?: string;
   visual_dna: string;
   persona?: string;
+  style_anchor?: string;
   roleplay_instructions?: string;
   wardrobes?: WardrobeItem[];
   active_wardrobe_id?: string;
@@ -224,6 +226,34 @@ export interface CharacterCard {
   expression_lock_image_id?: string;
   character_lock?: Record<string, any>;
   is_locked?: boolean;
+}
+
+export interface DeltaPromptRequest {
+  character_id: string;
+  scene: string;
+  outfit?: string;
+  pose?: string;
+  expression?: string;
+  camera?: string;
+  lighting?: string;
+  background?: string;
+  style_override?: string;
+}
+
+export interface DeltaPromptResponse {
+  character_id: string;
+  character_name: string;
+  compiled_prompt: string;
+}
+
+export interface ConversationContract {
+  ok: boolean;
+  conversation_id: string;
+  character_id?: string | null;
+  character_name?: string | null;
+  primed: boolean;
+  primed_at?: number;
+  card_count?: number;
 }
 
 export interface DictionaryField {

@@ -93,6 +93,119 @@ class CharacterCard(BaseModel):
                 return item
         return None
 
+    def get_reference_card_paths(self, images_dir: Path | str | None = None) -> list[Path]:
+        """Return list of existing Path objects for the character's reference cards."""
+        base_dir = Path(images_dir).expanduser().resolve() if images_dir else (STATE_DIR / "images").expanduser().resolve()
+        paths: list[Path] = []
+        for card_id in (self.face_lock_image_id, self.body_lock_image_id, self.expression_lock_image_id):
+            if not card_id:
+                continue
+            clean_id = str(card_id).strip()
+            if clean_id.startswith("/images/"):
+                clean_id = clean_id[len("/images/"):]
+            elif clean_id.startswith("images/"):
+                clean_id = clean_id[len("images/"):]
+            p = base_dir / clean_id
+            if not p.exists() and not clean_id.endswith(".png"):
+                p = base_dir / f"{clean_id}.png"
+            if p.exists() and p not in paths:
+                paths.append(p)
+            elif Path(card_id).exists() and Path(card_id) not in paths:
+                paths.append(Path(card_id))
+        return paths
+
+    def build_contract_handshake_prompt(self) -> str:
+        """Format the Turn 0 Identity Lock & Ground Truth contract prompt."""
+        spec: dict[str, Any] = {
+            "character_name": self.name,
+            "visual_identity_summary": self.tagline or self.name,
+            "visual_dna": self.visual_dna,
+        }
+        if self.persona:
+            spec["persona_tone"] = self.persona
+        if self.style_anchor:
+            spec["style_anchor"] = self.style_anchor
+        wardrobe = self.get_active_wardrobe()
+        if wardrobe:
+            spec["default_attire"] = wardrobe.description
+
+        spec_json = json.dumps(spec, indent=2, ensure_ascii=False)
+
+        return (
+            f"[SYSTEM CONTRACT: IDENTITY LOCK FOR {self.name.upper()}]\n"
+            f"You are establishing an immutable Visual Ground Truth anchor for the character '{self.name}'.\n\n"
+            f"The attached reference images define this character's exact facial structure, bone symmetry, eye shape/color, and body proportions:\n"
+            f"- Image 1: Facial Structure & Features\n"
+            f"- Image 2: Body Proportions & Anatomy\n"
+            f"- Image 3: Angle Variations & Bone Structure\n\n"
+            f"Physical Specification Contract:\n"
+            f"```json\n{spec_json}\n```\n\n"
+            f"MANDATORY THREAD INSTRUCTIONS:\n"
+            f"1. The person in these reference images is {self.name}. In all subsequent prompts in this thread, feature ONLY this exact person.\n"
+            f"2. Maintain her exact bone structure, facial symmetry, and body proportions from the reference images.\n"
+            f"3. Treat all subsequent prompts as scene, outfit, and lighting changes (deltas) for {self.name}.\n"
+            f"4. Do NOT generate empty scenery, landscapes without {self.name}, or generic faces.\n"
+            f"Please confirm receipt and acknowledge that the identity contract for {self.name} is permanently locked."
+        )
+
+    def compile_delta_prompt(
+        self,
+        scene: str,
+        outfit: str = "",
+        pose: str = "",
+        expression: str = "",
+        camera: str = "",
+        lighting: str = "",
+        background: str = "",
+        style_override: str = "",
+    ) -> str:
+        """Compile a clean, focused delta prompt referencing the locked identity without prompt bloat."""
+        style = style_override or self.style_anchor or "Photorealistic cinematic photography"
+        lines = [f"{style} of {self.name}. Maintain locked face and body identity from Turn 0."]
+
+        clean_scene = scene.strip()
+        if clean_scene:
+            lines.append(f"[SCENE]: {clean_scene}")
+
+        active_outfit = outfit.strip()
+        if not active_outfit:
+            wardrobe = self.get_active_wardrobe()
+            if wardrobe:
+                active_outfit = wardrobe.description
+        if active_outfit:
+            lines.append(f"[OUTFIT]: {active_outfit}")
+
+        if pose.strip():
+            lines.append(f"[POSE]: {pose.strip()}")
+        if expression.strip():
+            lines.append(f"[EXPRESSION]: {expression.strip()}")
+        if camera.strip():
+            lines.append(f"[CAMERA]: {camera.strip()}")
+        if lighting.strip():
+            lines.append(f"[LIGHTING]: {lighting.strip()}")
+        if background.strip():
+            lines.append(f"[BACKGROUND]: {background.strip()}")
+
+        return "\n".join(lines)
+
+
+class DeltaPromptRequest(BaseModel):
+    character_id: str = Field(..., description="Character ID to compile delta for")
+    scene: str = Field(..., description="Scene action, location, and environment")
+    outfit: str = Field(default="", description="Clothing and accessories (defaults to active wardrobe if empty)")
+    pose: str = Field(default="", description="Body posture, gesture, action")
+    expression: str = Field(default="", description="Facial expression, gaze")
+    camera: str = Field(default="", description="Camera angle, lens, framing")
+    lighting: str = Field(default="", description="Lighting setup and mood")
+    background: str = Field(default="", description="Atmosphere and background details")
+    style_override: str = Field(default="", description="Optional style override")
+
+
+class DeltaPromptResponse(BaseModel):
+    character_id: str
+    character_name: str
+    compiled_prompt: str
+
 
 class CharacterListResponse(BaseModel):
     """API response envelope for character listing and active lock status."""
@@ -358,3 +471,10 @@ class CharacterManager:
             card.updated_at = time.time()
             self._save(characters, active_id)
             return card
+
+    def get_reference_card_paths(self, character_id: str, images_dir: Path | str | None = None) -> list[Path]:
+        """Resolve and return the existing reference card file paths for a character."""
+        card = self.get(character_id)
+        if not card:
+            return []
+        return card.get_reference_card_paths(images_dir=images_dir)

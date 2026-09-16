@@ -386,3 +386,56 @@ def test_endpoint_lock_and_toggle(client_with_char_manager):
     # 404 when locking nonexistent character
     resp_err = client.post("/api/characters/unknown-id/lock")
     assert resp_err.status_code == 404
+
+
+def test_character_consistency_methods(tmp_path: Path):
+    images_dir = tmp_path / "images"
+    images_dir.mkdir(parents=True)
+    card1 = images_dir / "face_card.png"
+    card2 = images_dir / "body_card.png"
+    card3 = images_dir / "expr_card.png"
+    card1.write_bytes(b"face")
+    card2.write_bytes(b"body")
+    card3.write_bytes(b"expr")
+
+    card = CharacterCard(
+        name="Nastya",
+        tagline="20s Russian natural beauty",
+        visual_dna="20s, Russian, natural soft, big bust and ass, natural soft curve",
+        face_lock_image_id="face_card",
+        body_lock_image_id="body_card",
+        expression_lock_image_id="expr_card",
+    )
+
+    paths = card.get_reference_card_paths(images_dir=images_dir)
+    assert len(paths) == 3
+    assert paths[0] == card1
+    assert paths[1] == card2
+    assert paths[2] == card3
+
+    # Test Handshake Prompt
+    prompt = card.build_contract_handshake_prompt()
+    assert "[SYSTEM CONTRACT: IDENTITY LOCK FOR NASTYA]" in prompt
+    assert "Image 1: Facial Structure & Features" in prompt
+    assert "Image 2: Body Proportions & Anatomy" in prompt
+    assert "Image 3: Angle Variations & Bone Structure" in prompt
+    assert "Nastya" in prompt
+
+    # Test Delta Prompt Compiler
+    delta = card.compile_delta_prompt(
+        scene="Stepping out of a cafe in the rain",
+        outfit="Beige trench coat over black turtleneck",
+        pose="Holding umbrella with one hand, looking over shoulder",
+        expression="Subtle mysterious smile",
+        camera="85mm f/1.8 lens",
+        lighting="Tungsten cafe light and cool rain light",
+    )
+    assert "Maintain locked face and body identity from Turn 0." in delta
+    assert "[SCENE]: Stepping out of a cafe in the rain" in delta
+    assert "[OUTFIT]: Beige trench coat over black turtleneck" in delta
+    assert "[POSE]: Holding umbrella with one hand, looking over shoulder" in delta
+    assert "[EXPRESSION]: Subtle mysterious smile" in delta
+    assert "[CAMERA]: 85mm f/1.8 lens" in delta
+    assert "[LIGHTING]: Tungsten cafe light and cool rain light" in delta
+    # Verify no 400-word essay clutter in delta
+    assert "20s, Russian, natural soft, big bust and ass" not in delta

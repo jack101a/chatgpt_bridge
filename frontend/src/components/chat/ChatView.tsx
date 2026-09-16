@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { Menu, Sparkles, Settings2, Loader2 } from 'lucide-react';
-import { GalleryItem, Account, ChatMessage, ImageRequest } from '../../types';
+import { GalleryItem, Account, ChatMessage, ImageRequest, CharacterCard } from '../../types';
 import { MessageBubble } from './MessageBubble';
 import { Composer } from './Composer';
 import { PullToRefresh } from '../common/PullToRefresh';
@@ -23,6 +23,10 @@ interface ChatViewProps {
   onClearReference?: () => void;
   onPromptWithImage?: (item: GalleryItem) => void;
   onRefresh?: () => Promise<void> | void;
+  characters?: CharacterCard[];
+  activeCharacter?: CharacterCard | null;
+  onSelectCharacter?: (character: CharacterCard | null) => void;
+  onThreadCreated?: (newConvId: string) => void;
 }
 
 const SUGGESTIONS = [
@@ -50,6 +54,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onClearReference,
   onPromptWithImage,
   onRefresh,
+  characters,
+  activeCharacter,
+  onSelectCharacter,
+  onThreadCreated,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -183,6 +191,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
           onClearThread={onClearThread}
           referenceImage={referenceImage}
           onClearReference={onClearReference}
+          characters={characters}
+          activeCharacter={activeCharacter}
+          onSelectCharacter={onSelectCharacter}
+          onThreadCreated={onThreadCreated}
         />
       </div>
     </div>

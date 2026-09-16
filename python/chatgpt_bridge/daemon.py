@@ -56,6 +56,8 @@ from .characters import (
     CharacterCard,
     CharacterListResponse,
     CharacterManager,
+    DeltaPromptRequest,
+    DeltaPromptResponse,
     WardrobeItem,
 )
 from .director import DirectorEngine, StoryboardPlan, StoryboardShot
@@ -74,11 +76,17 @@ from .body_dictionary import (
     compile_body_visual_dna,
     randomize_body,
 )
-
 try:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 except Exception:  # pragma: no cover - playwright always present at runtime
     PlaywrightTimeoutError = Exception
+from .errors import (
+    AuthError,
+    BridgeTimeoutError,
+    DaemonUnreachableError,
+    GenerationDeniedError,
+    ShapeChangedError,
+)
 
 STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
 DAEMON_JSON = STATE_DIR / "daemon.json"
@@ -90,12 +98,41 @@ SETTINGS_FILE = STATE_DIR / "settings.json"
 STATE_FILE = STATE_DIR / "client_state.json"
 VAULT_BACKUPS_FILE = STATE_DIR / "vault_backups.json"
 CHARACTERS_FILE = STATE_DIR / "characters.json"
+CONTRACTS_FILE = STATE_DIR / "conversation_contracts.json"
 PROMPT_LIBRARY_FILE = STATE_DIR / "prompt_library.json"
 DASH_HTML = Path(__file__).parent / "dashboard.html"
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 _prompt_library = PromptLibrary(db_path=str(PROMPT_LIBRARY_FILE))
 FRONTEND_DIST_ALT = Path(__file__).parent / "dist"
+
+
+def _load_conversation_contracts() -> dict[str, dict[str, Any]]:
+    if not CONTRACTS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(CONTRACTS_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+def _save_conversation_contracts(contracts: dict[str, dict[str, Any]]) -> None:
+    CONTRACTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = CONTRACTS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(contracts, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(CONTRACTS_FILE)
+
+
+def _save_conversation_contract(cid: str, info: dict[str, Any]) -> None:
+    contracts = _load_conversation_contracts()
+    clean_id = cid.strip()
+    existing = contracts.get(clean_id, {})
+    existing.update(info)
+    contracts[clean_id] = existing
+    _save_conversation_contracts(contracts)
 
 
 def _get_dist_dir() -> Path | None:
@@ -152,6 +189,10 @@ class ImageRequest(BaseModel):
     tweaked_prompt: str | None = Field(default=None, description="Optional softer prompt for retries 6-7")
     tweaked_prompt_2: str | None = Field(default=None, description="Optional further refined prompt for retries 8-10")
     reference_image: str | None = Field(default=None, description="Optional reference image ID or filename or URL to attach")
+    reference_images: list[str] | None = Field(
+        default=None,
+        description="Optional multiple reference image IDs/filenames/URLs to attach simultaneously (Turn 0 Contract Handshake)",
+    )
     metadata: dict | None = Field(default=None, description="Optional metadata to store with the image")
 
 
@@ -547,6 +588,24 @@ async def image(req: ImageRequest) -> dict:
                 kwargs["tweaked_prompt"] = req.tweaked_prompt
             if req.tweaked_prompt_2 is not None:
                 kwargs["tweaked_prompt_2"] = req.tweaked_prompt_2
+            resolved_paths: list[Path] = []
+            if req.reference_images:
+                for r_item in req.reference_images:
+                    if not r_item:
+                        continue
+                    ref = str(r_item).strip()
+                    if ref.startswith("/images/"):
+                        ref = ref[len("/images/"):]
+                    elif ref.startswith("images/"):
+                        ref = ref[len("images/"):]
+                    ref_path = IMAGES_DIR / ref
+                    if not ref_path.exists() and not ref.endswith(".png"):
+                        ref_path = IMAGES_DIR / f"{ref}.png"
+                    if ref_path.exists() and ref_path not in resolved_paths:
+                        resolved_paths.append(ref_path)
+                    elif Path(ref).exists() and Path(ref) not in resolved_paths:
+                        resolved_paths.append(Path(ref))
+
             if req.reference_image:
                 ref = req.reference_image.strip()
                 if ref.startswith("/images/"):
@@ -556,10 +615,15 @@ async def image(req: ImageRequest) -> dict:
                 ref_path = IMAGES_DIR / ref
                 if not ref_path.exists() and not ref.endswith(".png"):
                     ref_path = IMAGES_DIR / f"{ref}.png"
-                if ref_path.exists():
-                    kwargs["image_path"] = ref_path
-                elif Path(ref).exists():
-                    kwargs["image_path"] = Path(ref)
+                if ref_path.exists() and ref_path not in resolved_paths:
+                    resolved_paths.append(ref_path)
+                elif Path(ref).exists() and Path(ref) not in resolved_paths:
+                    resolved_paths.append(Path(ref))
+
+            if len(resolved_paths) == 1:
+                kwargs["image_path"] = resolved_paths[0]
+            elif len(resolved_paths) > 1:
+                kwargs["image_paths"] = resolved_paths
 
             async def progress_cb(data: dict) -> None:
                 await ws_broadcast(data)
@@ -1356,6 +1420,157 @@ async def lock_character_endpoint(
         "locked": active_id == character_id,
         "character": char if active_id == character_id else None,
     }
+
+
+# ── 3-Pillar Character Consistency Handshake & Delta Engine API ──
+
+
+class HandshakeRequest(BaseModel):
+    conversation_id: str | None = Field(default=None, description="Target conversation ID, or 'new' for fresh thread")
+
+
+class BindConversationCharacterPayload(BaseModel):
+    character_id: str | None = Field(default=None, description="Character ID to lock to this conversation, or null to detach")
+
+
+@app.post("/api/characters/{character_id}/handshake")
+async def character_handshake_endpoint(
+    character_id: str,
+    req: HandshakeRequest | None = None,
+) -> dict[str, Any]:
+    """Execute Turn 0 Character Identity Contract Handshake.
+
+    Simultaneously attaches the character's reference cards and submits the
+    physical specification contract prompt to prime the conversation thread without generating an image.
+    """
+    mgr = _get_character_manager()
+    char = mgr.get(character_id)
+    if not char:
+        raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
+
+    target_cid = req.conversation_id if req else None
+    if target_cid and target_cid.strip().lower() in ("new", "clean", "none", ""):
+        target_cid = None
+
+    await ws_broadcast({
+        "type": "handshake_progress",
+        "status": f"Establishing identity contract handshake for {char.name}...",
+        "character_id": char.id,
+        "character_name": char.name,
+    })
+
+    async with _lock:
+        core = _get_core()
+        if target_cid is None:
+            if hasattr(core, "new_chat"):
+                res_nc = core.new_chat()
+                if asyncio.iscoroutine(res_nc):
+                    await res_nc
+
+        try:
+            res = await core.establish_character_contract(
+                char,
+                images_dir=IMAGES_DIR,
+                conversation_id=target_cid,
+            )
+            cid = res.get("conversation_id")
+            if cid:
+                _save_conversation_contract(cid, {
+                    "character_id": char.id,
+                    "character_name": char.name,
+                    "primed": True,
+                    "primed_at": time.time(),
+                    "card_count": res.get("card_count", 0),
+                })
+            await ws_broadcast({
+                "type": "handshake_completed",
+                "character_id": char.id,
+                "character_name": char.name,
+                "conversation_id": cid,
+            })
+            return res
+        except Exception as exc:
+            log.error("Character handshake failed for %s: %s", character_id, exc, exc_info=True)
+            return _error_response(exc)
+
+
+@app.post("/api/characters/compile-delta", response_model=DeltaPromptResponse)
+async def compile_delta_endpoint(payload: DeltaPromptRequest) -> DeltaPromptResponse:
+    """Compile structured delta fields into a clean prompt referencing locked character identity."""
+    mgr = _get_character_manager()
+    char = mgr.get(payload.character_id)
+    if not char:
+        raise HTTPException(status_code=404, detail=f"Character '{payload.character_id}' not found")
+
+    prompt = char.compile_delta_prompt(
+        scene=payload.scene,
+        outfit=payload.outfit,
+        pose=payload.pose,
+        expression=payload.expression,
+        camera=payload.camera,
+        lighting=payload.lighting,
+        background=payload.background,
+        style_override=payload.style_override,
+    )
+    return DeltaPromptResponse(
+        character_id=char.id,
+        character_name=char.name,
+        compiled_prompt=prompt,
+    )
+
+
+@app.get("/api/conversations/contracts")
+async def get_all_conversation_contracts() -> dict[str, Any]:
+    """List all conversation threads with primed character contracts."""
+    contracts = _load_conversation_contracts()
+    return {"ok": True, "contracts": contracts}
+
+
+@app.get("/api/conversations/{conversation_id}/contract")
+async def get_conversation_contract_endpoint(conversation_id: str) -> dict[str, Any]:
+    """Retrieve character contract status for a conversation thread."""
+    clean_id = conversation_id.strip()
+    contracts = _load_conversation_contracts()
+    info = contracts.get(clean_id)
+    if info:
+        return {"ok": True, "conversation_id": clean_id, **info}
+    return {
+        "ok": True,
+        "conversation_id": clean_id,
+        "primed": False,
+        "character_id": None,
+        "character_name": None,
+    }
+
+
+@app.post("/api/conversations/{conversation_id}/character")
+async def bind_conversation_character_endpoint(
+    conversation_id: str,
+    payload: BindConversationCharacterPayload,
+) -> dict[str, Any]:
+    """Explicitly associate or lock a conversation to a specific character."""
+    clean_id = conversation_id.strip()
+    mgr = _get_character_manager()
+    contracts = _load_conversation_contracts()
+
+    if payload.character_id is None:
+        contracts.pop(clean_id, None)
+        _save_conversation_contracts(contracts)
+        return {"ok": True, "conversation_id": clean_id, "character_id": None, "character_name": None, "primed": False}
+
+    char = mgr.get(payload.character_id)
+    if not char:
+        raise HTTPException(status_code=404, detail=f"Character '{payload.character_id}' not found")
+
+    existing = contracts.get(clean_id, {})
+    contracts[clean_id] = {
+        **existing,
+        "character_id": char.id,
+        "character_name": char.name,
+        "primed": existing.get("primed", False),
+    }
+    _save_conversation_contracts(contracts)
+    return {"ok": True, "conversation_id": clean_id, **contracts[clean_id]}
 
 
 # ── Reference Card Generator API ──

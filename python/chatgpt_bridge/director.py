@@ -105,13 +105,21 @@ Your output must be valid JSON matching:
             desc = s.get("description", "").strip()
             cam = s.get("camera_pov", "").strip()
             
-            # Deterministic Character Anchor Formula:
-            # Asserts [Style Anchor], [Camera POV of Character], [Character Name + Visual DNA + Wardrobe], followed by [Action/Pose/Lighting]
-            actor_def = f"photorealistic portrait of {char_name}, {vdna}"
+            # Clean Delta Prompt Formula (3-Pillar Architecture):
+            # Preserves Turn 0 locked identity while dedicating 100% of attention tokens
+            # to camera perspective, scene action, pose, and lighting without prompt fatigue.
+            delta_lines = [
+                f"{style} of {char_name}. Maintain locked face and body identity from Turn 0.",
+                f"[SCENE]: {intent}",
+            ]
             if wardrobe:
-                actor_def += f", wearing {wardrobe}"
+                delta_lines.append(f"[OUTFIT]: {wardrobe}")
+            if cam:
+                delta_lines.append(f"[CAMERA]: {cam}")
+            if desc:
+                delta_lines.append(f"[ACTION & LIGHTING]: {desc}")
                 
-            prompt = f"{style}, {cam}, {actor_def}, {desc}".strip()
+            prompt = "\n".join(delta_lines)
             shots.append(StoryboardShot(description=desc, camera_pov=cam, prompt=prompt))
             
         return StoryboardPlan(shots=shots)

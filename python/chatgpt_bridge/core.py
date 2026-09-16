@@ -15,6 +15,7 @@ from .browser import BrowserManager
 from .chat_pool import DEFAULT_MAX_CHATS, ChatPoolManager
 from .errors import AuthError, GenerationDeniedError, ShapeChangedError
 from .http_client import BackendClient
+from .characters import CharacterCard
 from .retry import RetryConfig, parse_rate_limit_info, standardize_image_prompt
 from .session import SessionManager
 from .ui_driver import UIDriver
@@ -306,12 +307,14 @@ class ChatGPT:
         prompt: str,
         model: str | None = None,
         conversation_id: str | None = None,
+        image_path: str | Path | None = None,
+        image_paths: list[str | Path] | None = None,
     ) -> dict:
         """Return ``{"text", "conversation_id"}``.
 
         Continues the current conversation (or ``conversation_id`` if given);
         starts a fresh chat when neither exists. Tries the backend HTTP path
-        first; on :class:`ShapeChangedError` falls back to the UI driver.
+        first; on :class:`ShapeChangedError` or when images are attached falls back to the UI driver.
         """
         async with self._busy_guard():
             switched_from: str | None = None
@@ -329,13 +332,23 @@ class ChatGPT:
             active_acc = self.account_manager.get_active_account()
 
             try:
-                if self.use_http:
+                if (image_paths or image_path) or not self.use_http:
+                    result = await self.ui.ask(
+                        prompt,
+                        conversation_id=cid,
+                        image_path=image_path,
+                        image_paths=image_paths,
+                    )
+                else:
                     try:
                         result = await self.http.ask(prompt, conversation_id=cid)
                     except ShapeChangedError:
-                        result = await self.ui.ask(prompt, conversation_id=cid)
-                else:
-                    result = await self.ui.ask(prompt, conversation_id=cid)
+                        result = await self.ui.ask(
+                            prompt,
+                            conversation_id=cid,
+                            image_path=image_path,
+                            image_paths=image_paths,
+                        )
                 self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
                 await self._track(result.get("conversation_id"))
                 result["account_used"] = active_acc.alias
@@ -361,7 +374,12 @@ class ChatGPT:
                         prev_alias = active_acc.alias
                         await self.switch_account(alt_acc.id)
                         await self._ensure_started()
-                        retry_res = await self.ui.ask(prompt, conversation_id=None)
+                        retry_res = await self.ui.ask(
+                            prompt,
+                            conversation_id=None,
+                            image_path=image_path,
+                            image_paths=image_paths,
+                        )
                         new_acc = self.account_manager.get_active_account()
                         self._current_conversation_id = retry_res.get("conversation_id") or self._current_conversation_id
                         await self._track(retry_res.get("conversation_id"))
@@ -369,6 +387,34 @@ class ChatGPT:
                         retry_res["switched_from"] = prev_alias
                         return retry_res
                 raise
+
+    async def establish_character_contract(
+        self,
+        character_card: CharacterCard,
+        images_dir: Path | str | None = None,
+        conversation_id: str | None = None,
+    ) -> dict:
+        """Establish Turn 0 Character Identity Contract Handshake.
+
+        Attaches all 3 reference cards simultaneously and submits the physical
+        contract prompt to prime the conversation thread without generating an image.
+        """
+        paths = character_card.get_reference_card_paths(images_dir=images_dir)
+        prompt = character_card.build_contract_handshake_prompt()
+        res = await self.ask(
+            prompt,
+            conversation_id=conversation_id,
+            image_paths=paths,
+        )
+        cid = res.get("conversation_id")
+        return {
+            "ok": True,
+            "conversation_id": cid,
+            "character_id": character_card.id,
+            "character_name": character_card.name,
+            "card_count": len(paths),
+            "text": res.get("text", ""),
+        }
 
     async def generate_image(
         self,
@@ -380,6 +426,7 @@ class ChatGPT:
         tweaked_prompt: str | None = None,
         tweaked_prompt_2: str | None = None,
         image_path: str | Path | None = None,
+        image_paths: list[str | Path] | None = None,
         on_progress: Any | None = None,
     ) -> dict:
         """Generate an image via the UI, continuing the current conversation."""
@@ -407,6 +454,8 @@ class ChatGPT:
                 kwargs["tweaked_prompt_2"] = tweaked_prompt_2
             if image_path is not None:
                 kwargs["image_path"] = image_path
+            if image_paths is not None:
+                kwargs["image_paths"] = image_paths
             if on_progress is not None:
                 kwargs["on_progress"] = on_progress
             try:

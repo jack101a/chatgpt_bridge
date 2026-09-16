@@ -25,6 +25,9 @@ import {
   RandomizeBodyResponse,
   FaceCardGenerateResponse,
   BodyCardGenerateResponse,
+  DeltaPromptRequest,
+  DeltaPromptResponse,
+  ConversationContract,
 } from '../types';
 
 export async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -283,6 +286,31 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ data, conversation_id, prompt }),
     }),
+
+  // ── 3-Pillar Character Consistency & Delta Engine ──
+  handshakeCharacter: (characterId: string, conversationId?: string): Promise<any> =>
+    fetchJson(`/api/characters/${characterId}/handshake`, {
+      method: 'POST',
+      body: JSON.stringify({ conversation_id: conversationId || null }),
+    }),
+
+  compileDeltaPrompt: (payload: DeltaPromptRequest): Promise<DeltaPromptResponse> =>
+    fetchJson<DeltaPromptResponse>('/api/characters/compile-delta', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getConversationContract: (conversationId: string): Promise<ConversationContract> =>
+    fetchJson<ConversationContract>(`/api/conversations/${conversationId}/contract`),
+
+  setConversationCharacter: (conversationId: string, characterId: string | null): Promise<any> =>
+    fetchJson(`/api/conversations/${conversationId}/character`, {
+      method: 'POST',
+      body: JSON.stringify({ character_id: characterId }),
+    }),
+
+  getAllConversationContracts: (): Promise<{ ok: boolean; contracts: Record<string, any> }> =>
+    fetchJson('/api/conversations/contracts'),
 };
 
 export async function copyToClipboard(text: string): Promise<boolean> {

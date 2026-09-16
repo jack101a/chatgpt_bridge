@@ -340,7 +340,11 @@ class UIDriver:
             self._active_cid = None
 
     async def ask(
-        self, prompt: str, conversation_id: str | None = None
+        self,
+        prompt: str,
+        conversation_id: str | None = None,
+        image_path: str | Path | None = None,
+        image_paths: list[str | Path] | None = None,
     ) -> dict:
         """Submit a prompt via the composer and return ``{"text", ...}``.
 
@@ -348,7 +352,7 @@ class UIDriver:
         conversation; otherwise a fresh chat is started.
         """
         page = await self._page(conversation_id)
-        await self._submit_prompt(page, prompt)
+        await self._submit_prompt(page, prompt, image_path=image_path, image_paths=image_paths)
         text = await self._wait_for_answer(page)
         cid = conversation_id or await self._current_conversation_id(page)
         self._active_cid = cid
@@ -363,6 +367,7 @@ class UIDriver:
         tweaked_prompt: str | None = None,
         tweaked_prompt_2: str | None = None,
         image_path: str | Path | None = None,
+        image_paths: list[str | Path] | None = None,
         on_progress: Any | None = None,
     ) -> dict:
         """Submit a prompt and wait for a generated image, retrying on denial.
@@ -388,8 +393,8 @@ class UIDriver:
 
         # Attempt 1: Initial submission
         try:
-            if image_path is not None:
-                await self._submit_prompt(page, prompt, image_path=image_path)
+            if image_paths is not None or image_path is not None:
+                await self._submit_prompt(page, prompt, image_path=image_path, image_paths=image_paths)
                 # Snapshot existing image IDs immediately so any reference image uploaded into DOM is recorded
                 try:
                     uploaded_ids = await self._existing_image_ids(page)
@@ -523,8 +528,8 @@ class UIDriver:
                     retried = await self._click_try_again(page)
                 if not retried:
                     # Tertiary: submit to composer
-                    if image_path is not None:
-                        await self._submit_prompt(page, current_prompt, image_path=image_path)
+                    if image_paths is not None or image_path is not None:
+                        await self._submit_prompt(page, current_prompt, image_path=image_path, image_paths=image_paths)
                     else:
                         await self._submit_prompt(page, current_prompt)
 
@@ -1060,7 +1065,13 @@ class UIDriver:
         except Exception:
             return False
 
-    async def _submit_prompt(self, page, prompt: str, image_path: str | Path | None = None) -> None:
+    async def _submit_prompt(
+        self,
+        page,
+        prompt: str,
+        image_path: str | Path | None = None,
+        image_paths: list[str | Path] | None = None,
+    ) -> None:
         # Wait for a VISIBLE composer. Using .first pins to the first match in
         # DOM order, which on /c/{id} is a hidden contenteditable skeleton div;
         # wait_for(state="visible") then hangs on that hidden element even
@@ -1106,9 +1117,18 @@ class UIDriver:
         except Exception:
             pass
 
-        # Attach reference image if provided
-        if image_path and Path(image_path).exists():
-            log.info("Attaching reference image: %s", image_path)
+        # Normalize reference image(s) if provided
+        paths: list[Path] = []
+        if image_paths is not None:
+            if isinstance(image_paths, (list, tuple)):
+                paths = [Path(p) for p in image_paths if Path(p).exists()]
+            elif isinstance(image_paths, (str, Path)) and Path(image_paths).exists():
+                paths = [Path(image_paths)]
+        elif image_path is not None and Path(image_path).exists():
+            paths = [Path(image_path)]
+
+        if paths:
+            log.info("Attaching %d reference image(s): %s", len(paths), [p.name for p in paths])
             try:
                 file_input = page.locator('input[type="file"]')
                 if await file_input.count() == 0:
@@ -1121,18 +1141,21 @@ class UIDriver:
                         file_input = page.locator('input[type="file"]')
 
                 if await file_input.count() > 0:
-                    await file_input.first.set_input_files(str(image_path))
-                    log.info("set_input_files called successfully for reference image")
+                    if len(paths) == 1:
+                        await file_input.first.set_input_files(str(paths[0]))
+                    else:
+                        await file_input.first.set_input_files([str(p) for p in paths])
+                    log.info("set_input_files called successfully for %d reference image(s)", len(paths))
                     # Wait for image upload to process in composer
-                    for poll in range(30):
+                    for poll in range(40):
                         await asyncio.sleep(0.5)
                         uploading = await page.evaluate("""() => {
-                            const prog = document.querySelector('[role="progressbar"], .animate-spin');
-                            return !!prog;
+                            const prog = document.querySelectorAll('[role="progressbar"], .animate-spin');
+                            return prog.length > 0;
                         }""")
                         if not uploading and poll >= 2:
                             log.info("Image upload completed in DOM after %.1fs", (poll + 1) * 0.5)
-                            # Record the uploaded reference image ID so it cannot be returned as output
+                            # Record the uploaded reference image IDs so they cannot be returned as output
                             try:
                                 for img_el in (await page.locator('form img, [data-testid="composer-text-input"] img, div[contenteditable] img').all()):
                                     img_src = await img_el.get_attribute("src") or ""
@@ -1144,9 +1167,9 @@ class UIDriver:
                                 pass
                             break
                 else:
-                    log.warning("Could not find input[type='file'] to attach reference image")
+                    log.warning("Could not find input[type='file'] to attach reference image(s)")
             except Exception as e:
-                log.warning("Failed to attach reference image %s: %s", image_path, e)
+                log.warning("Failed to attach reference image(s) %s: %s", [str(p) for p in paths], e)
 
         # Use insert_text: keyboard.type() emits Enter keydown on newlines,
         # which triggers premature form submission in ChatGPT ProseMirror composer.

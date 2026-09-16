@@ -48,7 +48,8 @@ async def test_director_plan_storyboard():
     
     shot1 = plan.shots[0]
     assert "Test Style" in shot1.prompt
-    assert "Test Visual DNA" in shot1.prompt
+    assert "Maintain locked face and body identity from Turn 0." in shot1.prompt
+    assert "Test Visual DNA" not in shot1.prompt
     assert "Default Wardrobe" in shot1.prompt
     assert "Low angle, wide shot" in shot1.prompt
     assert "Character standing in a dark alley" in shot1.prompt
@@ -78,7 +79,8 @@ async def test_director_plan_storyboard_fallback_on_llm_failure():
     assert isinstance(plan, StoryboardPlan)
     assert len(plan.shots) == 3
     for shot in plan.shots:
-        assert "emerald eyes, raven hair" in shot.prompt
+        assert "Maintain locked face and body identity from Turn 0." in shot.prompt
+        assert "emerald eyes, raven hair" not in shot.prompt
         assert "silver plate armor" in shot.prompt
         assert len(shot.camera_pov) > 0
 

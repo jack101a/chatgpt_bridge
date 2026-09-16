@@ -303,6 +303,14 @@ export function App() {
             }
           }
           bridge.selectThread(id);
+          if (id) {
+            api.getConversationContract(id).then((contract) => {
+              if (contract?.character_id) {
+                const matched = characters.find((c) => c.id === contract.character_id);
+                if (matched) setActiveCharacter(matched);
+              }
+            }).catch(() => {});
+          }
           handleSelectTab('chat');
           setIsSidebarOpenMobile(false);
         }}
@@ -342,6 +350,12 @@ export function App() {
             onOpenSidebar={handleOpenSidebarMobile}
             onContinueThread={(convId) => {
               bridge.selectThread(convId);
+              api.getConversationContract(convId).then((contract) => {
+                if (contract?.character_id) {
+                  const matched = characters.find((c) => c.id === contract.character_id);
+                  if (matched) setActiveCharacter(matched);
+                }
+              }).catch(() => {});
               handleSelectTab('chat');
             }}
             onToggleFavorite={handleToggleFavorite}
@@ -349,6 +363,28 @@ export function App() {
             onClearReference={() => setReferenceImage(null)}
             onPromptWithImage={handlePromptWithImage}
             onRefresh={handleFullPageRefresh}
+            characters={characters}
+            activeCharacter={activeCharacter}
+            onSelectCharacter={(char) => {
+              setActiveCharacter(char);
+              if (char) {
+                api.lockCharacter(char.id, true).catch(() => {});
+                if (bridge.activeConvId) {
+                  api.setConversationCharacter(bridge.activeConvId, char.id).catch(() => {});
+                }
+              } else {
+                if (activeCharacter) {
+                  api.lockCharacter(activeCharacter.id, false).catch(() => {});
+                }
+                if (bridge.activeConvId) {
+                  api.setConversationCharacter(bridge.activeConvId, null).catch(() => {});
+                }
+              }
+              fetchCharacters();
+            }}
+            onThreadCreated={(newId) => {
+              bridge.selectThread(newId);
+            }}
           />
         </div>
 
