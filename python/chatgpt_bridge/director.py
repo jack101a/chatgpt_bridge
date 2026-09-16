@@ -156,23 +156,26 @@ Return valid JSON in this exact structure:
             cam = s.get("camera_pov", "").strip()
 
             if has_char:
-                # Clean Recurring Generation Prompt Format:
-                delta_lines = [
-                    "Use Image 1 from the original identity reference set as the primary character reference. Preserve the established identity and physical appearance.",
-                    "",
-                    "Create a new image:",
-                    "",
-                    f"[SCENE]: {intent}",
-                ]
-                if wardrobe:
-                    delta_lines.append(f"[OUTFIT]: {wardrobe}")
+                # Clean Recurring Generation Prompt Format (Natural Language):
+                narrative_parts = []
                 if cam:
-                    delta_lines.append(f"[CAMERA & FRAMING]: {cam}")
+                    narrative_parts.append(cam.rstrip(".,") + ".")
                 if desc:
-                    delta_lines.append(f"[ACTION & LIGHTING]: {desc}")
-                delta_lines.append("")
-                delta_lines.append(
-                    "Only change what is specified for this new image. Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference."
+                    narrative_parts.append(desc.rstrip(".,") + ".")
+                if wardrobe:
+                    narrative_parts.append(f"Wearing {wardrobe.rstrip('.,')}.")
+
+                full_image_prompt = " ".join(narrative_parts).strip()
+                if not full_image_prompt:
+                    full_image_prompt = intent
+
+                prompt = (
+                    "Use locked Image from the original identity reference set as the primary character reference. "
+                    "Preserve the established identity and physical appearance.\n\n"
+                    "Create a new image:\n\n"
+                    f"{full_image_prompt}\n\n"
+                    "Only change what is specified for this new image. "
+                    "Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference."
                 )
             else:
                 delta_lines = [
@@ -183,8 +186,8 @@ Return valid JSON in this exact structure:
                     delta_lines.append(f"[CAMERA & FRAMING]: {cam}")
                 if desc:
                     delta_lines.append(f"[ACTION & LIGHTING]: {desc}")
+                prompt = "\n".join(delta_lines)
 
-            prompt = "\n".join(delta_lines)
             shots.append(StoryboardShot(description=desc, camera_pov=cam, prompt=prompt))
 
         return StoryboardPlan(shots=shots)

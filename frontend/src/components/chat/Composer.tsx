@@ -222,6 +222,8 @@ export const Composer: React.FC<ComposerProps> = ({
 
     const finalPrompt =
       activeCharacter &&
+      !promptText.includes('original identity reference set') &&
+      !promptText.includes('Use locked Image') &&
       !promptText.includes('Use Image 1') &&
       !promptText.trim().startsWith('{')
         ? compileRecurringCharacterPrompt({ scene: promptText.trim() })

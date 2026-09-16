@@ -422,8 +422,8 @@ export function parseCharacterLockJsonSafe(
 
 /**
  * Compiles a recurring character prompt in the canonical format:
- * - Directs ChatGPT to use Image 1 from original identity reference set
- * - Inserts specified scene / outfit / pose / expression / camera / lighting / background
+ * - Directs ChatGPT to use locked Image from original identity reference set
+ * - Inserts specified scene / outfit / pose / expression / camera / lighting / background in natural language
  * - Enforces zero drift on recognizable facial, skin, hair, and body proportions
  */
 export function compileRecurringCharacterPrompt(params: {
@@ -435,39 +435,40 @@ export function compileRecurringCharacterPrompt(params: {
   lighting?: string;
   background?: string;
 }): string {
-  const lines = [
-    'Use Image 1 from the original identity reference set as the primary character reference. Preserve the established identity and physical appearance.',
+  const parts: string[] = [];
+
+  if (params.camera?.trim()) {
+    parts.push(params.camera.trim().replace(/[.,]+$/, '') + '.');
+  }
+  if (params.scene?.trim()) {
+    parts.push(params.scene.trim().replace(/[.,]+$/, '') + '.');
+  }
+  if (params.outfit?.trim()) {
+    parts.push(`Wearing ${params.outfit.trim().replace(/[.,]+$/, '')}.`);
+  }
+  if (params.pose?.trim()) {
+    parts.push(params.pose.trim().replace(/[.,]+$/, '') + '.');
+  }
+  if (params.expression?.trim()) {
+    parts.push(params.expression.trim().replace(/[.,]+$/, '') + '.');
+  }
+  if (params.lighting?.trim()) {
+    parts.push(`Lighting is ${params.lighting.trim().replace(/[.,]+$/, '')}.`);
+  }
+  if (params.background?.trim()) {
+    parts.push(`Background features ${params.background.trim().replace(/[.,]+$/, '')}.`);
+  }
+
+  const fullPrompt = parts.join(' ').trim() || params.scene.trim() || 'In the scene.';
+
+  return [
+    'Use locked Image from the original identity reference set as the primary character reference. Preserve the established identity and physical appearance.',
     '',
     'Create a new image:',
     '',
-  ];
-
-  if (params.scene.trim()) {
-    lines.push(`[SCENE]: ${params.scene.trim()}`);
-  }
-  if (params.outfit?.trim()) {
-    lines.push(`[OUTFIT]: ${params.outfit.trim()}`);
-  }
-  if (params.pose?.trim()) {
-    lines.push(`[POSE]: ${params.pose.trim()}`);
-  }
-  if (params.expression?.trim()) {
-    lines.push(`[EXPRESSION]: ${params.expression.trim()}`);
-  }
-  if (params.camera?.trim()) {
-    lines.push(`[CAMERA]: ${params.camera.trim()}`);
-  }
-  if (params.lighting?.trim()) {
-    lines.push(`[LIGHTING]: ${params.lighting.trim()}`);
-  }
-  if (params.background?.trim()) {
-    lines.push(`[BACKGROUND]: ${params.background.trim()}`);
-  }
-
-  lines.push('');
-  lines.push(
-    "Only change what is specified for this new image. Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference."
-  );
-
-  return lines.join('\n');
+    fullPrompt,
+    '',
+    "Only change what is specified for this new image. Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference.",
+  ].join('\n');
 }
+

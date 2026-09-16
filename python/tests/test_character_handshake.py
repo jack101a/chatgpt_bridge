@@ -64,13 +64,12 @@ def test_compile_delta_endpoint(client):
     data = resp.json()
     assert data["character_id"] == char.id
     compiled = data["compiled_prompt"]
-    assert "Use Image 1 from the original identity reference set as the primary character reference." in compiled
+    assert "Use locked Image from the original identity reference set as the primary character reference." in compiled
     assert "Preserve the established identity and physical appearance." in compiled
     assert "Create a new image:" in compiled
-    assert "[SCENE]: Walking through Paris in autumn" in compiled
-    assert "[OUTFIT]: Cashmere coat and boots" in compiled
-    assert "[CAMERA]: 85mm f/1.4 portrait" in compiled
-    assert "[LIGHTING]: Golden hour glow" in compiled
+    assert "Walking through Paris in autumn" in compiled
+    assert "Wearing Cashmere coat and boots" in compiled
+    assert "85mm f/1.4 portrait" in compiled
     assert "Only change what is specified for this new image. Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference." in compiled
 
 

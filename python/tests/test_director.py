@@ -47,12 +47,12 @@ async def test_director_plan_storyboard():
     assert len(plan.shots) == 2
     
     shot1 = plan.shots[0]
-    assert "Use Image 1 from the original identity reference set as the primary character reference." in shot1.prompt
+    assert "Use locked Image from the original identity reference set as the primary character reference." in shot1.prompt
     assert "Preserve the established identity and physical appearance." in shot1.prompt
     assert "Create a new image:" in shot1.prompt
     assert "Only change what is specified for this new image." in shot1.prompt
     assert "Test Visual DNA" not in shot1.prompt
-    assert "Default Wardrobe" in shot1.prompt
+    assert "Wearing Default Wardrobe" in shot1.prompt
     assert "Low angle, wide shot" in shot1.prompt
     assert "Character standing in a dark alley" in shot1.prompt
 
@@ -81,12 +81,12 @@ async def test_director_plan_storyboard_fallback_on_llm_failure():
     assert isinstance(plan, StoryboardPlan)
     assert len(plan.shots) == 3
     for shot in plan.shots:
-        assert "Use Image 1 from the original identity reference set as the primary character reference." in shot.prompt
+        assert "Use locked Image from the original identity reference set as the primary character reference." in shot.prompt
         assert "Preserve the established identity and physical appearance." in shot.prompt
         assert "Create a new image:" in shot.prompt
         assert "Only change what is specified for this new image." in shot.prompt
         assert "emerald eyes, raven hair" not in shot.prompt
-        assert "silver plate armor" in shot.prompt
+        assert "Wearing silver plate armor" in shot.prompt
         assert len(shot.camera_pov) > 0
 
 

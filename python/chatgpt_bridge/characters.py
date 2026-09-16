@@ -307,42 +307,40 @@ class CharacterCard(BaseModel):
         background: str = "",
         style_override: str = "",
     ) -> str:
-        """Compile a clean recurring generation prompt using the simple canonical reference format."""
-        clean_scene = scene.strip()
-        lines = [
-            "Use Image 1 from the original identity reference set as the primary character reference. Preserve the established identity and physical appearance.",
-            "",
-            "Create a new image:",
-            "",
-        ]
-
-        if clean_scene:
-            lines.append(f"[SCENE]: {clean_scene}")
-
+        """Compile a clean recurring generation prompt in full natural language without bracket tags."""
+        parts = []
+        if camera.strip():
+            parts.append(camera.strip().rstrip(".,") + ".")
+        if scene.strip():
+            parts.append(scene.strip().rstrip(".,") + ".")
         active_outfit = outfit.strip()
         if not active_outfit:
             wardrobe = self.get_active_wardrobe()
             if wardrobe:
                 active_outfit = wardrobe.description
         if active_outfit:
-            lines.append(f"[OUTFIT]: {active_outfit}")
-
+            parts.append(f"Wearing {active_outfit.rstrip('.,')}.")
         if pose.strip():
-            lines.append(f"[POSE]: {pose.strip()}")
+            parts.append(pose.strip().rstrip(".,") + ".")
         if expression.strip():
-            lines.append(f"[EXPRESSION]: {expression.strip()}")
-        if camera.strip():
-            lines.append(f"[CAMERA]: {camera.strip()}")
+            parts.append(expression.strip().rstrip(".,") + ".")
         if lighting.strip():
-            lines.append(f"[LIGHTING]: {lighting.strip()}")
+            parts.append(f"Lighting is {lighting.strip().rstrip('.,')}.")
         if background.strip():
-            lines.append(f"[BACKGROUND]: {background.strip()}")
+            parts.append(f"Background features {background.strip().rstrip('.,')}.")
 
-        lines.append("")
-        lines.append(
-            "Only change what is specified for this new image. Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference."
+        full_prompt = " ".join(parts).strip()
+        if not full_prompt:
+            full_prompt = scene.strip() or "In the scene."
+
+        return (
+            "Use locked Image from the original identity reference set as the primary character reference. "
+            "Preserve the established identity and physical appearance.\n\n"
+            "Create a new image:\n\n"
+            f"{full_prompt}\n\n"
+            "Only change what is specified for this new image. "
+            "Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference."
         )
-        return "\n".join(lines)
 
 
 class DeltaPromptRequest(BaseModel):

@@ -431,15 +431,12 @@ def test_character_consistency_methods(tmp_path: Path):
         camera="85mm f/1.8 lens",
         lighting="Tungsten cafe light and cool rain light",
     )
-    assert "Use Image 1 from the original identity reference set as the primary character reference." in delta
+    assert "Use locked Image from the original identity reference set as the primary character reference." in delta
     assert "Preserve the established identity and physical appearance." in delta
     assert "Create a new image:" in delta
-    assert "[SCENE]: Stepping out of a cafe in the rain" in delta
-    assert "[OUTFIT]: Beige trench coat over black turtleneck" in delta
-    assert "[POSE]: Holding umbrella with one hand, looking over shoulder" in delta
-    assert "[EXPRESSION]: Subtle mysterious smile" in delta
-    assert "[CAMERA]: 85mm f/1.8 lens" in delta
-    assert "[LIGHTING]: Tungsten cafe light and cool rain light" in delta
+    assert "Stepping out of a cafe in the rain" in delta
+    assert "Wearing Beige trench coat over black turtleneck" in delta
+    assert "85mm f/1.8 lens" in delta
     assert "Only change what is specified for this new image. Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference." in delta
     # Verify no 400-word essay clutter in delta
     assert "20s, Russian, natural soft, big bust and ass" not in delta
