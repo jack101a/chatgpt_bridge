@@ -17,6 +17,7 @@ import {
   CharacterCard,
   StoryboardShot,
   StoryboardPlan,
+  DirectorState,
   PromptLibraryData,
   FaceCardDictionaryResponse,
   BodyCardDictionaryResponse,
@@ -219,17 +220,41 @@ export const api = {
     }),
 
   // AI Director & Storyboard
-  planStoryboard: (data: { intent: string; character_id?: string; shot_count: number; style_override?: string }): Promise<StoryboardPlan> =>
+  planStoryboard: (data: {
+    intent: string;
+    character_id?: string;
+    shot_count: number;
+    creative_guidance?: string;
+    style_override?: string;
+  }): Promise<StoryboardPlan> =>
     fetchJson<StoryboardPlan>('/api/director/plan', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  executeStoryboard: (shots: StoryboardShot[]): Promise<{ ok: boolean; message: string }> =>
-    fetchJson<{ ok: boolean; message: string }>('/api/director/execute', {
+  executeStoryboard: (
+    data:
+      | {
+          shots: StoryboardShot[];
+          character_id?: string;
+          conversation_id?: string;
+        }
+      | StoryboardShot[]
+  ): Promise<{ ok: boolean; message: string }> => {
+    const body = Array.isArray(data) ? { shots: data } : data;
+    return fetchJson<{ ok: boolean; message: string }>('/api/director/execute', {
       method: 'POST',
-      body: JSON.stringify({ shots }),
+      body: JSON.stringify(body),
+    });
+  },
+
+  cancelDirectorSequence: (): Promise<{ ok: boolean; message: string }> =>
+    fetchJson<{ ok: boolean; message: string }>('/api/director/cancel', {
+      method: 'POST',
     }),
+
+  getDirectorStatus: (): Promise<DirectorState> =>
+    fetchJson<DirectorState>('/api/director/status'),
 
   updateCharacter: (id: string, updates: Partial<CharacterCard>): Promise<CharacterCard> =>
     fetchJson<CharacterCard>(`/api/characters/${id}`, {

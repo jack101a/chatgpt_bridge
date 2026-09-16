@@ -331,3 +331,13 @@ export interface PromptLibraryData {
   standard: Record<string, string[]>;
   custom: Array<{ id: string; text: string }>;
 }
+
+export interface DirectorState {
+  is_running: boolean;
+  cancel_requested: boolean;
+  current_shot: number;
+  total_shots: number;
+  status: string;
+  last_error?: string | null;
+  conversation_id?: string | null;
+}

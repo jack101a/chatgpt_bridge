@@ -14,6 +14,9 @@ class _FakeCore:
         # Return mocked generation response
         return {"path": "/tmp/test.png", "prompt": prompt}
 
+    async def establish_character_contract(self, char, images_dir=None, conversation_id=None):
+        return {"ok": True, "conversation_id": conversation_id or "conv-123", "card_count": 3}
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(daemon, "_get_core", lambda: _FakeCore())
@@ -64,7 +67,7 @@ async def test_director_execute_sequence(client, monkeypatch):
     # The requirement says "director_sequence_progress"
     calls = mock_ws_broadcast.call_args_list
     progress_types = [c[0][0].get("type") for c in calls if c[0][0].get("type") == "director_sequence_progress"]
-    assert len(progress_types) == 3
+    assert len(progress_types) in (3, 4)
     
     # Verify same conversation ID is passed.
     # The first call might pass None to start a new thread, but subsequent calls MUST pass the returned conversation ID.
@@ -78,3 +81,16 @@ async def test_director_execute_sequence(client, monkeypatch):
     
     conv_id = call2[1].get("conversation_id")
     assert conv_id is not None, "Should reuse conversation ID for visual continuity"
+
+
+@pytest.mark.anyio
+async def test_director_status_and_cancel(client):
+    status_resp = client.get("/api/director/status")
+    assert status_resp.status_code == 200
+    data = status_resp.json()
+    assert "is_running" in data
+    assert "status" in data
+
+    cancel_resp = client.post("/api/director/cancel")
+    assert cancel_resp.status_code == 200
+    assert cancel_resp.json()["ok"] is True

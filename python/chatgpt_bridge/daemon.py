@@ -381,14 +381,17 @@ class LockCharacterPayload(BaseModel):
 
 
 class DirectorPlanRequest(BaseModel):
-    intent: str = Field(..., description="The scene intent or prompt")
-    shot_count: int = Field(default=4, description="Number of shots")
+    intent: str = Field(..., description="The scene intent or story plot")
+    shot_count: int = Field(default=5, description="Number of shots")
     character_id: str | None = Field(default=None, description="Optional character override. If omitted, uses active character")
+    creative_guidance: str | None = Field(default=None, description="Optional camera POVs, angles, lighting, directing instructions")
     style_override: str | None = Field(default=None, description="Optional style override")
 
 
 class DirectorExecuteRequest(BaseModel):
     shots: list[StoryboardShot] = Field(..., description="The list of shots to execute")
+    character_id: str | None = Field(default=None, description="Optional character ID to bind")
+    conversation_id: str | None = Field(default=None, description="Optional target conversation thread")
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -1776,49 +1779,148 @@ async def generate_expression_card_endpoint(payload: ExpressionCardGeneratePaylo
     }
 
 
-async def _execute_director_sequence(shots: list[StoryboardShot]):
-    conv_id = None
-    for i, shot in enumerate(shots):
-        await ws_broadcast({
-            "type": "director_sequence_progress",
-            "shot_index": i,
-            "total_shots": len(shots),
-            "status": "Generating...",
-            "shot": shot.model_dump()
-        })
-        
-        req = ImageRequest(
-            prompt=shot.prompt,
-            conversation_id=conv_id,
-            metadata={"director_shot": shot.model_dump()}
-        )
-        
-        try:
-            res = await image(req)
-            if "conversation_id" in res and res["conversation_id"]:
-                conv_id = res["conversation_id"]
-        except Exception as e:
-            log.error(f"Director sequence error on shot {i}: {e}", exc_info=True)
+_director_state: dict[str, Any] = {
+    "is_running": False,
+    "cancel_requested": False,
+    "current_shot": 0,
+    "total_shots": 0,
+    "status": "Idle",
+    "last_error": None,
+    "conversation_id": None,
+}
+
+
+async def _execute_director_sequence(
+    shots: list[StoryboardShot],
+    character_id: str | None = None,
+    conversation_id: str | None = None,
+):
+    global _director_state
+    _director_state["is_running"] = True
+    _director_state["cancel_requested"] = False
+    _director_state["total_shots"] = len(shots)
+    _director_state["current_shot"] = 0
+    _director_state["status"] = "Initializing sequence..."
+    _director_state["last_error"] = None
+    _director_state["conversation_id"] = conversation_id
+
+    mgr = _get_character_manager()
+    char = mgr.get(character_id) if character_id else mgr.get_active_character()
+    conv_id = conversation_id
+
+    # Automated Turn 0 Handshake if character is bound and conversation is fresh / unprimed:
+    if char:
+        contracts = _load_conversation_contracts()
+        is_primed = contracts.get(conv_id, {}).get("primed", False) if conv_id else False
+        if not is_primed:
+            _director_state["status"] = f"Priming Turn 0 Handshake for {char.name}..."
             await ws_broadcast({
-                "type": "director_sequence_error",
-                "shot_index": i,
-                "error": str(e)
+                "type": "director_sequence_progress",
+                "shot_index": 0,
+                "total_shots": len(shots),
+                "status": _director_state["status"],
             })
-            break
-            
-        if i < len(shots) - 1:
-            await asyncio.sleep(8)
-            
-    await ws_broadcast({
-        "type": "director_sequence_progress",
-        "status": "Complete",
-        "shot_index": len(shots),
-        "total_shots": len(shots)
-    })
+            try:
+                handshake_res = await character_handshake_endpoint(char.id, HandshakeRequest(conversation_id=conv_id))
+                if handshake_res and isinstance(handshake_res, dict) and handshake_res.get("conversation_id"):
+                    conv_id = handshake_res.get("conversation_id")
+                    _director_state["conversation_id"] = conv_id
+            except Exception as e:
+                log.warning(f"Turn 0 handshake warning during director sequence: {e}")
+
+    try:
+        for i, shot in enumerate(shots):
+            if _director_state["cancel_requested"]:
+                _director_state["status"] = "Cancelled by user"
+                await ws_broadcast({
+                    "type": "director_sequence_progress",
+                    "shot_index": i,
+                    "total_shots": len(shots),
+                    "status": "Cancelled",
+                })
+                break
+
+            _director_state["current_shot"] = i + 1
+            _director_state["status"] = f"Generating shot {i + 1} of {len(shots)}..."
+            await ws_broadcast({
+                "type": "director_sequence_progress",
+                "shot_index": i + 1,
+                "total_shots": len(shots),
+                "status": _director_state["status"],
+                "shot": shot.model_dump(),
+                "conversation_id": conv_id,
+            })
+
+            req = ImageRequest(
+                prompt=shot.prompt,
+                conversation_id=conv_id,
+                metadata={
+                    "director_shot": shot.model_dump(),
+                    "character_id": char.id if char else None,
+                },
+            )
+
+            try:
+                res = await image(req)
+                if "conversation_id" in res and res["conversation_id"]:
+                    conv_id = res["conversation_id"]
+                    _director_state["conversation_id"] = conv_id
+            except Exception as e:
+                log.error(f"Director sequence error on shot {i}: {e}", exc_info=True)
+                _director_state["last_error"] = str(e)
+                await ws_broadcast({
+                    "type": "director_sequence_error",
+                    "shot_index": i + 1,
+                    "error": str(e),
+                })
+                break
+
+            if i < len(shots) - 1:
+                # Pace shots and check cancel request periodically
+                for _ in range(8):
+                    if _director_state["cancel_requested"]:
+                        break
+                    await asyncio.sleep(1)
+
+        if not _director_state["cancel_requested"] and not _director_state["last_error"]:
+            _director_state["status"] = "Complete"
+            _director_state["current_shot"] = len(shots)
+            await ws_broadcast({
+                "type": "director_sequence_progress",
+                "status": "Complete",
+                "shot_index": len(shots),
+                "total_shots": len(shots),
+                "conversation_id": conv_id,
+            })
+    finally:
+        _director_state["is_running"] = False
+
+
+@app.get("/api/director/status")
+async def api_director_status():
+    """Live status of automated multi-shot director sequence."""
+    return _director_state
+
+
+@app.post("/api/director/cancel")
+async def api_director_cancel():
+    """Cancel currently running automated director sequence."""
+    if _director_state["is_running"]:
+        _director_state["cancel_requested"] = True
+        return {"ok": True, "message": "Cancellation requested"}
+    return {"ok": True, "message": "No sequence currently running"}
+
 
 @app.post("/api/director/execute")
 async def api_director_execute(req: DirectorExecuteRequest, background_tasks: BackgroundTasks):
-    background_tasks.add_task(_execute_director_sequence, req.shots)
+    if _director_state["is_running"]:
+        raise HTTPException(status_code=409, detail="A director sequence is already running")
+    background_tasks.add_task(
+        _execute_director_sequence,
+        req.shots,
+        character_id=req.character_id,
+        conversation_id=req.conversation_id,
+    )
     return {"ok": True, "message": "Sequence execution started"}
 
 
@@ -1830,9 +1932,6 @@ async def api_director_plan(req: DirectorPlanRequest):
         char = mgr.get(req.character_id)
     else:
         char = mgr.get_active_character()
-            
-    if not char:
-        raise HTTPException(status_code=400, detail="No character specified or active")
 
     settings = _load_json(SETTINGS_FILE, {})
     base_url = settings.get("llm_base_url", "https://api.openai.com/v1")
@@ -1846,7 +1945,8 @@ async def api_director_plan(req: DirectorPlanRequest):
             intent=req.intent,
             character=char,
             shot_count=req.shot_count,
-            style_override=req.style_override
+            creative_guidance=req.creative_guidance,
+            style_override=req.style_override,
         )
         return plan
     except Exception as e:

@@ -1,28 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  SlidersHorizontal,
   ArrowUp,
   Sparkles,
   X,
   Image as ImageIcon,
   Clapperboard,
-  Loader2,
   Lock,
   User,
   ChevronDown,
   CheckCircle2,
   Layers,
-  ShieldAlert,
+  Loader2,
 } from 'lucide-react';
 import {
   ImageRequest,
   GalleryItem,
-  StoryboardShot,
   CharacterCard,
   ConversationContract,
 } from '../../types';
 import { PromptLibraryTray } from '../director/PromptLibraryTray';
-import { StoryboardTray } from '../director/StoryboardTray';
+import { DirectorModal } from '../director/DirectorModal';
 import { api } from '../../lib/api';
 
 interface ComposerProps {
@@ -51,22 +48,14 @@ export const Composer: React.FC<ComposerProps> = ({
   onThreadCreated,
 }) => {
   const [promptText, setPromptText] = useState('');
-  const [aspect, setAspect] = useState<string>('Original');
-  const [showLayers, setShowLayers] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
-  const [layer1, setLayer1] = useState('');
-  const [layer2, setLayer2] = useState('');
-  const [isPlanningStoryboard, setIsPlanningStoryboard] = useState(false);
-  const [storyboardShots, setStoryboardShots] = useState<StoryboardShot[]>([]);
-  const [isStoryboardOpen, setIsStoryboardOpen] = useState(false);
-  const [isExecutingStoryboard, setIsExecutingStoryboard] = useState(false);
-  const [storyboardProgress, setStoryboardProgress] = useState<string | null>(null);
+  const [isDirectorModalOpen, setIsDirectorModalOpen] = useState(false);
 
   // Character Lock & Consistency State
   const [isCharacterMenuOpen, setIsCharacterMenuOpen] = useState(false);
   const [contract, setContract] = useState<ConversationContract | null>(null);
   const [isHandshaking, setIsHandshaking] = useState(false);
-  const [handshakeStatus, setHandshakeStatus] = useState<string | null>(null);
+  const [, setHandshakeStatus] = useState<string | null>(null);
 
   // Clean Delta Mode State
   const [isDeltaMode, setIsDeltaMode] = useState(false);
@@ -185,43 +174,6 @@ export const Composer: React.FC<ComposerProps> = ({
     }
   };
 
-  const handlePlanStoryboard = async () => {
-    const intent = isDeltaMode ? deltaScene.trim() : promptText.trim();
-    if (!intent || isPlanningStoryboard) return;
-    setIsPlanningStoryboard(true);
-    try {
-      const plan = await api.planStoryboard({
-        intent,
-        shot_count: 3,
-        character_id: activeCharacter?.id,
-      });
-      if (plan?.shots && plan.shots.length > 0) {
-        setStoryboardShots(plan.shots);
-        setIsStoryboardOpen(true);
-      }
-    } catch (err: any) {
-      alert(`Director planning error: ${err.message}`);
-    } finally {
-      setIsPlanningStoryboard(false);
-    }
-  };
-
-  const handleExecuteStoryboard = async (shots: StoryboardShot[]) => {
-    setIsExecutingStoryboard(true);
-    setStoryboardProgress('Dispatching shots to ChatGPT...');
-    try {
-      await api.executeStoryboard(shots);
-      setStoryboardProgress('Sequence running turn-by-turn in background!');
-      setTimeout(() => {
-        setIsExecutingStoryboard(false);
-        setIsStoryboardOpen(false);
-      }, 2500);
-    } catch (err: any) {
-      alert(`Execution failed: ${err.message}`);
-      setIsExecutingStoryboard(false);
-    }
-  };
-
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (isGenerating) return;
@@ -266,9 +218,6 @@ export const Composer: React.FC<ComposerProps> = ({
 
       onSend({
         prompt: lines.join('\n'),
-        aspect: aspect === 'Original' ? null : aspect,
-        tweaked_prompt: layer1.trim() || null,
-        tweaked_prompt_2: layer2.trim() || null,
         conversation_id: activeConvId || null,
         reference_image: referenceImage ? referenceImage.id : null,
         reference_images: resolvedDriftImages.length > 0 ? resolvedDriftImages : undefined,
@@ -283,9 +232,6 @@ export const Composer: React.FC<ComposerProps> = ({
 
     onSend({
       prompt: promptText.trim(),
-      aspect: aspect === 'Original' ? null : aspect,
-      tweaked_prompt: layer1.trim() || null,
-      tweaked_prompt_2: layer2.trim() || null,
       conversation_id: activeConvId || null,
       reference_image: referenceImage ? referenceImage.id : null,
       reference_images: resolvedDriftImages.length > 0 ? resolvedDriftImages : undefined,
@@ -307,45 +253,13 @@ export const Composer: React.FC<ComposerProps> = ({
 
   return (
     <div className="w-full max-w-3xl mx-auto px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
-      <div className="flex flex-col bg-[#ffffff] dark:bg-[#1c1c1f] rounded-2xl border border-[#e5e5e5] dark:border-[#2e2e32] shadow-lg shadow-black/5 transition-all focus-within:border-emerald-500/80 focus-within:ring-2 focus-within:ring-emerald-500/15 overflow-hidden">
+      <div className="flex flex-col bg-[#ffffff] dark:bg-[#1c1c1f] rounded-2xl border border-[#e5e5e5] dark:border-[#2e2e32] shadow-lg shadow-black/5 transition-all focus-within:border-emerald-500/80 focus-within:ring-2 focus-within:ring-emerald-500/15 relative">
         {/* ── Visual Prompt Library Tray (Collapsible) ── */}
         <PromptLibraryTray
           isOpen={showLibrary}
           onClose={() => setShowLibrary(false)}
           onInsertModifier={handleInsertModifier}
         />
-
-        {/* ── Refinement Layers (Collapsible) ── */}
-        {showLayers && (
-          <div className="px-3.5 pt-3 pb-2 border-b border-[#f0f0f0] dark:border-[#2a2a2e] space-y-2 bg-[#fbfbfb] dark:bg-[#171719] animate-fade">
-            <div className="flex items-center justify-between text-xs text-[#6e6e80] dark:text-[#9e9ea7] font-medium">
-              <span className="flex items-center gap-1.5">
-                <Sparkles size={13} className="text-emerald-500" />
-                Prompt Refinement Layers
-              </span>
-              <button
-                onClick={() => setShowLayers(false)}
-                className="hover:text-black dark:hover:text-white"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <input
-              type="text"
-              value={layer1}
-              onChange={(e) => setLayer1(e.target.value)}
-              placeholder="Layer 1 — Style nudge / lighting / tone (tweaked_prompt)"
-              className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#232327] border border-[#e5e5e5] dark:border-[#333338] text-xs font-mono placeholder:text-gray-400 outline-none focus:border-emerald-500"
-            />
-            <input
-              type="text"
-              value={layer2}
-              onChange={(e) => setLayer2(e.target.value)}
-              placeholder="Layer 2 — Deep refinement (tweaked_prompt_2)"
-              className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#232327] border border-[#e5e5e5] dark:border-[#333338] text-xs font-mono placeholder:text-gray-400 outline-none focus:border-emerald-500"
-            />
-          </div>
-        )}
 
         {/* ── Attached Reference Image Pill ── */}
         {referenceImage && (
@@ -448,259 +362,243 @@ export const Composer: React.FC<ComposerProps> = ({
         {/* ── Drift Re-Anchor Strategy Toolstrip (Face, Body, Expression) ── */}
         {activeCharacter && contract?.primed && (
           <div className="px-3.5 py-1.5 bg-zinc-50 dark:bg-zinc-900/60 border-b border-zinc-200/60 dark:border-zinc-800/70 flex items-center gap-1.5 flex-wrap text-xs">
-            <span className="text-zinc-500 dark:text-zinc-400 font-medium flex items-center gap-1 text-[11px]">
-              <ShieldAlert size={12} className={driftCards.length > 0 ? 'text-amber-500' : 'text-zinc-400'} />
-              Drift Re-Anchor:
+            <span className="text-[11px] text-zinc-500 font-medium mr-1 flex items-center gap-1">
+              <span>Drift Re-Anchor:</span>
             </span>
+
             <button
               type="button"
               onClick={() => handleToggleDriftCard('face')}
-              className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+              className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-all ${
                 driftCards.includes('face')
-                  ? 'bg-amber-500/20 border-amber-500 text-amber-700 dark:text-amber-300'
-                  : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-400'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-emerald-500/50'
               }`}
-              title="Reintroduce Image 1 (Face Lock) to correct facial drift"
             >
-              👁️ Face (Img 1)
+              Face Card {driftCards.includes('face') ? '✓' : ''}
             </button>
+
             <button
               type="button"
               onClick={() => handleToggleDriftCard('body')}
-              className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+              className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-all ${
                 driftCards.includes('body')
-                  ? 'bg-amber-500/20 border-amber-500 text-amber-700 dark:text-amber-300'
-                  : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-400'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-emerald-500/50'
               }`}
-              title="Reintroduce Image 2 (Body Lock) to correct body/proportion drift"
             >
-              👤 Body (Img 2)
+              Body Card {driftCards.includes('body') ? '✓' : ''}
             </button>
+
             <button
               type="button"
               onClick={() => handleToggleDriftCard('expression')}
-              className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+              className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-all ${
                 driftCards.includes('expression')
-                  ? 'bg-amber-500/20 border-amber-500 text-amber-700 dark:text-amber-300'
-                  : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-400'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-emerald-500/50'
               }`}
-              title="Reintroduce Image 3 (Expression Lock) to correct expression & realism drift"
             >
-              ✨ Expression (Img 3)
+              Expression Card {driftCards.includes('expression') ? '✓' : ''}
             </button>
+
             <button
               type="button"
               onClick={handleSelectAllDrift}
-              className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
-                driftCards.length === 3
-                  ? 'bg-amber-500/20 border-amber-500 text-amber-700 dark:text-amber-300'
-                  : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-400'
-              }`}
-              title="Reintroduce all 3 reference cards for full identity re-lock"
+              className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline ml-1"
             >
-              🔄 All 3
+              {driftCards.length === 3 ? 'Clear Re-Anchor' : 'All 3 Cards'}
             </button>
-            {driftCards.length > 0 && (
-              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-mono ml-auto">
-                Attaching {driftCards.length} ground truth {driftCards.length === 1 ? 'card' : 'cards'} on next prompt
-              </span>
-            )}
           </div>
         )}
 
-        {/* ── Handshake Status Notification ── */}
-        {handshakeStatus && (
-          <div className="px-3.5 py-1.5 bg-emerald-600 text-white text-[11px] font-medium flex items-center justify-between animate-fade">
-            <span>{handshakeStatus}</span>
-          </div>
-        )}
-
-        {/* ── Clean Delta Structured Inputs ── */}
+        {/* ── Clean Delta Prompt Inputs (When Delta Mode is Active) ── */}
         {isDeltaMode && activeCharacter && (
-          <div className="px-3.5 py-3 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-900/60 space-y-2.5 animate-in slide-in-from-top-2 duration-150">
-            <div className="flex items-center justify-between text-xs text-zinc-500 font-medium">
-              <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold">
-                <Layers size={13} />
-                Clean Delta Shot for {activeCharacter.name} (Zero Prompt Bloat)
+          <div className="p-3 bg-zinc-50/90 dark:bg-[#18181b]/90 border-b border-zinc-200/80 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+              <span className="flex items-center gap-1.5">
+                <Layers size={13} className="text-emerald-500" />
+                Clean Delta Mode — {activeCharacter.name}
               </span>
               <button
                 type="button"
                 onClick={() => setIsDeltaMode(false)}
-                className="hover:text-black dark:hover:text-white"
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
               >
                 <X size={14} />
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input
-                type="text"
+            <div>
+              <textarea
+                rows={2}
                 value={deltaScene}
                 onChange={(e) => setDeltaScene(e.target.value)}
-                placeholder="[SCENE]: Location & mood (e.g. Modern Delhi apartment taking a mirror selfie)"
-                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
+                placeholder="[SCENE]: What is happening? (e.g. Walking into a sunlit library holding an open book)"
+                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs text-[#0d0d0d] dark:text-white placeholder:text-zinc-400 outline-none focus:border-emerald-500 resize-none leading-relaxed"
               />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input
                 type="text"
                 value={deltaOutfit}
                 onChange={(e) => setDeltaOutfit(e.target.value)}
-                placeholder="[OUTFIT]: Specific clothing (e.g. Fitted white ribbed tank, high-waist blue jeans)"
+                placeholder="[OUTFIT]: Specific clothing or style (optional)"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
-            </div>
-
-            {activeCharacter.wardrobes && activeCharacter.wardrobes.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-[11px]">
-                <span className="text-zinc-400 flex-shrink-0 text-[10px]">Wardrobes:</span>
-                {activeCharacter.wardrobes.map((w) => (
-                  <button
-                    key={w.id}
-                    type="button"
-                    onClick={() => setDeltaOutfit(w.description)}
-                    className="px-2 py-0.5 rounded-md bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 hover:border-emerald-500 text-zinc-600 dark:text-zinc-300 whitespace-nowrap text-[10px]"
-                  >
-                    ✦ {w.name}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input
                 type="text"
                 value={deltaPose}
                 onChange={(e) => setDeltaPose(e.target.value)}
-                placeholder="[POSE / ACTION]: Stance & action (e.g. Relaxed standing pose, phone in hand)"
+                placeholder="[POSE / ACTION]: Specific body posture (optional)"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
               <input
                 type="text"
                 value={deltaExpression}
                 onChange={(e) => setDeltaExpression(e.target.value)}
-                placeholder="[EXPRESSION / GAZE]: Face & eyes (e.g. Subtle playful smile, direct engaged gaze)"
+                placeholder="[EXPRESSION]: Facial expression and eye gaze (optional)"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <input
                 type="text"
                 value={deltaCamera}
                 onChange={(e) => setDeltaCamera(e.target.value)}
-                placeholder="[CAMERA / FRAMING]: Lens & framing (e.g. Smartphone mirror selfie, 4:5 portrait)"
+                placeholder="[CAMERA]: Angle & lens (e.g. 50mm eye-level medium shot)"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
               <input
                 type="text"
                 value={deltaLighting}
                 onChange={(e) => setDeltaLighting(e.target.value)}
-                placeholder="[LIGHTING]: Light mood (e.g. Soft natural evening window light)"
+                placeholder="[LIGHTING]: Atmosphere (e.g. Warm natural daylight)"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
               <input
                 type="text"
                 value={deltaBackground}
                 onChange={(e) => setDeltaBackground(e.target.value)}
-                placeholder="[BACKGROUND]: Environment details (e.g. Stylish bedroom with mirror)"
+                placeholder="[BACKGROUND]: Environment details"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
             </div>
           </div>
         )}
 
-        {/* ── Top Controls: Character Selector + Aspect Ratios + Continuity Badge ── */}
-        <div className="flex items-center justify-between px-3 pt-2.5 pb-1 gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-            {/* Character Selector Dropdown */}
-            <div className="relative" ref={menuRef}>
+        {/* ── Top Clean Toolbar: Character Selector + AI Director + Thread Indicator ── */}
+        <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 gap-2 flex-wrap">
+          {/* Left: Prominent Character Card Selector */}
+          <div className="flex items-center gap-2" ref={menuRef}>
+            <div className="relative">
               <button
                 type="button"
                 onClick={() => setIsCharacterMenuOpen(!isCharacterMenuOpen)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
                   activeCharacter
-                    ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-xs'
-                    : 'bg-[#f4f4f5] dark:bg-[#2b2b2f] text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 shadow-xs hover:bg-emerald-100/70 dark:hover:bg-emerald-950/60'
+                    : 'bg-[#f4f4f5] dark:bg-[#2b2b2f] text-[#0d0d0d] dark:text-white border-transparent hover:bg-gray-200/80 dark:hover:bg-[#34343a]'
                 }`}
-                title="Select or lock character for this chat"
+                title="Select or change character for this chat"
               >
                 {activeCharacter ? (
                   <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <Lock size={11} className="text-emerald-600 dark:text-emerald-400" />
-                    <span className="font-semibold max-w-[100px] truncate">{activeCharacter.name}</span>
+                    {activeCharacter.avatar_image_id ? (
+                      <img
+                        src={`/images/${activeCharacter.avatar_image_id}`}
+                        alt={activeCharacter.name}
+                        className="w-5 h-5 rounded-full object-cover border border-emerald-500/50"
+                      />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[9px] font-bold flex items-center justify-center">
+                        {activeCharacter.name.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <span className="truncate max-w-[120px]">{activeCharacter.name}</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-600 text-white font-mono">
+                      Locked
+                    </span>
                   </>
                 ) : (
                   <>
-                    <User size={11} />
-                    <span>Character Lock</span>
+                    <User size={14} className="text-emerald-600 dark:text-emerald-400" />
+                    <span>Select Character</span>
                   </>
                 )}
-                <ChevronDown size={11} className="opacity-60 ml-0.5" />
+                <ChevronDown size={12} className="opacity-60 ml-0.5" />
               </button>
 
               {isCharacterMenuOpen && (
-                <div className="absolute left-0 top-full mt-1.5 w-60 rounded-xl bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
-                  <div className="px-3 py-1.5 border-b border-zinc-100 dark:border-zinc-800 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                    Lock Chat to Character
+                <div className="absolute left-0 bottom-full mb-2 w-64 rounded-2xl bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="px-3.5 py-2 border-b border-zinc-100 dark:border-zinc-800 text-[10px] font-bold uppercase tracking-wider text-zinc-400 flex items-center justify-between">
+                    <span>Select Character for Chat</span>
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                      {characters.length} saved
+                    </span>
                   </div>
+
                   <button
                     type="button"
                     onClick={() => {
                       onSelectCharacter?.(null);
                       setIsCharacterMenuOpen(false);
                     }}
-                    className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors ${
-                      !activeCharacter ? 'font-semibold text-emerald-600 dark:text-emerald-400' : 'text-zinc-700 dark:text-zinc-300'
+                    className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors ${
+                      !activeCharacter ? 'font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/20' : 'text-zinc-700 dark:text-zinc-300'
                     }`}
                   >
-                    <span>✦ No Character (Freeform)</span>
-                    {!activeCharacter && <CheckCircle2 size={13} className="text-emerald-500" />}
+                    <div>
+                      <div className="font-medium">✦ No Character</div>
+                      <div className="text-[10px] text-zinc-400">Freeform DALL·E generation</div>
+                    </div>
+                    {!activeCharacter && <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />}
                   </button>
 
-                  {characters?.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectCharacter?.(c);
-                        setIsCharacterMenuOpen(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors ${
-                        activeCharacter?.id === c.id
-                          ? 'font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/20'
-                          : 'text-zinc-700 dark:text-zinc-300'
-                      }`}
-                    >
-                      <div className="min-w-0 pr-2">
-                        <div className="font-medium truncate">{c.name}</div>
-                        {c.tagline && <div className="text-[10px] text-zinc-400 truncate">{c.tagline}</div>}
-                      </div>
-                      {activeCharacter?.id === c.id && (
-                        <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0" />
-                      )}
-                    </button>
-                  ))}
+                  <div className="max-h-56 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800/40">
+                    {characters.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          onSelectCharacter?.(c);
+                          setIsCharacterMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors ${
+                          activeCharacter?.id === c.id
+                            ? 'font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
+                            : 'text-zinc-700 dark:text-zinc-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                          {c.avatar_image_id ? (
+                            <img
+                              src={`/images/${c.avatar_image_id}`}
+                              alt={c.name}
+                              className="w-7 h-7 rounded-full object-cover border border-zinc-200 dark:border-zinc-700 flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-7 h-7 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                              {c.name.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="font-semibold truncate">{c.name}</div>
+                            {c.tagline && <div className="text-[10px] text-zinc-400 truncate">{c.tagline}</div>}
+                          </div>
+                        </div>
+                        {activeCharacter?.id === c.id && (
+                          <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
-
-            {(['Original', '1:1', '9:16', '16:9', '4:5', '3:4'] as const).map((ratio) => (
-              <button
-                key={ratio}
-                type="button"
-                onClick={() => setAspect(ratio)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all whitespace-nowrap ${
-                  aspect === ratio
-                    ? 'bg-[#0d0d0d] text-white dark:bg-white dark:text-black shadow-xs'
-                    : 'bg-[#f4f4f5] dark:bg-[#2b2b2f] text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white'
-                }`}
-              >
-                {ratio === 'Original' ? '✦ Original' : ratio}
-              </button>
-            ))}
           </div>
 
-          <div className="flex items-center gap-1.5 ml-auto">
+          {/* Right: AI Director Button + Prompt Library + Thread Badge */}
+          <div className="flex items-center gap-2 ml-auto">
             {activeConvId && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-[11px] font-mono border border-emerald-200/60 dark:border-emerald-800/50">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -717,47 +615,27 @@ export const Composer: React.FC<ComposerProps> = ({
               </div>
             )}
 
+            {/* AI Director Modal Button */}
+            <button
+              type="button"
+              onClick={() => setIsDirectorModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/15 dark:bg-emerald-950/40 dark:hover:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold border border-emerald-500/20 transition-all cursor-pointer active:scale-95 shadow-xs"
+              title="AI Director: Story, Plot & Automated Multi-Image Generation"
+            >
+              <Clapperboard size={14} className="text-emerald-600 dark:text-emerald-400" />
+              <span>AI Director</span>
+            </button>
+
             {/* Prompt Library Button */}
             <button
               type="button"
               onClick={() => setShowLibrary(!showLibrary)}
-              className={`p-1.5 rounded-lg text-[#6e6e80] hover:text-black dark:text-[#a1a1aa] dark:hover:text-white transition-all ${
-                showLibrary ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40' : ''
+              className={`p-2 rounded-xl text-[#6e6e80] hover:text-black dark:text-[#a1a1aa] dark:hover:text-white transition-all cursor-pointer ${
+                showLibrary ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40' : 'hover:bg-gray-100 dark:hover:bg-zinc-800'
               }`}
               title="Visual Prompt Library (Camera, Lighting, Film)"
             >
               <Sparkles size={15} />
-            </button>
-
-            {/* AI Director Storyboard Planner Button */}
-            <button
-              type="button"
-              onClick={handlePlanStoryboard}
-              disabled={isPlanningStoryboard || (!promptText.trim() && !deltaScene.trim())}
-              className={`p-1.5 rounded-lg transition-all flex items-center gap-1 text-xs font-semibold ${
-                promptText.trim() || deltaScene.trim()
-                  ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer'
-                  : 'text-zinc-400 dark:text-zinc-600 opacity-60 cursor-not-allowed'
-              }`}
-              title="AI Director: Generate Storyboard Sequence"
-            >
-              {isPlanningStoryboard ? (
-                <Loader2 size={15} className="animate-spin text-emerald-500" />
-              ) : (
-                <Clapperboard size={15} />
-              )}
-              <span className="hidden md:inline">Director</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowLayers(!showLayers)}
-              className={`p-1.5 rounded-lg text-[#6e6e80] hover:text-black dark:text-[#a1a1aa] dark:hover:text-white transition-all ${
-                showLayers ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40' : ''
-              }`}
-              title="Toggle Prompt Layers"
-            >
-              <SlidersHorizontal size={15} />
             </button>
           </div>
         </div>
@@ -825,15 +703,15 @@ export const Composer: React.FC<ComposerProps> = ({
         Powered by your self-hosted infrastructure. More control. More creativity.
       </p>
 
-      {/* ── AI Storyboard Tray Modal/Drawer ── */}
-      <StoryboardTray
-        shots={storyboardShots}
-        onUpdateShots={setStoryboardShots}
-        isOpen={isStoryboardOpen}
-        onClose={() => setIsStoryboardOpen(false)}
-        onExecute={handleExecuteStoryboard}
-        isExecuting={isExecutingStoryboard}
-        progressStatus={storyboardProgress}
+      {/* ── AI Storyboard Director Modal ── */}
+      <DirectorModal
+        isOpen={isDirectorModalOpen}
+        onClose={() => setIsDirectorModalOpen(false)}
+        initialPrompt={promptText || deltaScene}
+        characters={characters}
+        activeCharacter={activeCharacter}
+        activeConvId={activeConvId}
+        onSelectCharacter={onSelectCharacter}
       />
     </div>
   );

@@ -84,3 +84,31 @@ async def test_director_plan_storyboard_fallback_on_llm_failure():
         assert "silver plate armor" in shot.prompt
         assert len(shot.camera_pov) > 0
 
+
+@pytest.mark.anyio
+async def test_director_plan_no_character_with_creative_guidance():
+    mock_llm = AsyncMock(spec=OpenAICompatibleClient)
+    mock_llm.chat_completion.return_value = """
+    {
+      "shots": [
+        {
+          "description": "Dramatic sunset over futuristic metropolis with glowing flying vehicles",
+          "camera_pov": "Wide cinematic anamorphic lens, high altitude skyline shot"
+        }
+      ]
+    }
+    """
+    engine = DirectorEngine(mock_llm)
+    plan = await engine.plan_storyboard(
+        intent="Sci-fi metropolis at dusk",
+        character=None,
+        shot_count=1,
+        creative_guidance="High altitude, anamorphic lens, cyberpunk aesthetic"
+    )
+
+    assert isinstance(plan, StoryboardPlan)
+    assert len(plan.shots) == 1
+    shot = plan.shots[0]
+    assert "Sci-fi metropolis at dusk" in shot.prompt
+    assert "Wide cinematic anamorphic lens" in shot.camera_pov
+
