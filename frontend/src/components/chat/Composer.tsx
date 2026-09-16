@@ -21,6 +21,7 @@ import {
 import { PromptLibraryTray } from '../director/PromptLibraryTray';
 import { DirectorModal } from '../director/DirectorModal';
 import { api } from '../../lib/api';
+import { compileRecurringCharacterPrompt } from '../../lib/characterLock';
 
 interface ComposerProps {
   onSend: (req: ImageRequest) => void;
@@ -195,29 +196,18 @@ export const Composer: React.FC<ComposerProps> = ({
     if (isDeltaMode && activeCharacter) {
       if (!deltaScene.trim()) return;
 
-      const lines = [
-        `Use the established ${activeCharacter.name} Character Lock and original reference images:`,
-        `Image 1 = face lock`,
-        `Image 2 = body lock`,
-        `Image 3 = expression lock.`,
-        ``,
-        `Create a new image of ${activeCharacter.name}:`,
-        ``,
-        `[SCENE]: ${deltaScene.trim()}`,
-      ];
-      if (deltaOutfit.trim()) lines.push(`[OUTFIT]: ${deltaOutfit.trim()}`);
-      if (deltaPose.trim()) lines.push(`[POSE / ACTION]: ${deltaPose.trim()}`);
-      if (deltaExpression.trim()) lines.push(`[EXPRESSION / GAZE]: ${deltaExpression.trim()}`);
-      if (deltaCamera.trim()) lines.push(`[CAMERA / FRAMING]: ${deltaCamera.trim()}`);
-      if (deltaLighting.trim()) lines.push(`[LIGHTING]: ${deltaLighting.trim()}`);
-      if (deltaBackground.trim()) lines.push(`[BACKGROUND]: ${deltaBackground.trim()}`);
-      lines.push(``);
-      lines.push(
-        `Preserve the locked identity and physical characteristics. Maintain locked face and body identity from Turn 0. Change only what is requested for this image.`
-      );
+      const compiledPrompt = compileRecurringCharacterPrompt({
+        scene: deltaScene,
+        outfit: deltaOutfit,
+        pose: deltaPose,
+        expression: deltaExpression,
+        camera: deltaCamera,
+        lighting: deltaLighting,
+        background: deltaBackground,
+      });
 
       onSend({
-        prompt: lines.join('\n'),
+        prompt: compiledPrompt,
         conversation_id: activeConvId || null,
         reference_image: referenceImage ? referenceImage.id : null,
         reference_images: resolvedDriftImages.length > 0 ? resolvedDriftImages : undefined,
@@ -230,8 +220,15 @@ export const Composer: React.FC<ComposerProps> = ({
 
     if (!promptText.trim()) return;
 
+    const finalPrompt =
+      activeCharacter &&
+      !promptText.includes('Use Image 1') &&
+      !promptText.trim().startsWith('{')
+        ? compileRecurringCharacterPrompt({ scene: promptText.trim() })
+        : promptText.trim();
+
     onSend({
-      prompt: promptText.trim(),
+      prompt: finalPrompt,
       conversation_id: activeConvId || null,
       reference_image: referenceImage ? referenceImage.id : null,
       reference_images: resolvedDriftImages.length > 0 ? resolvedDriftImages : undefined,

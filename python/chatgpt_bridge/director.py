@@ -156,10 +156,12 @@ Return valid JSON in this exact structure:
             cam = s.get("camera_pov", "").strip()
 
             if has_char:
-                # Clean Delta Prompt Formula (3-Pillar Architecture):
-                # Turn 0 locks identity. Delta prompt drives 100% of scene attention tokens.
+                # Clean Recurring Generation Prompt Format:
                 delta_lines = [
-                    f"{style} of {char_name}. Maintain locked face and body identity from Turn 0.",
+                    "Use Image 1 from the original identity reference set as the primary character reference. Preserve the established identity and physical appearance.",
+                    "",
+                    "Create a new image:",
+                    "",
                     f"[SCENE]: {intent}",
                 ]
                 if wardrobe:
@@ -168,6 +170,10 @@ Return valid JSON in this exact structure:
                     delta_lines.append(f"[CAMERA & FRAMING]: {cam}")
                 if desc:
                     delta_lines.append(f"[ACTION & LIGHTING]: {desc}")
+                delta_lines.append("")
+                delta_lines.append(
+                    "Only change what is specified for this new image. Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference."
+                )
             else:
                 delta_lines = [
                     f"{style}." if style else "Cinematic photorealistic composition.",

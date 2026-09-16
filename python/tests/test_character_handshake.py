@@ -63,13 +63,15 @@ def test_compile_delta_endpoint(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["character_id"] == char.id
-    assert data["character_name"] == "Nastya"
     compiled = data["compiled_prompt"]
-    assert "Maintain locked face and body identity from Turn 0." in compiled
+    assert "Use Image 1 from the original identity reference set as the primary character reference." in compiled
+    assert "Preserve the established identity and physical appearance." in compiled
+    assert "Create a new image:" in compiled
     assert "[SCENE]: Walking through Paris in autumn" in compiled
     assert "[OUTFIT]: Cashmere coat and boots" in compiled
-    assert "[CAMERA / FRAMING]: 85mm f/1.4 portrait" in compiled
+    assert "[CAMERA]: 85mm f/1.4 portrait" in compiled
     assert "[LIGHTING]: Golden hour glow" in compiled
+    assert "Only change what is specified for this new image. Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference." in compiled
 
 
 def test_conversation_character_binding_and_contract_endpoints(client):

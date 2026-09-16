@@ -413,17 +413,16 @@ def test_character_consistency_methods(tmp_path: Path):
     assert paths[1] == card2
     assert paths[2] == card3
 
-    # Test Handshake Prompt
+    # Test Handshake Prompt (pure compact JSON with the 3 references)
     prompt = card.build_contract_handshake_prompt()
-    assert "[SYSTEM CONTRACT: IDENTITY LOCK FOR NASTYA]" in prompt
-    assert "Image 1 — Face Lock" in prompt
-    assert "Image 2 — Body Lock" in prompt
-    assert "Image 3 — Expression Lock" in prompt
-    assert "character_lock" in prompt
-    assert "physical_identity" in prompt
-    assert "Nastya" in prompt
+    parsed_json = json.loads(prompt)
+    assert "character_lock" in parsed_json
+    assert "references" in parsed_json["character_lock"]
+    assert "image_1" in parsed_json["character_lock"]["references"]
+    assert "physical_identity" in parsed_json["character_lock"]
+    assert "Nastya" in parsed_json["character_lock"]["lock_rule"]
 
-    # Test Delta Prompt Compiler
+    # Test Delta Prompt Compiler (canonical simple format)
     delta = card.compile_delta_prompt(
         scene="Stepping out of a cafe in the rain",
         outfit="Beige trench coat over black turtleneck",
@@ -432,17 +431,16 @@ def test_character_consistency_methods(tmp_path: Path):
         camera="85mm f/1.8 lens",
         lighting="Tungsten cafe light and cool rain light",
     )
-    assert "Use the established Nastya Character Lock and original reference images:" in delta
-    assert "Image 1 = face lock" in delta
-    assert "Image 2 = body lock" in delta
-    assert "Image 3 = expression lock." in delta
-    assert "Maintain locked face and body identity from Turn 0." in delta
+    assert "Use Image 1 from the original identity reference set as the primary character reference." in delta
+    assert "Preserve the established identity and physical appearance." in delta
+    assert "Create a new image:" in delta
     assert "[SCENE]: Stepping out of a cafe in the rain" in delta
     assert "[OUTFIT]: Beige trench coat over black turtleneck" in delta
-    assert "[POSE / ACTION]: Holding umbrella with one hand, looking over shoulder" in delta
-    assert "[EXPRESSION / GAZE]: Subtle mysterious smile" in delta
-    assert "[CAMERA / FRAMING]: 85mm f/1.8 lens" in delta
+    assert "[POSE]: Holding umbrella with one hand, looking over shoulder" in delta
+    assert "[EXPRESSION]: Subtle mysterious smile" in delta
+    assert "[CAMERA]: 85mm f/1.8 lens" in delta
     assert "[LIGHTING]: Tungsten cafe light and cool rain light" in delta
+    assert "Only change what is specified for this new image. Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference." in delta
     # Verify no 400-word essay clutter in delta
     assert "20s, Russian, natural soft, big bust and ass" not in delta
 
@@ -490,10 +488,8 @@ def test_character_lock_resilience_and_trailing_commas():
     assert "character_lock" in lock_dict
     assert lock_dict["character_lock"]["physical_identity"]["face"]["shape"] == "oval face"
 
-    # 3. Test Handshake prompt generation remains 100% valid JSON for ChatGPT
+    # 3. Test Handshake prompt generation is pure parseable JSON for ChatGPT
     prompt = card.build_contract_handshake_prompt()
-    assert "```json" in prompt
-    json_block = prompt.split("```json\n")[1].split("\n```")[0]
-    parsed_prompt_json = json.loads(json_block)
+    parsed_prompt_json = json.loads(prompt)
     assert parsed_prompt_json["character_lock"]["physical_identity"]["body"]["chest_bust"] == "heavy natural bust"
 

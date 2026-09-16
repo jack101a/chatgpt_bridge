@@ -292,26 +292,9 @@ class CharacterCard(BaseModel):
         }
 
     def build_contract_handshake_prompt(self) -> str:
-        """Format the Turn 0 Identity Lock & Ground Truth contract prompt."""
+        """Format the Turn 0 Identity Lock prompt: pure compact JSON with the 3 reference images."""
         lock_dict = self.build_character_lock_dict()
-        spec_json = json.dumps(lock_dict, indent=2, ensure_ascii=False)
-
-        return (
-            f"[SYSTEM CONTRACT: IDENTITY LOCK FOR {self.name.upper()}]\n"
-            f"Upload 3 reference images in this exact order:\n"
-            f"* Image 1 — Face Lock: facial identity, skin, eyes, lips, hair, distinctive facial features.\n"
-            f"* Image 2 — Body Lock: body shape, proportions, silhouette, physical build.\n"
-            f"* Image 3 — Expression Lock: natural expressions, eye behavior, facial realism, selfie presence.\n\n"
-            f"Physical Specification Contract:\n"
-            f"```json\n{spec_json}\n```\n\n"
-            f"MANDATORY THREAD INSTRUCTIONS:\n"
-            f"1. The person in these reference images is {self.name}. In all subsequent prompts in this thread, feature ONLY this exact person.\n"
-            f"2. Image 1 controls facial identity, Image 2 controls body identity, and Image 3 controls expression realism.\n"
-            f"3. Maintain her exact bone structure, facial symmetry, and body proportions from the reference images.\n"
-            f"4. Treat all subsequent prompts as scene, outfit, and lighting changes (deltas) for {self.name}.\n"
-            f"5. Do NOT generate empty scenery, landscapes without {self.name}, or generic faces.\n"
-            f"Please confirm receipt and acknowledge that the Character Lock for {self.name} is permanently established."
-        )
+        return json.dumps(lock_dict, indent=2, ensure_ascii=False)
 
     def compile_delta_prompt(
         self,
@@ -324,18 +307,17 @@ class CharacterCard(BaseModel):
         background: str = "",
         style_override: str = "",
     ) -> str:
-        """Compile a clean recurring generation prompt referencing the established Character Lock."""
+        """Compile a clean recurring generation prompt using the simple canonical reference format."""
         clean_scene = scene.strip()
         lines = [
-            f"Use the established {self.name} Character Lock and original reference images:",
-            "Image 1 = face lock",
-            "Image 2 = body lock",
-            "Image 3 = expression lock.",
+            "Use Image 1 from the original identity reference set as the primary character reference. Preserve the established identity and physical appearance.",
             "",
-            f"Create a new image of {self.name}:",
+            "Create a new image:",
             "",
-            f"[SCENE]: {clean_scene}",
         ]
+
+        if clean_scene:
+            lines.append(f"[SCENE]: {clean_scene}")
 
         active_outfit = outfit.strip()
         if not active_outfit:
@@ -346,11 +328,11 @@ class CharacterCard(BaseModel):
             lines.append(f"[OUTFIT]: {active_outfit}")
 
         if pose.strip():
-            lines.append(f"[POSE / ACTION]: {pose.strip()}")
+            lines.append(f"[POSE]: {pose.strip()}")
         if expression.strip():
-            lines.append(f"[EXPRESSION / GAZE]: {expression.strip()}")
+            lines.append(f"[EXPRESSION]: {expression.strip()}")
         if camera.strip():
-            lines.append(f"[CAMERA / FRAMING]: {camera.strip()}")
+            lines.append(f"[CAMERA]: {camera.strip()}")
         if lighting.strip():
             lines.append(f"[LIGHTING]: {lighting.strip()}")
         if background.strip():
@@ -358,9 +340,7 @@ class CharacterCard(BaseModel):
 
         lines.append("")
         lines.append(
-            f"Preserve the locked identity and physical characteristics. "
-            "Maintain locked face and body identity from Turn 0. "
-            "Change only what is requested for this image."
+            "Only change what is specified for this new image. Keep the person's recognizable face, skin, hair, and body proportions consistent with the established reference."
         )
         return "\n".join(lines)
 
