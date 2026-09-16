@@ -183,6 +183,32 @@ const DICTIONARY_OPTIONS = {
 
 // Preset Archetypes
 const ARCHETYPES: Record<string, any> = {
+  nia: {
+    character_name: 'Nia',
+    ethnicity_ancestry: 'Nordic-Irish',
+    gender_presentation: 'woman',
+    age_appearance: 'early 20s',
+    face_structure: 'delicate heart-shaped Celtic face with high cheekbones and soft natural jawline',
+    eyes: 'striking sea-glass green eyes with bright natural catchlights',
+    eyebrows: 'softly arched natural light-auburn brows',
+    nose: 'small natural freckled nose',
+    lips: 'soft rose-tinted natural plush lips',
+    skin_tone_undertone: 'pale porcelain skin with subtle warm freckles across bridge and cheeks',
+    skin_texture: 'authentic natural human skin texture with delicate pores and subtle tone variations',
+    hair_description: 'tousled wavy copper-strawberry auburn hair with windblown natural volume',
+    hair_details: 'wispy face-framing strands and delicate baby hairs',
+    makeup_expression: 'completely bare-faced natural look with earnest gentle expression',
+
+    presence_silhouette: 'dramatic ultra curvy hourglass silhouette with zero excess body fat',
+    proportions_limbs: 'prominent ultra natural bust, clearly narrow tiny defined waist, wide rounded curvy hips, soft feminine thighs, and soft naturally full arms',
+    abdomen: 'tight, flat, toned natural abdomen with zero fat, smooth feminine waist contour without athletic bulk',
+    physique: 'ultra voluptuous, curvy, feminine, and naturally proportioned with zero fat, tiny waist and wide hips',
+    clothing: 'simple unadorned rustic minimal slip that clearly shows her natural proportions without being revealing',
+    posture: 'Neutral relaxed standing posture, feet visible, arms naturally positioned',
+
+    expression_focus: 'natural eye behavior, earnest gaze, delicate micro-expressions, authentic catchlights',
+    selfie_vibe: 'intimate candid authentic presence with natural focal depth',
+  },
   kaya: {
     character_name: 'Kaya',
     ethnicity_ancestry: 'Indian',
@@ -200,66 +226,66 @@ const ARCHETYPES: Record<string, any> = {
     makeup_expression: 'minimal natural makeup and a relaxed neutral expression',
     
     presence_silhouette: 'tall-looking feminine presence and dramatic curvy hourglass silhouette',
-    proportions_limbs: 'soft balanced shoulders, a very prominent natural bust, clearly narrow defined waist, wide rounded hips, full soft thighs, long-looking feminine legs, and soft naturally full arms',
+    proportions_limbs: 'soft balanced shoulders, a very prominent natural bust, clearly narrow defined waist, wide rounded hips and prominent curved rear, full soft thighs, long-looking feminine legs, and soft naturally full arms',
     abdomen: 'natural gentle lower-belly softness, without visible abdominal definition or athletic muscularity',
-    physique: 'soft, plush, curvy, feminine, and naturally proportioned, not muscular or bodybuilder-like',
-    clothing: 'skim , NO clothing',
+    physique: 'soft, plush, curvy, feminine, and naturally proportioned with prominent natural curves, not muscular or bodybuilder-like',
+    clothing: 'minimal neutral reference attire that clearly shows her natural proportions without being revealing',
     posture: 'Neutral relaxed standing posture, feet visible, arms naturally positioned',
 
     expression_focus: 'natural eye behavior and facial movement: realistic catchlights, active gaze, eyelid movement, lower-lid engagement, eyebrow movement, cheek movement, natural mouth shapes, and believable emotional variation',
     selfie_vibe: 'subtle smartphone/selfie realism while keeping the face clearly visible',
   },
-  priya: {
-    character_name: 'Priya',
-    ethnicity_ancestry: 'South Asian',
-    gender_presentation: 'woman',
-    age_appearance: 'early 20s',
-    face_structure: 'defined oval face with high cheekbones and soft jawline',
-    eyes: 'deep almond dark brown eyes with dense dark lashes',
-    eyebrows: 'softly arched medium-full dark brown brows',
-    nose: 'straight narrow nose with soft rounded tip',
-    lips: 'full pillowy lips with defined cupid\'s bow',
-    skin_tone_undertone: 'warm honey-beige with luminous golden warmth',
-    skin_texture: 'ultra-realistic human skin texture with subtle micro-pores and satin sheen',
-    hair_description: 'waist-length soft wavy dark chocolate-brown hair',
-    hair_details: 'subtle honey highlights catching the light',
-    makeup_expression: 'minimal natural makeup and a relaxed neutral expression',
-
-    presence_silhouette: 'balanced feminine silhouette with graceful tall presence',
-    proportions_limbs: 'graceful balanced shoulders, moderate bust, defined waist, naturally curved hips, lean toned legs, and slender arms',
-    abdomen: 'flat soft feminine stomach without visible muscle lines',
-    physique: 'fit, natural, feminine, and healthy with soft curves',
-    clothing: 'skim , NO clothing',
-    posture: 'Neutral relaxed standing posture, feet visible, arms naturally positioned',
-
-    expression_focus: 'authentic emotional subtlety, micro-expressions, lively catchlights, relaxed facial muscle tone, and expressive mouth shapes',
-    selfie_vibe: 'subtle smartphone/selfie realism while keeping the face clearly visible',
-  },
-  elena: {
-    character_name: 'Elena',
-    ethnicity_ancestry: 'Mediterranean',
+  zia: {
+    character_name: 'Zia',
+    ethnicity_ancestry: 'Biracial Black-White American',
     gender_presentation: 'woman',
     age_appearance: 'mid-20s',
-    face_structure: 'heart-shaped face with delicate chin and sculpted cheeks',
-    eyes: 'striking amber-brown eyes with bright catchlights',
-    eyebrows: 'straight modern feathered natural brows',
-    nose: 'delicate button nose with subtle bridge',
-    lips: 'moderately full natural rosy lips',
-    skin_tone_undertone: 'warm golden olive with radiant sunlit undertones',
-    skin_texture: 'dewy natural texture with delicate radiance and visible pores',
-    hair_description: 'medium-length shoulder-sweeping voluminous silky black hair',
-    hair_details: 'delicate sun-kissed strands around the face',
-    makeup_expression: 'delicate mascara and tinted balm with gentle calm expression',
+    face_structure: 'radiant oval face with defined cheekbones and warm soft jawline',
+    eyes: 'warm amber-brown eyes with thick natural lashes and lively catchlights',
+    eyebrows: 'naturally defined softly arched dark brows',
+    nose: 'softly sculpted natural nose with balanced bridge',
+    lips: 'full warm caramel-toned plush lips',
+    skin_tone_undertone: 'warm sun-kissed golden honey-caramel with luminous radiant undertones',
+    skin_texture: 'smooth healthy skin with satin finish, visible pores, and athletic glow',
+    hair_description: 'voluminous shoulder-length bouncy textured dark spiral curls',
+    hair_details: 'naturally defined coil texture with sunlit highlights',
+    makeup_expression: 'bare-faced clean athletic look with confident calm gaze',
 
-    presence_silhouette: 'dramatic feminine silhouette with prominent curves',
-    proportions_limbs: 'soft natural curves, full bust, narrow waist, rounded hips, plush thighs, and soft feminine limbs',
-    abdomen: 'natural gentle lower-belly softness, without visible abdominal definition or athletic muscularity',
-    physique: 'soft, plush, curvy, feminine, and naturally proportioned, not muscular or bodybuilder-like',
-    clothing: 'skim , NO clothing',
+    presence_silhouette: 'lean athletic feminine silhouette with balanced proportions and graceful posture',
+    proportions_limbs: 'sculpted shoulders, average natural firm bust, defined narrow waist, naturally proportioned athletic hips, toned thighs, and sleek sculpted legs',
+    abdomen: 'lean, flat, softly defined athletic stomach without excessive bodybuilder definition',
+    physique: 'athletic, fit, toned, and naturally feminine with healthy lean proportions',
+    clothing: 'minimal neutral athletic reference two-piece that clearly shows her natural proportions without being revealing',
+    posture: 'Confident upright athletic standing posture, shoulders relaxed, feet visible, arms at sides',
+
+    expression_focus: 'confident direct gaze, natural catchlights, relaxed facial muscle tone, expressive warmth',
+    selfie_vibe: 'fresh authentic portrait presence with natural ambient light',
+  },
+  nastya: {
+    character_name: 'Nastya',
+    ethnicity_ancestry: 'Slavic Russian',
+    gender_presentation: 'woman',
+    age_appearance: 'early 20s',
+    face_structure: 'soft delicate Slavic facial structure with soft cheek contour and refined chin',
+    eyes: 'clear icy blue-gray eyes with delicate lash line',
+    eyebrows: 'soft straight natural ash-blonde brows',
+    nose: 'small neat straight button nose',
+    lips: 'naturally full plush petal-pink lips',
+    skin_tone_undertone: 'fair alabaster with cool rose-peach undertones and natural soft luminosity',
+    skin_texture: 'delicate dewy skin texture with natural micro-pores and satin softness',
+    hair_description: 'long straight-to-softly-wavy natural ash-blonde hair falling to mid-back',
+    hair_details: 'soft platinum-blonde strands catching the light around temples',
+    makeup_expression: 'minimal natural makeup, soft pink lip balm, calm serene expression',
+
+    presence_silhouette: 'voluptuous natural soft silhouette with prominent curves and tall elegant posture',
+    proportions_limbs: 'soft balanced shoulders, big natural bust, clearly narrow defined waist, wide rounded hips and prominent rear curve, soft full thighs, graceful legs',
+    abdomen: 'smooth flat feminine stomach with no belly fat and natural organic softness',
+    physique: 'natural soft, plush, curvy, feminine, and voluptuous, with big bust and curved hips, no belly fat',
+    clothing: 'simple close-fitting neutral reference attire that clearly shows her natural proportions without being revealing',
     posture: 'Neutral relaxed standing posture, feet visible, arms naturally positioned',
 
-    expression_focus: 'natural eye behavior and facial movement: realistic catchlights, active gaze, eyelid movement, lower-lid engagement, eyebrow movement, cheek movement, natural mouth shapes, and believable emotional variation',
-    selfie_vibe: 'candid portrait presence with natural focal depth',
+    expression_focus: 'serene gaze, subtle authentic smile, lively natural catchlights, relaxed eyelid engagement',
+    selfie_vibe: 'natural ambient lighting with soft candid realism',
   },
 };
 
@@ -1170,15 +1196,15 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
             <div className="flex items-center gap-2">
               {/* Archetype Quick-Bar */}
-              <div className="hidden sm:flex items-center gap-1 text-[11px]">
-                <span className="text-[#6e6e80] dark:text-[#a1a1aa] text-[10px]">Preset:</span>
-                {['kaya', 'priya', 'elena'].map((k) => (
+              <div className="flex items-center gap-1 text-[11px] overflow-x-auto scrollbar-none py-0.5 max-w-[260px] sm:max-w-none">
+                <span className="text-[#6e6e80] dark:text-[#a1a1aa] text-[10px] hidden md:inline">Preset:</span>
+                {['nia', 'kaya', 'zia', 'nastya'].map((k) => (
                   <button
                     key={k}
                     onClick={() => handleSelectArchetype(k)}
-                    className={`px-2 py-0.5 rounded-md capitalize font-medium transition-all ${
+                    className={`px-2.5 py-1 rounded-md capitalize font-medium transition-all text-xs shrink-0 ${
                       charData.character_name.toLowerCase() === k
-                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        ? 'bg-emerald-600 text-white shadow-2xs font-semibold'
                         : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-zinc-700'
                     }`}
                   >
