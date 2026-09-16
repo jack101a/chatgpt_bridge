@@ -12,6 +12,7 @@ import {
   ChevronDown,
   CheckCircle2,
   Layers,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   ImageRequest,
@@ -72,8 +73,27 @@ export const Composer: React.FC<ComposerProps> = ({
   const [deltaScene, setDeltaScene] = useState('');
   const [deltaOutfit, setDeltaOutfit] = useState('');
   const [deltaPose, setDeltaPose] = useState('');
+  const [deltaExpression, setDeltaExpression] = useState('');
   const [deltaCamera, setDeltaCamera] = useState('');
   const [deltaLighting, setDeltaLighting] = useState('');
+  const [deltaBackground, setDeltaBackground] = useState('');
+
+  // Identity Drift Re-Anchor State (Image 1 = Face, Image 2 = Body, Image 3 = Expression)
+  const [driftCards, setDriftCards] = useState<('face' | 'body' | 'expression')[]>([]);
+
+  const handleToggleDriftCard = (cardType: 'face' | 'body' | 'expression') => {
+    setDriftCards((prev) =>
+      prev.includes(cardType) ? prev.filter((c) => c !== cardType) : [...prev, cardType]
+    );
+  };
+
+  const handleSelectAllDrift = () => {
+    if (driftCards.length === 3) {
+      setDriftCards([]);
+    } else {
+      setDriftCards(['face', 'body', 'expression']);
+    }
+  };
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -206,16 +226,43 @@ export const Composer: React.FC<ComposerProps> = ({
     e?.preventDefault();
     if (isGenerating) return;
 
+    // Resolve any selected Drift Re-Anchor card image IDs
+    const resolvedDriftImages: string[] = [];
+    if (activeCharacter) {
+      if (driftCards.includes('face') && activeCharacter.face_lock_image_id) {
+        resolvedDriftImages.push(activeCharacter.face_lock_image_id);
+      }
+      if (driftCards.includes('body') && activeCharacter.body_lock_image_id) {
+        resolvedDriftImages.push(activeCharacter.body_lock_image_id);
+      }
+      if (driftCards.includes('expression') && activeCharacter.expression_lock_image_id) {
+        resolvedDriftImages.push(activeCharacter.expression_lock_image_id);
+      }
+    }
+
     if (isDeltaMode && activeCharacter) {
       if (!deltaScene.trim()) return;
 
-      const style = activeCharacter.style_anchor || 'Photorealistic cinematic photography';
-      const lines = [`${style} of ${activeCharacter.name}. Maintain locked face and body identity from Turn 0.`];
-      if (deltaScene.trim()) lines.push(`[SCENE]: ${deltaScene.trim()}`);
+      const lines = [
+        `Use the established ${activeCharacter.name} Character Lock and original reference images:`,
+        `Image 1 = face lock`,
+        `Image 2 = body lock`,
+        `Image 3 = expression lock.`,
+        ``,
+        `Create a new image of ${activeCharacter.name}:`,
+        ``,
+        `[SCENE]: ${deltaScene.trim()}`,
+      ];
       if (deltaOutfit.trim()) lines.push(`[OUTFIT]: ${deltaOutfit.trim()}`);
-      if (deltaPose.trim()) lines.push(`[POSE]: ${deltaPose.trim()}`);
-      if (deltaCamera.trim()) lines.push(`[CAMERA]: ${deltaCamera.trim()}`);
+      if (deltaPose.trim()) lines.push(`[POSE / ACTION]: ${deltaPose.trim()}`);
+      if (deltaExpression.trim()) lines.push(`[EXPRESSION / GAZE]: ${deltaExpression.trim()}`);
+      if (deltaCamera.trim()) lines.push(`[CAMERA / FRAMING]: ${deltaCamera.trim()}`);
       if (deltaLighting.trim()) lines.push(`[LIGHTING]: ${deltaLighting.trim()}`);
+      if (deltaBackground.trim()) lines.push(`[BACKGROUND]: ${deltaBackground.trim()}`);
+      lines.push(``);
+      lines.push(
+        `Preserve the locked identity and physical characteristics. Maintain locked face and body identity from Turn 0. Change only what is requested for this image.`
+      );
 
       onSend({
         prompt: lines.join('\n'),
@@ -224,9 +271,11 @@ export const Composer: React.FC<ComposerProps> = ({
         tweaked_prompt_2: layer2.trim() || null,
         conversation_id: activeConvId || null,
         reference_image: referenceImage ? referenceImage.id : null,
+        reference_images: resolvedDriftImages.length > 0 ? resolvedDriftImages : undefined,
       });
 
       setDeltaScene('');
+      setDriftCards([]);
       return;
     }
 
@@ -239,9 +288,11 @@ export const Composer: React.FC<ComposerProps> = ({
       tweaked_prompt_2: layer2.trim() || null,
       conversation_id: activeConvId || null,
       reference_image: referenceImage ? referenceImage.id : null,
+      reference_images: resolvedDriftImages.length > 0 ? resolvedDriftImages : undefined,
     });
 
     setPromptText('');
+    setDriftCards([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -394,6 +445,69 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
         )}
 
+        {/* ── Drift Re-Anchor Strategy Toolstrip (Face, Body, Expression) ── */}
+        {activeCharacter && contract?.primed && (
+          <div className="px-3.5 py-1.5 bg-zinc-50 dark:bg-zinc-900/60 border-b border-zinc-200/60 dark:border-zinc-800/70 flex items-center gap-1.5 flex-wrap text-xs">
+            <span className="text-zinc-500 dark:text-zinc-400 font-medium flex items-center gap-1 text-[11px]">
+              <ShieldAlert size={12} className={driftCards.length > 0 ? 'text-amber-500' : 'text-zinc-400'} />
+              Drift Re-Anchor:
+            </span>
+            <button
+              type="button"
+              onClick={() => handleToggleDriftCard('face')}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                driftCards.includes('face')
+                  ? 'bg-amber-500/20 border-amber-500 text-amber-700 dark:text-amber-300'
+                  : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-400'
+              }`}
+              title="Reintroduce Image 1 (Face Lock) to correct facial drift"
+            >
+              👁️ Face (Img 1)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleDriftCard('body')}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                driftCards.includes('body')
+                  ? 'bg-amber-500/20 border-amber-500 text-amber-700 dark:text-amber-300'
+                  : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-400'
+              }`}
+              title="Reintroduce Image 2 (Body Lock) to correct body/proportion drift"
+            >
+              👤 Body (Img 2)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleDriftCard('expression')}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                driftCards.includes('expression')
+                  ? 'bg-amber-500/20 border-amber-500 text-amber-700 dark:text-amber-300'
+                  : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-400'
+              }`}
+              title="Reintroduce Image 3 (Expression Lock) to correct expression & realism drift"
+            >
+              ✨ Expression (Img 3)
+            </button>
+            <button
+              type="button"
+              onClick={handleSelectAllDrift}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                driftCards.length === 3
+                  ? 'bg-amber-500/20 border-amber-500 text-amber-700 dark:text-amber-300'
+                  : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-400'
+              }`}
+              title="Reintroduce all 3 reference cards for full identity re-lock"
+            >
+              🔄 All 3
+            </button>
+            {driftCards.length > 0 && (
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-mono ml-auto">
+                Attaching {driftCards.length} ground truth {driftCards.length === 1 ? 'card' : 'cards'} on next prompt
+              </span>
+            )}
+          </div>
+        )}
+
         {/* ── Handshake Status Notification ── */}
         {handshakeStatus && (
           <div className="px-3.5 py-1.5 bg-emerald-600 text-white text-[11px] font-medium flex items-center justify-between animate-fade">
@@ -423,14 +537,14 @@ export const Composer: React.FC<ComposerProps> = ({
                 type="text"
                 value={deltaScene}
                 onChange={(e) => setDeltaScene(e.target.value)}
-                placeholder="[SCENE]: Location & mood (e.g. Stepping out of cafe in rain on Paris street)"
+                placeholder="[SCENE]: Location & mood (e.g. Modern Delhi apartment taking a mirror selfie)"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
               <input
                 type="text"
                 value={deltaOutfit}
                 onChange={(e) => setDeltaOutfit(e.target.value)}
-                placeholder="[OUTFIT]: Specific clothing (e.g. Oversized beige trench coat, black boots)"
+                placeholder="[OUTFIT]: Specific clothing (e.g. Fitted white ribbed tank, high-waist blue jeans)"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
             </div>
@@ -451,26 +565,43 @@ export const Composer: React.FC<ComposerProps> = ({
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input
                 type="text"
                 value={deltaPose}
                 onChange={(e) => setDeltaPose(e.target.value)}
-                placeholder="[POSE]: Stance & action (e.g. Holding umbrella, glancing over shoulder)"
+                placeholder="[POSE / ACTION]: Stance & action (e.g. Relaxed standing pose, phone in hand)"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
               <input
                 type="text"
+                value={deltaExpression}
+                onChange={(e) => setDeltaExpression(e.target.value)}
+                placeholder="[EXPRESSION / GAZE]: Face & eyes (e.g. Subtle playful smile, direct engaged gaze)"
+                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input
+                type="text"
                 value={deltaCamera}
                 onChange={(e) => setDeltaCamera(e.target.value)}
-                placeholder="[CAMERA]: Lens & angle (e.g. 85mm portrait, f/1.8)"
+                placeholder="[CAMERA / FRAMING]: Lens & framing (e.g. Smartphone mirror selfie, 4:5 portrait)"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
               <input
                 type="text"
                 value={deltaLighting}
                 onChange={(e) => setDeltaLighting(e.target.value)}
-                placeholder="[LIGHTING]: Lighting mood (e.g. Warm tungsten & cool evening rain)"
+                placeholder="[LIGHTING]: Light mood (e.g. Soft natural evening window light)"
+                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
+              />
+              <input
+                type="text"
+                value={deltaBackground}
+                onChange={(e) => setDeltaBackground(e.target.value)}
+                placeholder="[BACKGROUND]: Environment details (e.g. Stylish bedroom with mirror)"
                 className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-700 text-xs placeholder:text-zinc-400 outline-none focus:border-emerald-500"
               />
             </div>

@@ -416,9 +416,11 @@ def test_character_consistency_methods(tmp_path: Path):
     # Test Handshake Prompt
     prompt = card.build_contract_handshake_prompt()
     assert "[SYSTEM CONTRACT: IDENTITY LOCK FOR NASTYA]" in prompt
-    assert "Image 1: Facial Structure & Features" in prompt
-    assert "Image 2: Body Proportions & Anatomy" in prompt
-    assert "Image 3: Angle Variations & Bone Structure" in prompt
+    assert "Image 1 — Face Lock" in prompt
+    assert "Image 2 — Body Lock" in prompt
+    assert "Image 3 — Expression Lock" in prompt
+    assert "character_lock" in prompt
+    assert "physical_identity" in prompt
     assert "Nastya" in prompt
 
     # Test Delta Prompt Compiler
@@ -430,12 +432,16 @@ def test_character_consistency_methods(tmp_path: Path):
         camera="85mm f/1.8 lens",
         lighting="Tungsten cafe light and cool rain light",
     )
+    assert "Use the established Nastya Character Lock and original reference images:" in delta
+    assert "Image 1 = face lock" in delta
+    assert "Image 2 = body lock" in delta
+    assert "Image 3 = expression lock." in delta
     assert "Maintain locked face and body identity from Turn 0." in delta
     assert "[SCENE]: Stepping out of a cafe in the rain" in delta
     assert "[OUTFIT]: Beige trench coat over black turtleneck" in delta
-    assert "[POSE]: Holding umbrella with one hand, looking over shoulder" in delta
-    assert "[EXPRESSION]: Subtle mysterious smile" in delta
-    assert "[CAMERA]: 85mm f/1.8 lens" in delta
+    assert "[POSE / ACTION]: Holding umbrella with one hand, looking over shoulder" in delta
+    assert "[EXPRESSION / GAZE]: Subtle mysterious smile" in delta
+    assert "[CAMERA / FRAMING]: 85mm f/1.8 lens" in delta
     assert "[LIGHTING]: Tungsten cafe light and cool rain light" in delta
     # Verify no 400-word essay clutter in delta
     assert "20s, Russian, natural soft, big bust and ass" not in delta

@@ -68,7 +68,7 @@ def test_compile_delta_endpoint(client):
     assert "Maintain locked face and body identity from Turn 0." in compiled
     assert "[SCENE]: Walking through Paris in autumn" in compiled
     assert "[OUTFIT]: Cashmere coat and boots" in compiled
-    assert "[CAMERA]: 85mm f/1.4 portrait" in compiled
+    assert "[CAMERA / FRAMING]: 85mm f/1.4 portrait" in compiled
     assert "[LIGHTING]: Golden hour glow" in compiled
 
 

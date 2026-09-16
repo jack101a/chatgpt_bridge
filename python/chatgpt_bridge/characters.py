@@ -114,38 +114,157 @@ class CharacterCard(BaseModel):
                 paths.append(Path(card_id))
         return paths
 
+    def build_character_lock_dict(self) -> dict[str, Any]:
+        """Build compact physical specification JSON following the 3-pillar character lock schema."""
+        char_data: dict[str, Any] = {}
+        if isinstance(self.character_lock, dict):
+            if "character_lock" in self.character_lock and isinstance(self.character_lock["character_lock"], dict):
+                inner = self.character_lock["character_lock"]
+                if "physical_identity" in inner:
+                    return self.character_lock
+            if "charData" in self.character_lock and isinstance(self.character_lock["charData"], dict):
+                char_data = self.character_lock["charData"]
+            elif "physical_identity" in self.character_lock:
+                return {
+                    "character_lock": {
+                        "references": {
+                            "image_1": "FACE_LOCK — primary facial identity reference.",
+                            "image_2": "BODY_LOCK — primary body and proportion reference.",
+                            "image_3": "EXPRESSION_LOCK — primary expression and facial realism reference.",
+                        },
+                        "physical_identity": self.character_lock["physical_identity"],
+                        "lock_rule": self.character_lock.get(
+                            "lock_rule",
+                            (
+                                f"Preserve {self.name} as the same person across generations. "
+                                "Image 1 controls facial identity, Image 2 controls body proportions, "
+                                "and Image 3 controls expression realism. Do not redesign, beautify, "
+                                "age, de-age, or alter these physical characteristics unless explicitly instructed."
+                            ),
+                        ),
+                    }
+                }
+
+        face_shape = char_data.get("face_structure") or ""
+        eyes = char_data.get("eyes") or ""
+        brows = char_data.get("eyebrows") or ""
+        nose = char_data.get("nose") or ""
+        cheeks = char_data.get("cheeks") or ""
+        if not cheeks and "cheeks" in face_shape.lower():
+            cheeks = "full soft cheeks"
+        lips = char_data.get("lips") or ""
+        distinctive_features = char_data.get("distinctive_features") or ""
+
+        skin_tone = char_data.get("skin_tone_undertone") or ""
+        skin_texture = char_data.get("skin_texture") or ""
+        skin_finish = char_data.get("finish") or ("soft, silky, naturally luminous" if "luminous" in (skin_tone + skin_texture).lower() else "")
+
+        hair_desc = char_data.get("hair_description") or ""
+        hair_color = char_data.get("hair_color") or ""
+        if not hair_color:
+            if "black" in hair_desc.lower():
+                hair_color = "dark brown to black" if "dark brown" in hair_desc.lower() else "jet black"
+            elif "blonde" in hair_desc.lower():
+                hair_color = "ash-blonde" if "ash" in hair_desc.lower() else "blonde"
+            elif "auburn" in hair_desc.lower() or "copper" in hair_desc.lower():
+                hair_color = "copper-strawberry auburn"
+        hair_length = char_data.get("hair_length") or ("long" if "long" in hair_desc.lower() else "shoulder-length" if "shoulder" in hair_desc.lower() else "")
+        hair_texture = char_data.get("hair_texture") or hair_desc
+        hair_details = char_data.get("hair_details") or ""
+
+        silhouette = char_data.get("presence_silhouette") or ""
+        build = char_data.get("physique") or ""
+        proportions = char_data.get("proportions_limbs") or ""
+        abdomen = char_data.get("abdomen") or ""
+
+        bust = (
+            "very heavy prominent natural bust"
+            if any(k in proportions.lower() for k in ("heavy", "prominent", "big natural", "ultra"))
+            else "natural firm bust"
+        )
+        waist = "narrow and clearly defined" if any(k in proportions.lower() for k in ("defined", "narrow", "tiny")) else "naturally defined"
+        hips = "wide and rounded" if any(k in proportions.lower() for k in ("wide", "round", "curv")) else "naturally proportioned"
+        thighs = "full and soft" if any(k in proportions.lower() for k in ("full", "soft")) else "toned"
+        legs = "long-looking with natural feminine shape" if "legs" in proportions.lower() else "naturally proportioned"
+        arms = "soft with natural fullness" if "arms" in proportions.lower() else "naturally proportioned"
+        shoulders = "soft balanced feminine shoulders" if "shoulders" in proportions.lower() else "balanced"
+
+        if not face_shape and not build:
+            face_shape = self.visual_dna
+            skin_tone = "natural human tone with realistic micro-texture"
+            build = "natural proportionate build"
+
+        return {
+            "character_lock": {
+                "references": {
+                    "image_1": "FACE_LOCK — primary facial identity reference.",
+                    "image_2": "BODY_LOCK — primary body and proportion reference.",
+                    "image_3": "EXPRESSION_LOCK — primary expression and facial realism reference.",
+                },
+                "physical_identity": {
+                    "face": {
+                        "shape": face_shape,
+                        "eyes": eyes,
+                        "brows": brows,
+                        "nose": nose,
+                        "cheeks": cheeks,
+                        "lips": lips,
+                        "distinctive_features": distinctive_features,
+                    },
+                    "skin": {
+                        "tone": skin_tone,
+                        "undertone": "",
+                        "texture": skin_texture,
+                        "finish": skin_finish,
+                    },
+                    "hair": {
+                        "color": hair_color,
+                        "length": hair_length,
+                        "texture": hair_texture,
+                        "distinctive_features": hair_details,
+                    },
+                    "body": {
+                        "build": build,
+                        "silhouette": silhouette,
+                        "shoulders": shoulders,
+                        "chest_bust": bust,
+                        "waist": waist,
+                        "hips": hips,
+                        "thighs": thighs,
+                        "legs": legs,
+                        "arms": arms,
+                        "abdomen": abdomen,
+                    },
+                },
+                "lock_rule": (
+                    f"Preserve {self.name} as the same person across generations. "
+                    "Image 1 controls facial identity, Image 2 controls body proportions, "
+                    "and Image 3 controls expression realism. Do not redesign, beautify, "
+                    "age, de-age, or alter these physical characteristics unless explicitly instructed."
+                ),
+            }
+        }
+
     def build_contract_handshake_prompt(self) -> str:
         """Format the Turn 0 Identity Lock & Ground Truth contract prompt."""
-        spec: dict[str, Any] = {
-            "character_name": self.name,
-            "visual_identity_summary": self.tagline or self.name,
-            "visual_dna": self.visual_dna,
-        }
-        if self.persona:
-            spec["persona_tone"] = self.persona
-        if self.style_anchor:
-            spec["style_anchor"] = self.style_anchor
-        wardrobe = self.get_active_wardrobe()
-        if wardrobe:
-            spec["default_attire"] = wardrobe.description
-
-        spec_json = json.dumps(spec, indent=2, ensure_ascii=False)
+        lock_dict = self.build_character_lock_dict()
+        spec_json = json.dumps(lock_dict, indent=2, ensure_ascii=False)
 
         return (
             f"[SYSTEM CONTRACT: IDENTITY LOCK FOR {self.name.upper()}]\n"
-            f"You are establishing an immutable Visual Ground Truth anchor for the character '{self.name}'.\n\n"
-            f"The attached reference images define this character's exact facial structure, bone symmetry, eye shape/color, and body proportions:\n"
-            f"- Image 1: Facial Structure & Features\n"
-            f"- Image 2: Body Proportions & Anatomy\n"
-            f"- Image 3: Angle Variations & Bone Structure\n\n"
+            f"Upload 3 reference images in this exact order:\n"
+            f"* Image 1 — Face Lock: facial identity, skin, eyes, lips, hair, distinctive facial features.\n"
+            f"* Image 2 — Body Lock: body shape, proportions, silhouette, physical build.\n"
+            f"* Image 3 — Expression Lock: natural expressions, eye behavior, facial realism, selfie presence.\n\n"
             f"Physical Specification Contract:\n"
             f"```json\n{spec_json}\n```\n\n"
             f"MANDATORY THREAD INSTRUCTIONS:\n"
             f"1. The person in these reference images is {self.name}. In all subsequent prompts in this thread, feature ONLY this exact person.\n"
-            f"2. Maintain her exact bone structure, facial symmetry, and body proportions from the reference images.\n"
-            f"3. Treat all subsequent prompts as scene, outfit, and lighting changes (deltas) for {self.name}.\n"
-            f"4. Do NOT generate empty scenery, landscapes without {self.name}, or generic faces.\n"
-            f"Please confirm receipt and acknowledge that the identity contract for {self.name} is permanently locked."
+            f"2. Image 1 controls facial identity, Image 2 controls body identity, and Image 3 controls expression realism.\n"
+            f"3. Maintain her exact bone structure, facial symmetry, and body proportions from the reference images.\n"
+            f"4. Treat all subsequent prompts as scene, outfit, and lighting changes (deltas) for {self.name}.\n"
+            f"5. Do NOT generate empty scenery, landscapes without {self.name}, or generic faces.\n"
+            f"Please confirm receipt and acknowledge that the Character Lock for {self.name} is permanently established."
         )
 
     def compile_delta_prompt(
@@ -159,13 +278,18 @@ class CharacterCard(BaseModel):
         background: str = "",
         style_override: str = "",
     ) -> str:
-        """Compile a clean, focused delta prompt referencing the locked identity without prompt bloat."""
-        style = style_override or self.style_anchor or "Photorealistic cinematic photography"
-        lines = [f"{style} of {self.name}. Maintain locked face and body identity from Turn 0."]
-
+        """Compile a clean recurring generation prompt referencing the established Character Lock."""
         clean_scene = scene.strip()
-        if clean_scene:
-            lines.append(f"[SCENE]: {clean_scene}")
+        lines = [
+            f"Use the established {self.name} Character Lock and original reference images:",
+            "Image 1 = face lock",
+            "Image 2 = body lock",
+            "Image 3 = expression lock.",
+            "",
+            f"Create a new image of {self.name}:",
+            "",
+            f"[SCENE]: {clean_scene}",
+        ]
 
         active_outfit = outfit.strip()
         if not active_outfit:
@@ -176,16 +300,22 @@ class CharacterCard(BaseModel):
             lines.append(f"[OUTFIT]: {active_outfit}")
 
         if pose.strip():
-            lines.append(f"[POSE]: {pose.strip()}")
+            lines.append(f"[POSE / ACTION]: {pose.strip()}")
         if expression.strip():
-            lines.append(f"[EXPRESSION]: {expression.strip()}")
+            lines.append(f"[EXPRESSION / GAZE]: {expression.strip()}")
         if camera.strip():
-            lines.append(f"[CAMERA]: {camera.strip()}")
+            lines.append(f"[CAMERA / FRAMING]: {camera.strip()}")
         if lighting.strip():
             lines.append(f"[LIGHTING]: {lighting.strip()}")
         if background.strip():
             lines.append(f"[BACKGROUND]: {background.strip()}")
 
+        lines.append("")
+        lines.append(
+            f"Preserve the locked identity and physical characteristics. "
+            "Maintain locked face and body identity from Turn 0. "
+            "Change only what is requested for this image."
+        )
         return "\n".join(lines)
 
 
