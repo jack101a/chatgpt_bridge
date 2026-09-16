@@ -1862,12 +1862,23 @@ async def _execute_director_sequence(
 
             try:
                 res = await image(req)
-                if "conversation_id" in res and res["conversation_id"]:
+                if isinstance(res, JSONResponse):
+                    err_msg = "Generation failed"
+                    try:
+                        import json
+                        body = json.loads(res.body.decode()) if hasattr(res, "body") else {}
+                        err_msg = body.get("detail") or body.get("error") or str(body)
+                    except Exception:
+                        pass
+                    raise RuntimeError(f"Engine rejected shot {i + 1}: {err_msg}")
+
+                if isinstance(res, dict) and res.get("conversation_id"):
                     conv_id = res["conversation_id"]
                     _director_state["conversation_id"] = conv_id
             except Exception as e:
                 log.error(f"Director sequence error on shot {i}: {e}", exc_info=True)
                 _director_state["last_error"] = str(e)
+                _director_state["status"] = f"Error: {e}"
                 await ws_broadcast({
                     "type": "director_sequence_error",
                     "shot_index": i + 1,
