@@ -113,6 +113,9 @@ export const api = {
   // Chats
   getChats: (): Promise<ChatThread[]> => fetchJson<ChatThread[]>('/api/chats'),
 
+  resetConversation: (): Promise<{ ok: boolean; message: string }> =>
+    fetchJson('/conversations/new', { method: 'POST' }),
+
   deleteChat: (conversation_id: string): Promise<{ success: boolean }> =>
     fetchJson(`/conversations/${conversation_id}`, { method: 'DELETE' }),
 
@@ -174,10 +177,22 @@ export const api = {
     return [];
   },
   
-  saveCharacter: (char: Partial<CharacterCard>): Promise<CharacterCard> =>
-    fetchJson<CharacterCard>('/api/characters', {
+  saveCharacter: (char: Partial<CharacterCard>): Promise<CharacterCard> => {
+    if (char.id) {
+      return fetchJson<CharacterCard>(`/api/characters/${char.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(char),
+      });
+    }
+    return fetchJson<CharacterCard>('/api/characters', {
       method: 'POST',
       body: JSON.stringify(char),
+    });
+  },
+
+  deleteCharacter: (id: string): Promise<{ ok: boolean; id: string }> =>
+    fetchJson(`/api/characters/${id}`, {
+      method: 'DELETE',
     }),
     
   lockCharacter: (id: string, locked?: boolean): Promise<{ ok: boolean; locked: boolean; character?: CharacterCard }> =>

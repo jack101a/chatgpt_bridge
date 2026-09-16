@@ -246,6 +246,7 @@ def _get_character_manager() -> CharacterManager:
 
 
 class CreateCharacterRequest(BaseModel):
+    id: str | None = None
     name: str
     tagline: str = ""
     visual_dna: str
@@ -507,7 +508,12 @@ async def ask(req: AskRequest) -> dict:
     async with _lock:
         try:
             if req.conversation_id:
-                await _align_account_for_conversation(req.conversation_id)
+                clean_cid = req.conversation_id.strip()
+                if clean_cid.lower() in ("new", "clean", "none", ""):
+                    _get_core().new_chat()
+                    req.conversation_id = "new"
+                else:
+                    await _align_account_for_conversation(clean_cid)
             return await _get_core().ask(
                 req.prompt, model=req.model, conversation_id=req.conversation_id
             )
@@ -530,8 +536,13 @@ async def image(req: ImageRequest) -> dict:
             if req.max_tries is not None:
                 kwargs["max_retries"] = req.max_tries
             if req.conversation_id is not None:
-                kwargs["conversation_id"] = req.conversation_id
-                await _align_account_for_conversation(req.conversation_id)
+                clean_cid = req.conversation_id.strip()
+                if clean_cid.lower() in ("new", "clean", "none", ""):
+                    _get_core().new_chat()
+                    kwargs["conversation_id"] = "new"
+                else:
+                    kwargs["conversation_id"] = clean_cid
+                    await _align_account_for_conversation(clean_cid)
             if req.tweaked_prompt is not None:
                 kwargs["tweaked_prompt"] = req.tweaked_prompt
             if req.tweaked_prompt_2 is not None:
@@ -645,10 +656,12 @@ async def image(req: ImageRequest) -> dict:
             return _error_response(exc)
 
 
-@app.get("/images/{filename}")
+@app.api_route("/images/{filename}", methods=["GET", "HEAD"])
 async def get_image(filename: str):
     """Serve downloaded generated images directly over HTTP, streaming from Telegram if evicted."""
     file_path = IMAGES_DIR / filename
+    if not (file_path.exists() and file_path.is_file()) and not filename.endswith(".png"):
+        file_path = IMAGES_DIR / f"{filename}.png"
     if file_path.exists() and file_path.is_file():
         return FileResponse(file_path, media_type="image/png")
 
@@ -1280,9 +1293,17 @@ async def get_characters() -> CharacterListResponse:
 
 @app.post("/api/characters", response_model=CharacterCard)
 async def create_character(payload: CreateCharacterRequest) -> CharacterCard:
-    """Create and persist a new character card."""
+    """Create and persist a new character card, or update if id already exists."""
     mgr = _get_character_manager()
-    card = CharacterCard(**payload.model_dump())
+    data = payload.model_dump()
+    if data.get("id"):
+        try:
+            return mgr.update(data["id"], {k: v for k, v in data.items() if v is not None and k != "id"})
+        except KeyError:
+            pass
+    else:
+        data.pop("id", None)
+    card = CharacterCard(**data)
     return mgr.create(card)
 
 

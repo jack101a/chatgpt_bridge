@@ -308,6 +308,7 @@ export function App() {
         }}
         onNewChat={() => {
           bridge.selectThread(null);
+          api.resetConversation().catch(() => {});
           handleSelectTab('chat');
           setIsSidebarOpenMobile(false);
         }}

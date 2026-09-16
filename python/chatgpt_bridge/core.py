@@ -321,7 +321,11 @@ class ChatGPT:
                     _, switched_from = switched
 
             await self._ensure_started()
-            cid = conversation_id or self._current_conversation_id
+            if conversation_id and conversation_id.strip().lower() in ("new", "clean", "none", ""):
+                self.new_chat()
+                cid = None
+            else:
+                cid = conversation_id or self._current_conversation_id
             active_acc = self.account_manager.get_active_account()
 
             try:
@@ -388,7 +392,11 @@ class ChatGPT:
                     _, switched_from = switched
 
             await self._ensure_started()
-            cid = conversation_id or self._current_conversation_id
+            if conversation_id and conversation_id.strip().lower() in ("new", "clean", "none", ""):
+                self.new_chat()
+                cid = None
+            else:
+                cid = conversation_id or self._current_conversation_id
             if retry is None:
                 retries = max_retries if max_retries is not None else self.max_retries
                 retry = RetryConfig(max_tries=retries)

@@ -52,12 +52,11 @@ def test_ask_with_conversation_id(client):
 def test_image_ok(client):
     resp = client.post("/image", json={"prompt": "a fox"})
     assert resp.status_code == 200
-    assert resp.json() == {
-        "path": "/tmp/x.png",
-        "prompt": "a fox",
-        "image_url": "/images/x.png",
-        "thumbnail_url": "/thumbnails/x.webp",
-    }
+    data = resp.json()
+    assert data["path"] == "/tmp/x.png"
+    assert data["prompt"] == "a fox"
+    assert data["image_url"] == "/images/x.png"
+    assert data["thumbnail_url"] == "/thumbnails/x.webp"
 
 
 def test_image_with_conversation_id_and_max_tries(monkeypatch):

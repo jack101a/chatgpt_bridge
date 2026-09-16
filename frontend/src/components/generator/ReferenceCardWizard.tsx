@@ -520,6 +520,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
       setSessionConversationId(null);
       setChatMode('new');
       setTargetExistingChatId('');
+      api.resetConversation().catch(() => {});
       setFaceResult(null);
       setBodyResult(null);
       setExpressionResult(null);
@@ -588,12 +589,20 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
       let res: any;
       // Determine conversation ID:
       // If locked, use sessionConversationId.
-      // If not yet locked, check chatMode: if 'existing' and chosen, attach; otherwise undefined for a clean new chat.
-      const convIdToUse = sessionConversationId
-        ? sessionConversationId
-        : chatMode === 'existing' && targetExistingChatId
-        ? targetExistingChatId
-        : undefined;
+      // If not yet locked, check chatMode: if 'existing' and chosen, attach; otherwise 'new' for a clean new chat.
+      let convIdToUse: string | undefined;
+      if (sessionConversationId) {
+        convIdToUse = sessionConversationId;
+      } else if (chatMode === 'existing' && targetExistingChatId) {
+        convIdToUse = targetExistingChatId;
+      } else {
+        convIdToUse = 'new';
+        try {
+          await api.resetConversation();
+        } catch (e) {
+          console.warn('Failed to reset conversation before generation:', e);
+        }
+      }
 
       if (currentStep === 'face') {
         res = await api.generateFaceCard(charData, convIdToUse, effectivePrompt);
@@ -1045,6 +1054,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                 onClick={() => {
                   setChatMode('new');
                   setTargetExistingChatId('');
+                  api.resetConversation().catch(() => {});
                 }}
                 className={`px-2.5 py-1 rounded-md transition-all font-medium flex items-center gap-1.5 ${
                   chatMode === 'new'
