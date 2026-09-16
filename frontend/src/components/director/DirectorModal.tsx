@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { StoryboardShot, CharacterCard, DirectorState } from '../../types';
 import { api } from '../../lib/api';
+import { DotMatrixLoader } from '../common/DotMatrixLoader';
 
 interface DirectorModalProps {
   isOpen: boolean;
@@ -504,13 +505,18 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
 
               {/* ── Live Execution Progress View ── */}
               {isExecuting && (
-                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2.5 animate-pulse">
+                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 animate-spin" />
-                      <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                        {directorStatus?.status || 'Automated Storyboard Sequence Running…'}
-                      </span>
+                    <div className="flex items-center gap-3">
+                      <DotMatrixLoader size="sm" variant="hex" speed={1.2} />
+                      <div>
+                        <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                          {directorStatus?.status || 'Automated Storyboard Sequence Running…'}
+                        </div>
+                        <div className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
+                          Live Turn-by-Turn Continuity Engine
+                        </div>
+                      </div>
                     </div>
                     <button
                       type="button"

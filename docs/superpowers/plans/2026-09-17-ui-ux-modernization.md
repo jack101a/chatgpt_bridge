@@ -59,11 +59,11 @@ Reference: `sv-agentation.com`
 - `CommandPaletteModal`: Props `{ isOpen: boolean; onClose: () => void; onNavigateTab: (tab: string) => void; onTriggerAction: (actionId: string) => void; characters: CharacterCard[]; activeCharacter: CharacterCard | null; onSelectCharacter: (char: CharacterCard) => void }`
 - `KeyboardShortcutsModal`: Props `{ isOpen: boolean; onClose: () => void }`
 
-- [ ] Step 1: Implement `useCommandPalette.ts` managing keyboard shortcuts (`Cmd+K`, `Ctrl+K`, `?`, `Esc`, arrow navigation).
-- [ ] Step 2: Implement `CommandPaletteModal.tsx` with fuzzy search, categorized actions (Tabs, Characters, Quick Tools, Accounts), and tactile selection.
-- [ ] Step 3: Implement `KeyboardShortcutsModal.tsx` displaying cheatsheet for navigation, generating, and inspection.
-- [ ] Step 4: Wire Command Palette into `App.tsx` and test modal toggles.
-- [ ] Step 5: Commit changes.
+- [x] Step 1: Implement `useCommandPalette.ts` managing keyboard shortcuts (`Cmd+K`, `Ctrl+K`, `?`, `Esc`, arrow navigation).
+- [x] Step 2: Implement `CommandPaletteModal.tsx` with fuzzy search, categorized actions (Tabs, Characters, Quick Tools, Accounts), and tactile selection.
+- [x] Step 3: Implement `KeyboardShortcutsModal.tsx` displaying cheatsheet for navigation, generating, and inspection.
+- [x] Step 4: Wire Command Palette into `App.tsx` and test modal toggles.
+- [x] Step 5: Commit changes.
 
 ---
 
@@ -79,11 +79,11 @@ Reference: `sv-blocks.vercel.app`, `sv-efferd.pages.dev`
 **Interfaces:**
 - `AppHeader`: Props `{ currentTab: string; activeCharacter: CharacterCard | null; onOpenCharacters: () => void; onOpenAccounts: () => void; onOpenCommandPalette: () => void; onToggleTheme: () => void; isDarkMode: boolean; isConnected: boolean; onOpenDirector?: () => void }`
 
-- [ ] Step 1: Implement `AppHeader.tsx` with backdrop-blur glassmorphism, active character lock badge, command palette launcher (`Search / ⌘K`), account indicator, and animated theme toggle.
-- [ ] Step 2: Modernize `DesktopSidebar.tsx` with cleaner icon active-states, badge counters, and collapsing tooltips.
-- [ ] Step 3: Modernize `MobileBottomNav.tsx` with haptic-feedback styling, indicator pills, and safe-area padding.
-- [ ] Step 4: Integrate `AppHeader` into `App.tsx` across all screen sizes.
-- [ ] Step 5: Test responsive layout and commit changes.
+- [x] Step 1: Implement `AppHeader.tsx` with backdrop-blur glassmorphism, active character lock badge, command palette launcher (`Search / ⌘K`), account indicator, and animated theme toggle.
+- [x] Step 2: Modernize `DesktopSidebar.tsx` with cleaner icon active-states, badge counters, and collapsing tooltips.
+- [x] Step 3: Modernize `MobileBottomNav.tsx` with haptic-feedback styling, indicator pills, and safe-area padding.
+- [x] Step 4: Integrate `AppHeader` into `App.tsx` across all screen sizes.
+- [x] Step 5: Test responsive layout and commit changes.
 
 ---
 
@@ -99,11 +99,11 @@ Reference: `sv-table.vercel.app`, `sv-efferd.pages.dev`
 - `GalleryToolbar`: Props `{ search: string; onSearchChange: (s: string) => void; density: 'grid' | 'masonry' | 'compact'; onDensityChange: (d: 'grid' | 'masonry' | 'compact') => void; filter: string; onFilterChange: (f: string) => void; sortOrder: 'newest' | 'oldest'; onSortOrderChange: (s: 'newest' | 'oldest') => void; isBatchMode: boolean; onToggleBatchMode: () => void; selectedCount: number }`
 - `BatchActionBar`: Props `{ selectedCount: number; onFavoriteAll: () => void; onDeleteAll: () => void; onDownloadAll: () => void; onClearSelection: () => void }`
 
-- [ ] Step 1: Implement `GalleryToolbar.tsx` with keyword search, aspect ratio filters, density switcher (Grid/Masonry/Compact), and sort controls.
-- [ ] Step 2: Implement `BatchActionBar.tsx` for multi-selection workflows (bulk download, bulk favorite, bulk delete).
-- [ ] Step 3: Upgrade `GalleryView.tsx` supporting the 3 density modes and batch multi-selection. Replace simple spinners with `DotMatrixLoader`.
-- [ ] Step 4: Test filtering, selection, and gallery rendering.
-- [ ] Step 5: Commit changes.
+- [x] Step 1: Implement `GalleryToolbar.tsx` with keyword search, aspect ratio filters, density switcher (Grid/Masonry/Compact), and sort controls.
+- [x] Step 2: Implement `BatchActionBar.tsx` for multi-selection workflows (bulk download, bulk favorite, bulk delete).
+- [x] Step 3: Upgrade `GalleryView.tsx` supporting the 3 density modes and batch multi-selection. Replace simple spinners with `DotMatrixLoader`.
+- [x] Step 4: Test filtering, selection, and gallery rendering.
+- [x] Step 5: Commit changes.
 
 ---
 
@@ -121,17 +121,17 @@ Reference: `sv-animations.vercel.app`, `sv-matrix.vercel.app`, `sv-agentation.co
 - Add quick-copy prompt badge with animated copied feedback.
 - Enhance Storyboard shot preview cards with camera POV badges and duration telemetry.
 
-- [ ] Step 1: Upgrade `MessageBubble.tsx` to render `DotMatrixLoader` when generating images, and add clean prompt copy interactions.
-- [ ] Step 2: Polish `Composer.tsx` with character lock status badge, reference thumbnail chips, and keyboard hints (`↵ to send`, `⇧↵ for newline`).
-- [ ] Step 3: Upgrade `DirectorModal.tsx` and `StoryboardTray.tsx` with Bento-grid shot cards and real-time step progress animations.
-- [ ] Step 4: Test Chat and Director interactions.
-- [ ] Step 5: Commit changes.
+- [x] Step 1: Upgrade `MessageBubble.tsx` to render `DotMatrixLoader` when generating images, and add clean prompt copy interactions.
+- [x] Step 2: Polish `Composer.tsx` with character lock status badge, reference thumbnail chips, and keyboard hints (`↵ to send`, `⇧↵ for newline`).
+- [x] Step 3: Upgrade `DirectorModal.tsx` and `StoryboardTray.tsx` with Bento-grid shot cards and real-time step progress animations.
+- [x] Step 4: Test Chat and Director interactions.
+- [x] Step 5: Commit changes.
 
 ---
 
 ### Task 6: End-to-End Build, Full Audit & Final Polish
-- [ ] Step 1: Run `npm --prefix frontend run build` to verify zero TypeScript/bundle errors.
-- [ ] Step 2: Test light mode and dark mode across desktop and mobile screen viewports.
-- [ ] Step 3: Verify backend daemon compatibility on port `8466`.
-- [ ] Step 4: Review WCAG contrast and button clarity.
-- [ ] Step 5: Final commit and push to git repository.
+- [x] Step 1: Run `npm --prefix frontend run build` to verify zero TypeScript/bundle errors.
+- [x] Step 2: Test light mode and dark mode across desktop and mobile screen viewports.
+- [x] Step 3: Verify backend daemon compatibility on port `8466`.
+- [x] Step 4: Review WCAG contrast and button clarity.
+- [x] Step 5: Final commit and push to git repository.

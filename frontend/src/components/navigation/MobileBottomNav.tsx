@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Image as ImageIcon, Layers, Settings } from 'lucide-react';
+import { MessageSquare, Image as ImageIcon, Layers, Settings } from 'lucide-react';
 
 interface MobileBottomNavProps {
   activeTab: 'chat' | 'gallery' | 'generator' | 'settings';
@@ -14,61 +14,48 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   isVisible = true,
   fixed = false,
 }) => {
+  const tabs = [
+    { id: 'chat', label: 'Chat', icon: MessageSquare },
+    { id: 'gallery', label: 'Gallery', icon: ImageIcon },
+    { id: 'generator', label: 'Cards', icon: Layers },
+    { id: 'settings', label: 'Settings', icon: Settings },
+  ] as const;
+
   return (
-    <nav className={`lg:hidden flex items-center justify-around border-t border-[#e5e5e5] dark:border-[#27272a] bg-white/95 dark:bg-[#121214]/95 backdrop-blur-lg px-2 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] z-40 ${
-      fixed
-        ? `fixed bottom-0 left-0 right-0 transition-transform duration-300 ease-out ${
-            isVisible ? 'translate-y-0' : 'translate-y-full pointer-events-none'
-          }`
-        : 'flex-shrink-0 w-full'
-    }`}>
-      <button
-        onClick={() => onSelectTab('chat')}
-        className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
-          activeTab === 'chat'
-            ? 'text-[#10a37f]'
-            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
-        }`}
-      >
-        <Home size={20} />
-        <span className="text-[10px] font-medium tracking-tight">Home</span>
-      </button>
-
-      <button
-        onClick={() => onSelectTab('gallery')}
-        className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
-          activeTab === 'gallery'
-            ? 'text-[#10a37f]'
-            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
-        }`}
-      >
-        <ImageIcon size={20} />
-        <span className="text-[10px] font-medium tracking-tight">Gallery</span>
-      </button>
-
-      <button
-        onClick={() => onSelectTab('generator')}
-        className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
-          activeTab === 'generator'
-            ? 'text-[#10a37f]'
-            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
-        }`}
-      >
-        <Layers size={20} />
-        <span className="text-[10px] font-medium tracking-tight">Cards</span>
-      </button>
-
-      <button
-        onClick={() => onSelectTab('settings')}
-        className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
-          activeTab === 'settings'
-            ? 'text-[#10a37f]'
-            : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
-        }`}
-      >
-        <Settings size={20} />
-        <span className="text-[10px] font-medium tracking-tight">Settings</span>
-      </button>
+    <nav
+      className={`lg:hidden flex items-center justify-around border-t border-border bg-card/90 backdrop-blur-lg px-2 pt-1.5 pb-safe z-40 select-none ${
+        fixed
+          ? `fixed bottom-0 left-0 right-0 transition-transform duration-300 ease-out ${
+              isVisible ? 'translate-y-0' : 'translate-y-full pointer-events-none'
+            }`
+          : 'shrink-0 w-full'
+      }`}
+    >
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        const isActive = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id}
+            onClick={() => onSelectTab(tab.id)}
+            className={`min-h-[44px] min-w-[56px] flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-xl transition-all active:scale-90 ${
+              isActive
+                ? 'text-primary font-semibold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            aria-label={tab.label}
+          >
+            <div
+              className={`p-1 rounded-lg transition-colors ${
+                isActive ? 'bg-primary/15' : 'bg-transparent'
+              }`}
+            >
+              <Icon size={19} className={isActive ? 'text-primary' : 'currentColor'} />
+            </div>
+            <span className="text-[10.5px] tracking-tight leading-none">{tab.label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 };

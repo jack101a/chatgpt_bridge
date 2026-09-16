@@ -1,12 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useBridge } from './hooks/useBridge';
 import { useGallery } from './hooks/useGallery';
+import { useCommandPalette } from './hooks/useCommandPalette';
 import { ChatView } from './components/chat/ChatView';
 import { GalleryView } from './components/gallery/GalleryView';
 import { AccountsDrawer } from './components/settings/AccountsDrawer';
 import { ImageViewerModal } from './components/viewer/ImageViewerModal';
 import { DesktopSidebar } from './components/navigation/DesktopSidebar';
 import { MobileBottomNav } from './components/navigation/MobileBottomNav';
+import { AppHeader } from './components/navigation/AppHeader';
+import { CommandPaletteModal } from './components/common/CommandPaletteModal';
+import { KeyboardShortcutsModal } from './components/common/KeyboardShortcutsModal';
+import { GridPatternBackground } from './components/common/GridPatternBackground';
+import { DirectorModal } from './components/director/DirectorModal';
 import { CharacterStudioDrawer } from './components/character/CharacterStudioDrawer';
 import { CardGeneratorView } from './components/generator/CardGeneratorView';
 import { GalleryItem, CharacterCard } from './types';
@@ -36,6 +42,7 @@ export function App() {
   const [isAccountsOpen, setIsAccountsOpen] = useState(false);
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState(false);
   const [isCharacterStudioOpen, setIsCharacterStudioOpen] = useState(false);
+  const [isDirectorOpen, setIsDirectorOpen] = useState(false);
   const [activeCharacter, setActiveCharacter] = useState<CharacterCard | null>(null);
   const [characters, setCharacters] = useState<CharacterCard[]>([]);
   const [viewerItem, setViewerItem] = useState<GalleryItem | null>(null);
@@ -44,6 +51,9 @@ export function App() {
     return localStorage.getItem('bridge:theme') === 'dark';
   });
   const [isMobileNavVisible, setIsMobileNavVisible] = useState(true);
+
+  // Command palette & shortcuts
+  const commandPalette = useCommandPalette();
 
   // Load characters and active lock on startup
   const fetchCharacters = useCallback(() => {
@@ -187,7 +197,6 @@ export function App() {
   };
 
   const handleFullPageRefresh = async () => {
-    // Native mobile app style full-page refresh, preserving active hash URL
     await new Promise((resolve) => setTimeout(resolve, 350));
     window.location.reload();
   };
@@ -280,31 +289,56 @@ export function App() {
       if (bridge.activeConvId === convId) {
         bridge.selectThread(null);
       }
-    } catch (err: any) {
-      alert(`Failed to delete thread: ${err.message}`);
+    } catch (e) {
+      console.error('Failed to delete thread', e);
+    }
+  };
+
+  // Character selection & lock toggle handler
+  const handleSelectCharacter = (char: CharacterCard | null) => {
+    setActiveCharacter(char);
+    if (char) {
+      api.lockCharacter(char.id, true).catch(() => {});
+      if (bridge.activeConvId) {
+        api.setConversationCharacter(bridge.activeConvId, char.id).catch(() => {});
+      }
+    } else {
+      if (activeCharacter) {
+        api.lockCharacter(activeCharacter.id, false).catch(() => {});
+      }
+      if (bridge.activeConvId) {
+        api.setConversationCharacter(bridge.activeConvId, null).catch(() => {});
+      }
+    }
+    fetchCharacters();
+  };
+
+  // Command palette triggered actions
+  const handleTriggerAction = (actionId: string) => {
+    if (actionId === 'new-chat') {
+      bridge.selectThread(null);
+      api.resetConversation().catch(() => {});
+      handleSelectTab('chat');
+    } else if (actionId === 'open-director') {
+      setIsDirectorOpen(true);
+    } else if (actionId === 'refresh-accounts') {
+      bridge.refreshAccounts();
     }
   };
 
   return (
-    <div className="flex h-screen h-[100dvh] w-screen overflow-hidden bg-white dark:bg-[#121214] text-[#0d0d0d] dark:text-white">
-      {/* ── Desktop Sidebar ── */}
+    <div className="flex h-screen h-[100dvh] w-screen overflow-hidden bg-background text-foreground relative">
+      {/* Subtle Grid Pattern Background (sv-animations & sv-blocks style) */}
+      <GridPatternBackground />
+
+      {/* ── Left Sidebar (Desktop Fixed, Mobile Drawer) ── */}
       <DesktopSidebar
         threads={bridge.threads}
         activeConvId={bridge.activeConvId}
-        onSelectThread={(id, targetAccount) => {
-          if (targetAccount && targetAccount !== activeAccount?.alias) {
-            const matchedAcc = bridge.accounts.find(
-              (a) => a.alias === targetAccount || a.id === targetAccount
-            );
-            if (matchedAcc) {
-              api.switchAccount(matchedAcc.alias || matchedAcc.id).then(() => {
-                bridge.refreshAccounts();
-              }).catch((e) => console.error('Failed to switch account:', e));
-            }
-          }
-          bridge.selectThread(id);
-          if (id) {
-            api.getConversationContract(id).then((contract) => {
+        onSelectThread={(convId) => {
+          bridge.selectThread(convId);
+          if (convId) {
+            api.getConversationContract(convId).then((contract) => {
               if (contract?.character_id) {
                 const matched = characters.find((c) => c.id === contract.character_id);
                 if (matched) setActiveCharacter(matched);
@@ -331,7 +365,25 @@ export function App() {
       />
 
       {/* ── Main Content Stage ── */}
-      <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
+      <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative z-10">
+        {/* Modern App Header (All Screens) */}
+        <AppHeader
+          currentTab={currentTab}
+          activeCharacter={activeCharacter}
+          onOpenCharacters={() => setIsCharacterStudioOpen(true)}
+          onOpenAccounts={handleOpenAccounts}
+          onOpenCommandPalette={commandPalette.openPalette}
+          onOpenShortcuts={commandPalette.openShortcuts}
+          onOpenSidebarMobile={handleOpenSidebarMobile}
+          onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+          isDarkMode={isDarkMode}
+          isConnected={bridge.wsConnected}
+          onOpenDirector={() => setIsDirectorOpen(true)}
+          activeAccountName={activeAccount?.alias}
+          onNavigateTab={handleSelectTab}
+        />
+
+        {/* Tab 1: Chat Studio */}
         <div className={`flex-1 min-h-0 flex flex-col w-full overflow-hidden ${currentTab === 'chat' ? 'flex' : 'hidden'}`}>
           <ChatView
             messages={bridge.messages}
@@ -365,29 +417,15 @@ export function App() {
             onRefresh={handleFullPageRefresh}
             characters={characters}
             activeCharacter={activeCharacter}
-            onSelectCharacter={(char) => {
-              setActiveCharacter(char);
-              if (char) {
-                api.lockCharacter(char.id, true).catch(() => {});
-                if (bridge.activeConvId) {
-                  api.setConversationCharacter(bridge.activeConvId, char.id).catch(() => {});
-                }
-              } else {
-                if (activeCharacter) {
-                  api.lockCharacter(activeCharacter.id, false).catch(() => {});
-                }
-                if (bridge.activeConvId) {
-                  api.setConversationCharacter(bridge.activeConvId, null).catch(() => {});
-                }
-              }
-              fetchCharacters();
-            }}
+            onSelectCharacter={handleSelectCharacter}
             onThreadCreated={(newId) => {
               bridge.selectThread(newId);
             }}
+            hideHeader={true}
           />
         </div>
 
+        {/* Tab 2: Gallery View */}
         <div className={`flex-1 min-h-0 flex flex-col w-full overflow-hidden ${currentTab === 'gallery' ? 'flex' : 'hidden'}`}>
           <GalleryView
             items={gallery.items}
@@ -421,6 +459,7 @@ export function App() {
           />
         </div>
 
+        {/* Tab 3: Character / Card Generator */}
         <div className={`flex-1 min-h-0 flex flex-col w-full overflow-hidden ${currentTab === 'generator' ? 'flex' : 'hidden'}`}>
           <CardGeneratorView
             characters={characters}
@@ -428,6 +467,7 @@ export function App() {
             onOpenSidebar={handleOpenSidebarMobile}
             onOpenViewer={handleOpenViewer}
             onContinueInChat={handleContinueInChat}
+            hideHeader={true}
           />
         </div>
 
@@ -475,6 +515,36 @@ export function App() {
         onDelete={gallery.deleteItem}
         onContinueInChat={handleContinueInChat}
         onPromptWithImage={handlePromptWithImage}
+      />
+
+      {/* ── Universal Command Palette Modal (⌘K) ── */}
+      <CommandPaletteModal
+        isOpen={commandPalette.isOpen}
+        onClose={commandPalette.closePalette}
+        onNavigateTab={handleSelectTab}
+        onTriggerAction={handleTriggerAction}
+        characters={characters}
+        activeCharacter={activeCharacter}
+        onSelectCharacter={handleSelectCharacter}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+      />
+
+      {/* ── Keyboard Shortcuts Cheatsheet Modal (?) ── */}
+      <KeyboardShortcutsModal
+        isOpen={commandPalette.isShortcutsOpen}
+        onClose={commandPalette.closeShortcuts}
+      />
+
+      {/* ── AI Storyboard Director Modal (Global Trigger) ── */}
+      <DirectorModal
+        isOpen={isDirectorOpen}
+        onClose={() => setIsDirectorOpen(false)}
+        initialPrompt=""
+        characters={characters}
+        activeCharacter={activeCharacter}
+        activeConvId={bridge.activeConvId}
+        onSelectCharacter={handleSelectCharacter}
       />
     </div>
   );
