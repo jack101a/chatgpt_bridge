@@ -1075,11 +1075,15 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                 className="text-[11px] py-1 px-2 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-[#18181b] text-[#0d0d0d] dark:text-white max-w-xs focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="">-- Choose Existing Thread --</option>
-                {availableChats.map((c) => (
-                  <option key={c.conversation_id} value={c.conversation_id}>
-                    {c.title ? c.title.slice(0, 30) : c.last_prompt.slice(0, 30)} ({c.turns} turns · #{c.conversation_id.slice(-6)})
-                  </option>
-                ))}
+                {availableChats.map((c) => {
+                  const label = (c.title || c.last_prompt || 'Untitled Chat').slice(0, 30);
+                  const cidSuffix = c.conversation_id ? ` · #${c.conversation_id.slice(-6)}` : '';
+                  return (
+                    <option key={c.conversation_id} value={c.conversation_id}>
+                      {label} ({c.turns || 0} turns{cidSuffix})
+                    </option>
+                  );
+                })}
               </select>
             )}
           </div>
@@ -1196,7 +1200,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
             <div className="flex items-center gap-2">
               {/* Archetype Quick-Bar */}
-              <div className="flex items-center gap-1 text-[11px] overflow-x-auto scrollbar-none py-0.5 max-w-[260px] sm:max-w-none">
+              <div className="flex items-center gap-1 text-[11px] overflow-x-auto scrollbar-none py-0.5 shrink-0">
                 <span className="text-[#6e6e80] dark:text-[#a1a1aa] text-[10px] hidden md:inline">Preset:</span>
                 {['nia', 'kaya', 'zia', 'nastya'].map((k) => (
                   <button
