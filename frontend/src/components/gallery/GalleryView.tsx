@@ -6,6 +6,10 @@ import {
   Cloud,
   CheckCircle2,
   Calendar,
+  Copy,
+  Check,
+  Loader2,
+  Maximize2,
 } from 'lucide-react';
 import {
   GalleryItem,
@@ -20,9 +24,223 @@ import { PullToRefresh } from '../common/PullToRefresh';
 import { GalleryToolbar, GalleryDensityMode, AspectRatioFilter } from './GalleryToolbar';
 import { BatchActionBar } from './BatchActionBar';
 import { DotMatrixLoader } from '../common/DotMatrixLoader';
-import { api } from '../../lib/api';
+import { api, copyToClipboard } from '../../lib/api';
+import { hapticImpact } from '../../lib/haptics';
 
-interface GalleryViewProps {
+interface GalleryFeedCardProps {
+  item: GalleryItem;
+  isBatchMode: boolean;
+  isSelected: boolean;
+  onToggleSelect: (e: React.MouseEvent) => void;
+  onOpenViewer: (item: GalleryItem) => void;
+  onToggleFavorite: (id: string) => void;
+}
+
+const GalleryFeedCard: React.FC<GalleryFeedCardProps> = ({
+  item,
+  isBatchMode,
+  isSelected,
+  onToggleSelect,
+  onOpenViewer,
+  onToggleFavorite,
+}) => {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [showHeartBurst, setShowHeartBurst] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const lastTapRef = useRef<number>(0);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (isBatchMode) {
+      onToggleSelect(e);
+      return;
+    }
+
+    const now = Date.now();
+    const diff = now - lastTapRef.current;
+
+    if (diff < 300) {
+      // Double tap detected -> tactile favorite burst
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current);
+        singleTapTimerRef.current = null;
+      }
+      hapticImpact('medium');
+      onToggleFavorite(item.id);
+      setShowHeartBurst(true);
+      setTimeout(() => setShowHeartBurst(false), 900);
+      lastTapRef.current = 0;
+    } else {
+      lastTapRef.current = now;
+      singleTapTimerRef.current = setTimeout(() => {
+        onOpenViewer(item);
+        singleTapTimerRef.current = null;
+      }, 300);
+    }
+  };
+
+  const handleCopyPrompt = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!item.prompt) return;
+    hapticImpact('selection');
+    await copyToClipboard(item.prompt);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  const handleHeartClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    hapticImpact('light');
+    onToggleFavorite(item.id);
+  };
+
+  return (
+    <article
+      className={`w-full max-w-2xl bg-card border rounded-2xl sm:rounded-3xl overflow-hidden transition-all duration-300 shadow-xs hover:shadow-md select-none group ${
+        isSelected
+          ? 'ring-2 ring-primary border-primary shadow-md'
+          : 'border-border hover:border-border/80'
+      }`}
+    >
+      {/* Header bar of the card */}
+      <div className="px-3.5 py-2.5 flex items-center justify-between border-b border-border/60 bg-muted/20">
+        <div className="flex items-center space-x-2">
+          {isBatchMode && (
+            <button
+              onClick={onToggleSelect}
+              className="w-8 h-8 flex items-center justify-center rounded-lg border transition-all active:scale-90"
+              title={isSelected ? 'Deselect' : 'Select'}
+            >
+              <div
+                className={`w-5 h-5 rounded flex items-center justify-center transition-all ${
+                  isSelected
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted border border-border text-transparent'
+                }`}
+              >
+                {isSelected && <CheckCircle2 className="w-4 h-4" />}
+              </div>
+            </button>
+          )}
+          <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-medium border border-border/40">
+            {item.account_used || 'Primary'}
+          </span>
+          {item.tg_file_id && (
+            <span
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[10px] font-mono font-medium border border-primary/20"
+              title="Secured in Telegram Cloud Vault"
+            >
+              <Cloud className="w-3 h-3 text-primary" />
+              <span>Vault</span>
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center space-x-1">
+          <button
+            onClick={handleCopyPrompt}
+            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 active:scale-95 transition-all"
+            title="Copy prompt"
+            aria-label="Copy prompt"
+          >
+            {isCopied ? (
+              <Check className="w-4 h-4 text-emerald-500" />
+            ) : (
+              <Copy className="w-4 h-4" />
+            )}
+          </button>
+          <button
+            onClick={handleHeartClick}
+            className={`min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl active:scale-90 transition-all ${
+              item.favorite
+                ? 'text-rose-500 bg-rose-500/10'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/80'
+            }`}
+            title={item.favorite ? 'Unfavorite' : 'Favorite'}
+            aria-label="Favorite"
+          >
+            <Heart
+              className="w-4 h-4"
+              fill={item.favorite ? 'currentColor' : 'none'}
+            />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              hapticImpact('light');
+              onOpenViewer(item);
+            }}
+            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 active:scale-95 transition-all"
+            title="Inspect full screen"
+            aria-label="Open full screen"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Image Stage Container */}
+      <div
+        onClick={handleCardClick}
+        className="relative w-full bg-black flex items-center justify-center cursor-pointer select-none overflow-hidden min-h-[280px] sm:min-h-[360px]"
+      >
+        {/* Loading Spinner Placeholder */}
+        {!isLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center bg-muted/20">
+            <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
+          </div>
+        )}
+
+        <img
+          src={item.thumbnail_url || item.url}
+          alt={item.prompt || 'Generated art'}
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setIsLoaded(true)}
+          className={`w-full h-auto max-h-[84vh] object-contain mx-auto transition-opacity duration-300 ${
+            isLoaded ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+
+        {/* Double-tap Heart Pop Animation */}
+        {showHeartBurst && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20 animate-in fade-in zoom-in duration-200">
+            <div className="p-4 sm:p-5 rounded-full bg-black/65 backdrop-blur-md border border-white/20 shadow-2xl scale-125 animate-bounce">
+              <Heart
+                className="w-10 h-10 sm:w-12 sm:h-12 text-rose-500 drop-shadow-[0_0_24px_rgba(244,63,94,0.9)]"
+                fill="#f43f5e"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Card Footer: Prompt details & click to expand */}
+      {item.prompt && (
+        <div
+          onClick={() => setIsExpanded((prev) => !prev)}
+          className="px-4 py-3 bg-card border-t border-border/60 cursor-pointer hover:bg-muted/10 transition-colors"
+        >
+          <p
+            className={`text-xs sm:text-sm text-foreground/90 font-sans leading-relaxed ${
+              isExpanded ? '' : 'line-clamp-2'
+            }`}
+          >
+            {item.prompt}
+          </p>
+          {item.prompt.length > 120 && (
+            <span className="text-[10px] font-semibold text-primary mt-1 inline-block">
+              {isExpanded ? 'Show less' : 'Read more'}
+            </span>
+          )}
+        </div>
+      )}
+    </article>
+  );
+};
+
+export interface GalleryViewProps {
   items: GalleryItem[];
   sections: TimelineSection[];
   total: number;
@@ -71,7 +289,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
   onToggleFavorite,
   onRefresh,
 }) => {
-  const [density, setDensity] = useState<GalleryDensityMode>('grid');
+  const [density, setDensity] = useState<GalleryDensityMode>('feed');
   const [aspectRatio, setAspectRatio] = useState<AspectRatioFilter>('all');
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -280,6 +498,22 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
             )}
 
             {/* Layout Density Views */}
+            {density === 'feed' && (
+              <div className="flex flex-col items-center w-full max-w-2xl mx-auto space-y-4">
+                {section.items.map((item) => (
+                  <GalleryFeedCard
+                    key={item.id}
+                    item={item}
+                    isBatchMode={isBatchMode}
+                    isSelected={selectedIds.has(item.id)}
+                    onToggleSelect={(e) => toggleSelectItem(item.id, e)}
+                    onOpenViewer={onOpenViewer}
+                    onToggleFavorite={onToggleFavorite}
+                  />
+                ))}
+              </div>
+            )}
+
             {density === 'grid' && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5">
                 {section.items.map((item) => {

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { CharacterCard } from '../../types';
 import { api, copyToClipboard } from '../../lib/api';
+import { hapticImpact } from '../../lib/haptics';
 import {
   CanonicalPhysicalIdentity,
   buildCanonicalCharacterLock,
@@ -163,12 +164,18 @@ export function CharacterStudioDrawer({
     setJsonText(JSON.stringify(canonical, null, 2));
   };
 
+  const handleClose = () => {
+    hapticImpact('light');
+    onClose();
+  };
+
   const handleApplyImportedJson = () => {
     const result = parseCharacterLockJsonSafe(rawImportInput, editingChar?.name || 'Character');
     if (!result.ok) {
       setImportError(result.error);
       return;
     }
+    hapticImpact('medium');
     setPhysicalId(result.data.physical_identity);
     setLockRule(result.data.lock_rule);
     setJsonText(JSON.stringify(result.data, null, 2));
@@ -178,6 +185,7 @@ export function CharacterStudioDrawer({
   };
 
   const handleCopyJson = async () => {
+    hapticImpact('light');
     await copyToClipboard(jsonText);
     setCopiedJson(true);
     setTimeout(() => setCopiedJson(false), 2000);
@@ -198,13 +206,13 @@ export function CharacterStudioDrawer({
         } else if (isImportModalOpen) {
           setIsImportModalOpen(false);
         } else {
-          onClose();
+          handleClose();
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, previewImage, isImportModalOpen]);
+  }, [isOpen, previewImage, isImportModalOpen]);
 
   const loadCharacters = async () => {
     try {
@@ -217,6 +225,7 @@ export function CharacterStudioDrawer({
 
   const handleSave = async () => {
     if (!editingChar?.name) return;
+    hapticImpact('medium');
     setLoading(true);
     try {
       const canonicalLock = buildCanonicalCharacterLock(
@@ -249,6 +258,7 @@ export function CharacterStudioDrawer({
     if (!confirm(`Are you sure you want to delete character "${charName}"? This cannot be undone.`)) {
       return;
     }
+    hapticImpact('heavy');
     try {
       await api.deleteCharacter(charId);
       if (activeCharacter?.id === charId) {
@@ -265,6 +275,7 @@ export function CharacterStudioDrawer({
   };
 
   const handleLockToggle = async (char: CharacterCard) => {
+    hapticImpact('medium');
     try {
       const newState = !char.is_locked;
       const res = await api.lockCharacter(char.id, newState);
@@ -284,7 +295,7 @@ export function CharacterStudioDrawer({
   return (
     <div
       className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm transition-opacity"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="w-full max-w-lg h-full bg-card text-card-foreground shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200 border-l border-border"
@@ -306,8 +317,9 @@ export function CharacterStudioDrawer({
             </div>
           </div>
           <button
-            onClick={onClose}
-            className="p-2 hover:bg-muted text-muted-foreground hover:text-foreground rounded-xl transition-colors"
+            onClick={handleClose}
+            className="min-w-[44px] min-h-[44px] p-2 hover:bg-muted text-muted-foreground hover:text-foreground rounded-xl transition-colors flex items-center justify-center active:scale-95"
+            aria-label="Close Character Studio"
           >
             <X className="w-5 h-5" />
           </button>
@@ -318,25 +330,29 @@ export function CharacterStudioDrawer({
           {!editingChar ? (
             /* ── CHARACTER LIST VIEW ── */
             <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <button
-                  onClick={() =>
+                  onClick={() => {
+                    hapticImpact('light');
                     setEditingChar({
                       name: '',
                       tagline: '',
                       visual_dna: '',
                       persona: '',
                       wardrobes: [],
-                    })
-                  }
-                  className="w-full py-2.5 px-3 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium text-xs shadow-xs transition-all active:scale-95"
+                    });
+                  }}
+                  className="w-full min-h-[44px] h-11 py-2.5 px-3.5 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-xs shadow-xs transition-all active:scale-[0.98]"
                 >
                   <Plus className="w-4 h-4" /> New Character
                 </button>
                 {onNavigateToGenerator && (
                   <button
-                    onClick={onNavigateToGenerator}
-                    className="w-full py-2.5 px-3 flex items-center justify-center gap-2 bg-muted hover:bg-muted/80 text-foreground rounded-xl font-medium text-xs border border-border transition-all active:scale-95"
+                    onClick={() => {
+                      hapticImpact('light');
+                      onNavigateToGenerator();
+                    }}
+                    className="w-full min-h-[44px] h-11 py-2.5 px-3.5 flex items-center justify-center gap-2 bg-muted hover:bg-muted/80 text-foreground rounded-xl font-semibold text-xs border border-border transition-all active:scale-[0.98]"
                   >
                     <Sparkles className="w-4 h-4 text-emerald-500" /> Reference Studio
                   </button>
@@ -344,12 +360,12 @@ export function CharacterStudioDrawer({
               </div>
 
               {characters.length === 0 ? (
-                <div className="p-8 text-center border border-dashed border-gray-200 dark:border-white/10 rounded-2xl space-y-3">
-                  <UserCircle2 className="w-10 h-10 text-gray-400 mx-auto" />
-                  <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                <div className="p-8 text-center border border-dashed border-border rounded-2xl space-y-3 bg-muted/20">
+                  <UserCircle2 className="w-10 h-10 text-muted-foreground/60 mx-auto" />
+                  <div className="text-sm font-semibold text-foreground">
                     No characters created yet
                   </div>
-                  <p className="text-xs text-gray-500 max-w-xs mx-auto">
+                  <p className="text-xs text-muted-foreground max-w-xs mx-auto">
                     Generate full 3-step Face, Body, and Expression cards in Reference Studio to save your first character.
                   </p>
                 </div>
@@ -363,7 +379,7 @@ export function CharacterStudioDrawer({
                     return (
                       <div
                         key={char.id}
-                        className="p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03] hover:border-emerald-500/40 dark:hover:border-emerald-500/40 transition-all flex flex-col gap-3 shadow-2xs group"
+                        className="p-3.5 sm:p-4 rounded-2xl border border-border bg-card hover:border-emerald-500/40 transition-all flex flex-col gap-3 shadow-2xs group"
                       >
                         {/* Top: Avatar + Info + Primary Action */}
                         <div className="flex items-start gap-3 justify-between">
@@ -371,13 +387,14 @@ export function CharacterStudioDrawer({
                           <div
                             onClick={() => {
                               if (avatarUrl) {
+                                hapticImpact('light');
                                 setPreviewImage({
                                   url: avatarUrl,
                                   title: `${char.name} — Avatar Reference`,
                                 });
                               }
                             }}
-                            className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border border-gray-200 dark:border-white/10 bg-gray-200 dark:bg-zinc-800 shrink-0 cursor-pointer shadow-2xs group/avatar"
+                            className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border border-border bg-muted shrink-0 cursor-pointer shadow-2xs group/avatar active:scale-95 transition-transform"
                             title={avatarUrl ? 'Click to inspect photo' : char.name}
                           >
                             {avatarUrl ? (
@@ -432,11 +449,11 @@ export function CharacterStudioDrawer({
                             </div>
                           </div>
 
-                          {/* Actions */}
+                          {/* Actions with Apple HIG touch targets */}
                           <div className="flex items-center gap-1.5 shrink-0">
                             <button
                               onClick={() => handleLockToggle(char)}
-                              className={`p-2 rounded-xl transition-all active:scale-95 ${
+                              className={`min-w-[44px] min-h-[44px] p-2.5 rounded-xl transition-all active:scale-95 flex items-center justify-center ${
                                 char.is_locked
                                   ? 'bg-emerald-600 text-white shadow-xs'
                                   : 'bg-muted hover:bg-muted/80 text-foreground border border-border'
@@ -446,6 +463,7 @@ export function CharacterStudioDrawer({
                                   ? 'Identity Locked: click to unlock'
                                   : 'Click to lock as Active Character'
                               }
+                              aria-label={char.is_locked ? `Unlock ${char.name}` : `Lock ${char.name}`}
                             >
                               {char.is_locked ? (
                                 <Lock className="w-4 h-4" />
@@ -454,47 +472,54 @@ export function CharacterStudioDrawer({
                               )}
                             </button>
                             <button
-                              onClick={() => setEditingChar(char)}
-                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all active:scale-95"
+                              onClick={() => {
+                                hapticImpact('selection');
+                                setEditingChar(char);
+                              }}
+                              className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-all active:scale-95 flex items-center justify-center"
+                              aria-label={`Edit ${char.name}`}
                             >
                               Edit
                             </button>
                             <button
                               onClick={() => handleDelete(char.id, char.name)}
-                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors"
+                              className="min-w-[44px] min-h-[44px] p-2.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-xl transition-colors flex items-center justify-center active:scale-95"
                               title="Delete Character"
+                              aria-label={`Delete ${char.name}`}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         </div>
 
                         {/* Bottom: Reference Cards Thumbnails Strip */}
                         {hasAnyCards && (
-                          <div className="pt-2.5 border-t border-gray-200/70 dark:border-white/5 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1 text-[10px] text-gray-500 font-medium">
-                              <Camera className="w-3 h-3 text-emerald-500" />
+                          <div className="pt-2.5 border-t border-border flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground font-medium">
+                              <Camera className="w-3.5 h-3.5 text-emerald-500" />
                               <span>Cards:</span>
                             </div>
 
                             <div className="flex items-center gap-2">
                               {cards.face && (
                                 <button
-                                  onClick={() =>
+                                  onClick={() => {
+                                    hapticImpact('light');
                                     setPreviewImage({
                                       url: cards.face!,
                                       title: `${char.name} — Face Identity Card`,
-                                    })
-                                  }
-                                  className="group/thumb relative w-10 h-7 rounded-md overflow-hidden border border-gray-300 dark:border-white/10 bg-black/10 hover:border-emerald-500 transition-all shrink-0"
+                                    });
+                                  }}
+                                  className="group/thumb relative w-12 h-8 rounded-lg overflow-hidden border border-border bg-black/10 hover:border-emerald-500 transition-all shrink-0 active:scale-95 shadow-2xs"
                                   title="Face Identity Card (Click to preview)"
+                                  aria-label="Preview Face Identity Card"
                                 >
                                   <img
                                     src={cards.face}
                                     alt="Face Card"
                                     className="w-full h-full object-cover group-hover/thumb:scale-110 transition-transform"
                                   />
-                                  <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[8px] font-mono px-0.5 leading-none rounded-tl">
+                                  <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[8.5px] font-mono px-1 py-0.5 leading-none rounded-tl">
                                     F
                                   </span>
                                 </button>
@@ -502,21 +527,23 @@ export function CharacterStudioDrawer({
 
                               {cards.body && (
                                 <button
-                                  onClick={() =>
+                                  onClick={() => {
+                                    hapticImpact('light');
                                     setPreviewImage({
                                       url: cards.body!,
                                       title: `${char.name} — Body Turnaround Card`,
-                                    })
-                                  }
-                                  className="group/thumb relative w-10 h-7 rounded-md overflow-hidden border border-gray-300 dark:border-white/10 bg-black/10 hover:border-emerald-500 transition-all shrink-0"
+                                    });
+                                  }}
+                                  className="group/thumb relative w-12 h-8 rounded-lg overflow-hidden border border-border bg-black/10 hover:border-emerald-500 transition-all shrink-0 active:scale-95 shadow-2xs"
                                   title="Body Turnaround Card (Click to preview)"
+                                  aria-label="Preview Body Turnaround Card"
                                 >
                                   <img
                                     src={cards.body}
                                     alt="Body Card"
                                     className="w-full h-full object-cover group-hover/thumb:scale-110 transition-transform"
                                   />
-                                  <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[8px] font-mono px-0.5 leading-none rounded-tl">
+                                  <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[8.5px] font-mono px-1 py-0.5 leading-none rounded-tl">
                                     B
                                   </span>
                                 </button>
@@ -524,21 +551,23 @@ export function CharacterStudioDrawer({
 
                               {cards.expression && (
                                 <button
-                                  onClick={() =>
+                                  onClick={() => {
+                                    hapticImpact('light');
                                     setPreviewImage({
                                       url: cards.expression!,
                                       title: `${char.name} — Expression Sheet Card`,
-                                    })
-                                  }
-                                  className="group/thumb relative w-10 h-7 rounded-md overflow-hidden border border-gray-300 dark:border-white/10 bg-black/10 hover:border-emerald-500 transition-all shrink-0"
+                                    });
+                                  }}
+                                  className="group/thumb relative w-12 h-8 rounded-lg overflow-hidden border border-border bg-black/10 hover:border-emerald-500 transition-all shrink-0 active:scale-95 shadow-2xs"
                                   title="Expression Sheet Card (Click to preview)"
+                                  aria-label="Preview Expression Sheet Card"
                                 >
                                   <img
                                     src={cards.expression}
                                     alt="Expression Card"
                                     className="w-full h-full object-cover group-hover/thumb:scale-110 transition-transform"
                                   />
-                                  <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[8px] font-mono px-0.5 leading-none rounded-tl">
+                                  <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[8.5px] font-mono px-1 py-0.5 leading-none rounded-tl">
                                     E
                                   </span>
                                 </button>
@@ -556,14 +585,17 @@ export function CharacterStudioDrawer({
             /* ── CHARACTER EDIT & VIEW MODE ── */
             <div className="space-y-5 animate-in fade-in duration-150">
               <button
-                onClick={() => setEditingChar(null)}
-                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 font-medium transition-colors"
+                onClick={() => {
+                  hapticImpact('selection');
+                  setEditingChar(null);
+                }}
+                className="min-h-[44px] px-2 text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 font-medium transition-colors active:scale-95"
               >
                 ← Back to Characters
               </button>
 
               {/* Header Title + Lock Status */}
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center gap-2">
                 <div>
                   <h3 className="font-bold text-lg text-foreground">
                     {editingChar.id ? `Edit ${editingChar.name || 'Character'}` : 'New Character'}
@@ -575,7 +607,7 @@ export function CharacterStudioDrawer({
                 {editingChar.id && (
                   <button
                     onClick={() => handleLockToggle(editingChar as CharacterCard)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium text-xs transition-all active:scale-95 ${
+                    className={`min-h-[44px] px-3.5 py-2 flex items-center gap-2 rounded-xl font-semibold text-xs transition-all active:scale-95 shrink-0 ${
                       editingChar.is_locked
                         ? 'bg-emerald-600 text-white shadow-xs'
                         : 'bg-muted hover:bg-muted/80 text-foreground border border-border'
@@ -583,12 +615,12 @@ export function CharacterStudioDrawer({
                   >
                     {editingChar.is_locked ? (
                       <>
-                        <Lock className="w-3.5 h-3.5" />
+                        <Lock className="w-4 h-4" />
                         <span>Locked Active</span>
                       </>
                     ) : (
                       <>
-                        <Unlock className="w-3.5 h-3.5" />
+                        <Unlock className="w-4 h-4" />
                         <span>Lock Character</span>
                       </>
                     )}
@@ -600,7 +632,7 @@ export function CharacterStudioDrawer({
               {(() => {
                 const cards = getCharacterCards(editingChar);
                 return (
-                  <div className="space-y-2 p-3.5 rounded-2xl bg-muted/40 border border-border">
+                  <div className="space-y-2.5 p-3.5 sm:p-4 rounded-2xl bg-muted/40 border border-border">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
@@ -608,8 +640,11 @@ export function CharacterStudioDrawer({
                       </label>
                       {onNavigateToGenerator && (
                         <button
-                          onClick={onNavigateToGenerator}
-                          className="text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline font-medium flex items-center gap-1"
+                          onClick={() => {
+                            hapticImpact('light');
+                            onNavigateToGenerator();
+                          }}
+                          className="min-h-[36px] px-2 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline font-medium flex items-center gap-1"
                         >
                           <span>Studio Generator</span>
                           <ExternalLink className="w-3 h-3" />
@@ -617,22 +652,23 @@ export function CharacterStudioDrawer({
                       )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 pt-1">
+                    <div className="grid grid-cols-3 gap-2.5 pt-1">
                       {/* Face Reference Card */}
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <div
                           onClick={() => {
                             if (cards.face) {
+                              hapticImpact('light');
                               setPreviewImage({
                                 url: cards.face,
                                 title: `${editingChar.name || 'Character'} — Face Card`,
                               });
                             }
                           }}
-                          className={`aspect-[4/3] rounded-xl overflow-hidden border relative flex items-center justify-center ${
+                          className={`aspect-[4/3] rounded-xl overflow-hidden border relative flex items-center justify-center transition-all ${
                             cards.face
-                              ? 'border-gray-300 dark:border-white/15 bg-black/10 cursor-pointer group'
-                              : 'border-dashed border-gray-300 dark:border-white/10 bg-gray-100/50 dark:bg-white/5'
+                              ? 'border-border bg-black/10 cursor-pointer group hover:border-emerald-500 active:scale-95 shadow-2xs'
+                              : 'border-dashed border-border bg-muted/30'
                           }`}
                         >
                           {cards.face ? (
@@ -645,36 +681,37 @@ export function CharacterStudioDrawer({
                               <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                                 <Maximize2 className="w-4 h-4 text-white drop-shadow" />
                               </div>
-                              <span className="absolute top-1 left-1 bg-emerald-600 text-white text-[9px] font-semibold px-1 rounded shadow-xs">
+                              <span className="absolute top-1 left-1 bg-emerald-600 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded shadow-xs">
                                 Face ✓
                               </span>
                             </>
                           ) : (
-                            <span className="text-[10px] text-gray-400 text-center px-1">
+                            <span className="text-[10px] text-muted-foreground text-center px-1">
                               No Face Card
                             </span>
                           )}
                         </div>
-                        <div className="text-[10px] text-center font-medium text-gray-500">
+                        <div className="text-[10.5px] text-center font-medium text-muted-foreground">
                           Face Identity
                         </div>
                       </div>
 
                       {/* Body Reference Card */}
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <div
                           onClick={() => {
                             if (cards.body) {
+                              hapticImpact('light');
                               setPreviewImage({
                                 url: cards.body,
                                 title: `${editingChar.name || 'Character'} — Body Card`,
                               });
                             }
                           }}
-                          className={`aspect-[4/3] rounded-xl overflow-hidden border relative flex items-center justify-center ${
+                          className={`aspect-[4/3] rounded-xl overflow-hidden border relative flex items-center justify-center transition-all ${
                             cards.body
-                              ? 'border-gray-300 dark:border-white/15 bg-black/10 cursor-pointer group'
-                              : 'border-dashed border-gray-300 dark:border-white/10 bg-gray-100/50 dark:bg-white/5'
+                              ? 'border-border bg-black/10 cursor-pointer group hover:border-emerald-500 active:scale-95 shadow-2xs'
+                              : 'border-dashed border-border bg-muted/30'
                           }`}
                         >
                           {cards.body ? (
@@ -687,36 +724,37 @@ export function CharacterStudioDrawer({
                               <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                                 <Maximize2 className="w-4 h-4 text-white drop-shadow" />
                               </div>
-                              <span className="absolute top-1 left-1 bg-emerald-600 text-white text-[9px] font-semibold px-1 rounded shadow-xs">
+                              <span className="absolute top-1 left-1 bg-emerald-600 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded shadow-xs">
                                 Body ✓
                               </span>
                             </>
                           ) : (
-                            <span className="text-[10px] text-gray-400 text-center px-1">
+                            <span className="text-[10px] text-muted-foreground text-center px-1">
                               No Body Card
                             </span>
                           )}
                         </div>
-                        <div className="text-[10px] text-center font-medium text-gray-500">
+                        <div className="text-[10.5px] text-center font-medium text-muted-foreground">
                           Body Turnaround
                         </div>
                       </div>
 
                       {/* Expression Reference Card */}
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         <div
                           onClick={() => {
                             if (cards.expression) {
+                              hapticImpact('light');
                               setPreviewImage({
                                 url: cards.expression,
                                 title: `${editingChar.name || 'Character'} — Expression Card`,
                               });
                             }
                           }}
-                          className={`aspect-[4/3] rounded-xl overflow-hidden border relative flex items-center justify-center ${
+                          className={`aspect-[4/3] rounded-xl overflow-hidden border relative flex items-center justify-center transition-all ${
                             cards.expression
-                              ? 'border-gray-300 dark:border-white/15 bg-black/10 cursor-pointer group'
-                              : 'border-dashed border-gray-300 dark:border-white/10 bg-gray-100/50 dark:bg-white/5'
+                              ? 'border-border bg-black/10 cursor-pointer group hover:border-emerald-500 active:scale-95 shadow-2xs'
+                              : 'border-dashed border-border bg-muted/30'
                           }`}
                         >
                           {cards.expression ? (
@@ -729,17 +767,17 @@ export function CharacterStudioDrawer({
                               <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                                 <Maximize2 className="w-4 h-4 text-white drop-shadow" />
                               </div>
-                              <span className="absolute top-1 left-1 bg-emerald-600 text-white text-[9px] font-semibold px-1 rounded shadow-xs">
+                              <span className="absolute top-1 left-1 bg-emerald-600 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded shadow-xs">
                                 Expr ✓
                               </span>
                             </>
                           ) : (
-                            <span className="text-[10px] text-gray-400 text-center px-1">
+                            <span className="text-[10px] text-muted-foreground text-center px-1">
                               No Expr Card
                             </span>
                           )}
                         </div>
-                        <div className="text-[10px] text-center font-medium text-gray-500">
+                        <div className="text-[10.5px] text-center font-medium text-muted-foreground">
                           Expressions
                         </div>
                       </div>
@@ -783,11 +821,14 @@ export function CharacterStudioDrawer({
                       Physical Identity Specification
                     </span>
                   </div>
-                  <div className="flex items-center bg-muted p-0.5 rounded-lg border border-border text-[11px]">
+                  <div className="flex items-center bg-muted p-1 rounded-xl border border-border text-xs">
                     <button
                       type="button"
-                      onClick={() => setSpecTab('fields')}
-                      className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                      onClick={() => {
+                        hapticImpact('selection');
+                        setSpecTab('fields');
+                      }}
+                      className={`min-h-[36px] px-3 py-1.5 rounded-lg font-medium transition-all ${
                         specTab === 'fields'
                           ? 'bg-card text-foreground shadow-xs'
                           : 'text-muted-foreground hover:text-foreground'
@@ -797,14 +838,17 @@ export function CharacterStudioDrawer({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setSpecTab('json')}
-                      className={`px-2.5 py-1 rounded-md font-medium flex items-center gap-1 transition-all ${
+                      onClick={() => {
+                        hapticImpact('selection');
+                        setSpecTab('json');
+                      }}
+                      className={`min-h-[36px] px-3 py-1.5 rounded-lg font-medium flex items-center gap-1.5 transition-all ${
                         specTab === 'json'
                           ? 'bg-card text-foreground shadow-xs'
                           : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
-                      <Code2 className="w-3 h-3" />
+                      <Code2 className="w-3.5 h-3.5" />
                       <span>Raw JSON</span>
                     </button>
                   </div>
@@ -1093,27 +1137,28 @@ export function CharacterStudioDrawer({
                         <button
                           type="button"
                           onClick={() => {
+                            hapticImpact('light');
                             setRawImportInput(jsonText);
                             setIsImportModalOpen(true);
                           }}
-                          className="px-2.5 py-1 text-xs font-medium rounded-lg bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors flex items-center gap-1"
+                          className="min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded-xl bg-muted hover:bg-muted/80 text-foreground border border-border transition-all flex items-center gap-1.5 active:scale-95"
                         >
-                          <UploadCloud className="w-3 h-3" />
+                          <UploadCloud className="w-3.5 h-3.5 text-emerald-500" />
                           <span>Import / Paste</span>
                         </button>
                         <button
                           type="button"
                           onClick={handleCopyJson}
-                          className="px-2.5 py-1 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors flex items-center gap-1"
+                          className="min-h-[38px] px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex items-center gap-1.5 active:scale-95 shadow-2xs"
                         >
                           {copiedJson ? (
                             <>
-                              <Check className="w-3 h-3" />
+                              <Check className="w-3.5 h-3.5" />
                               <span>Copied!</span>
                             </>
                           ) : (
                             <>
-                              <Copy className="w-3 h-3" />
+                              <Copy className="w-3.5 h-3.5" />
                               <span>Copy JSON</span>
                             </>
                           )}
@@ -1121,7 +1166,7 @@ export function CharacterStudioDrawer({
                       </div>
                     </div>
 
-                    <div className="relative rounded-xl border border-border bg-[#0a0a0c] p-3 text-emerald-400 font-mono text-[11px] leading-relaxed overflow-x-auto max-h-96">
+                    <div className="relative rounded-2xl border border-border bg-card dark:bg-[#0a0a0c] p-3.5 text-emerald-600 dark:text-emerald-400 font-mono text-[11.5px] leading-relaxed overflow-x-auto max-h-96 shadow-inner">
                       <pre>{jsonText}</pre>
                     </div>
                   </div>
@@ -1132,21 +1177,25 @@ export function CharacterStudioDrawer({
               <div className="pt-2 border-t border-border">
                 <button
                   type="button"
-                  onClick={() => setShowWardrobes(!showWardrobes)}
-                  className="w-full flex items-center justify-between py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => {
+                    hapticImpact('selection');
+                    setShowWardrobes(!showWardrobes);
+                  }}
+                  className="w-full min-h-[44px] flex items-center justify-between py-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  <div className="flex items-center gap-1.5">
-                    <Shirt className="w-3.5 h-3.5 text-muted-foreground" />
+                  <div className="flex items-center gap-2">
+                    <Shirt className="w-4 h-4 text-muted-foreground" />
                     <span>Saved Wardrobes & Outfits ({editingChar.wardrobes?.length || 0})</span>
                   </div>
-                  {showWardrobes ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  {showWardrobes ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 </button>
 
                 {showWardrobes && (
-                  <div className="space-y-2 pt-2 animate-in fade-in duration-150">
+                  <div className="space-y-2.5 pt-2 animate-in fade-in duration-150">
                     <div className="flex justify-end">
                       <button
                         onClick={() => {
+                          hapticImpact('light');
                           const newW = {
                             id: Date.now().toString(),
                             name: 'New Outfit',
@@ -1157,26 +1206,28 @@ export function CharacterStudioDrawer({
                             wardrobes: [...(editingChar.wardrobes || []), newW],
                           });
                         }}
-                        className="text-xs text-emerald-600 dark:text-emerald-400 font-medium hover:underline"
+                        className="min-h-[38px] px-3 text-xs text-emerald-600 dark:text-emerald-400 font-semibold hover:underline flex items-center"
                       >
                         + Add Outfit
                       </button>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                       {editingChar.wardrobes?.map((w, idx) => (
                         <div
                           key={w.id}
-                          className="p-3 border border-border rounded-xl bg-muted/40 space-y-2 relative"
+                          className="p-3.5 border border-border rounded-2xl bg-muted/40 space-y-2.5 relative"
                         >
                           <button
                             onClick={() => {
+                              hapticImpact('light');
                               const updated = (editingChar.wardrobes || []).filter((ww) => ww.id !== w.id);
                               setEditingChar({ ...editingChar, wardrobes: updated });
                             }}
-                            className="absolute top-2 right-2 text-muted-foreground hover:text-destructive p-1 transition-colors"
+                            className="min-w-[40px] min-h-[40px] flex items-center justify-center absolute top-1 right-1 text-muted-foreground hover:text-destructive p-2 transition-colors rounded-xl"
+                            aria-label="Remove outfit"
                           >
-                            <X className="w-3.5 h-3.5" />
+                            <X className="w-4 h-4" />
                           </button>
                           <input
                             value={w.name}
@@ -1185,7 +1236,7 @@ export function CharacterStudioDrawer({
                               arr[idx].name = e.target.value;
                               setEditingChar({ ...editingChar, wardrobes: arr });
                             }}
-                            className="w-full bg-transparent font-medium border-b border-border outline-none pb-1 text-xs text-foreground focus:border-emerald-500"
+                            className="w-full bg-transparent font-medium border-b border-border outline-none pb-1 text-xs text-foreground focus:border-emerald-500 pr-10"
                             placeholder="Outfit Name (e.g., Casual Linen)"
                           />
                           <textarea
@@ -1195,7 +1246,7 @@ export function CharacterStudioDrawer({
                               arr[idx].description = e.target.value;
                               setEditingChar({ ...editingChar, wardrobes: arr });
                             }}
-                            className="w-full bg-transparent text-xs resize-none outline-none border-none mt-1 h-12 text-foreground"
+                            className="w-full bg-transparent text-xs resize-none outline-none border-none mt-1 h-12 text-foreground leading-relaxed"
                             placeholder="Clothing description..."
                           />
                           <label className="flex items-center gap-2 text-xs cursor-pointer mt-1 font-medium text-muted-foreground">
@@ -1203,12 +1254,13 @@ export function CharacterStudioDrawer({
                               type="radio"
                               name="active_wardrobe"
                               checked={editingChar.active_wardrobe_id === w.id}
-                              onChange={() =>
-                                setEditingChar({ ...editingChar, active_wardrobe_id: w.id })
-                              }
-                              className="accent-emerald-600"
+                              onChange={() => {
+                                hapticImpact('selection');
+                                setEditingChar({ ...editingChar, active_wardrobe_id: w.id });
+                              }}
+                              className="accent-emerald-600 w-4 h-4"
                             />
-                            Active Outfit
+                            <span>Active Outfit</span>
                           </label>
                         </div>
                       ))}
@@ -1225,7 +1277,7 @@ export function CharacterStudioDrawer({
                 <div className="pt-2">
                   <button
                     onClick={() => handleDelete(editingChar.id!, editingChar.name || 'Character')}
-                    className="w-full py-2.5 px-3 flex items-center justify-center gap-2 border border-destructive/30 text-destructive hover:bg-destructive/10 rounded-xl text-xs font-semibold transition-all"
+                    className="w-full min-h-[44px] h-11 py-2.5 px-3 flex items-center justify-center gap-2 border border-destructive/30 text-destructive hover:bg-destructive/10 rounded-xl text-xs font-semibold transition-all active:scale-[0.98]"
                   >
                     <Trash2 className="w-4 h-4" /> Delete Character
                   </button>
@@ -1237,7 +1289,7 @@ export function CharacterStudioDrawer({
                 <button
                   onClick={handleSave}
                   disabled={loading || !editingChar.name}
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full min-h-[48px] h-12 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   <Check className="w-4 h-4" />
                   {loading ? 'Saving...' : 'Save Character'}
@@ -1252,7 +1304,10 @@ export function CharacterStudioDrawer({
       {isImportModalOpen && (
         <div
           className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
-          onClick={() => setIsImportModalOpen(false)}
+          onClick={() => {
+            hapticImpact('light');
+            setIsImportModalOpen(false);
+          }}
         >
           <div
             className="w-full max-w-lg bg-card text-card-foreground border border-border rounded-2xl shadow-2xl p-5 space-y-4 animate-in zoom-in-95 duration-150"
@@ -1266,8 +1321,12 @@ export function CharacterStudioDrawer({
                 </h3>
               </div>
               <button
-                onClick={() => setIsImportModalOpen(false)}
-                className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted transition-colors"
+                onClick={() => {
+                  hapticImpact('light');
+                  setIsImportModalOpen(false);
+                }}
+                className="min-w-[40px] min-h-[40px] text-muted-foreground hover:text-foreground p-2 rounded-xl hover:bg-muted transition-colors flex items-center justify-center"
+                aria-label="Close modal"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1295,21 +1354,22 @@ export function CharacterStudioDrawer({
               className="w-full bg-background border border-border rounded-xl p-3 font-mono text-[11px] text-foreground outline-none focus:border-emerald-500 leading-relaxed"
             />
 
-            <div className="flex items-center justify-end gap-2 pt-1">
+            <div className="flex items-center justify-end gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={() => {
+                  hapticImpact('light');
                   setIsImportModalOpen(false);
                   setImportError(null);
                 }}
-                className="px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-colors"
+                className="min-h-[44px] px-4 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-colors active:scale-95"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleApplyImportedJson}
-                className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+                className="min-h-[44px] px-5 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>Apply & Populate Fields</span>
@@ -1323,7 +1383,10 @@ export function CharacterStudioDrawer({
       {previewImage && (
         <div
           className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col p-4 sm:p-6 animate-in fade-in duration-150"
-          onClick={() => setPreviewImage(null)}
+          onClick={() => {
+            hapticImpact('light');
+            setPreviewImage(null);
+          }}
         >
           <div
             className="flex items-center justify-between text-white pb-3 shrink-0"
@@ -1337,15 +1400,19 @@ export function CharacterStudioDrawer({
                 href={previewImage.url}
                 target="_blank"
                 rel="noreferrer"
-                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs flex items-center gap-1.5 transition-colors"
+                className="min-h-[44px] min-w-[44px] px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-medium flex items-center gap-1.5 transition-colors active:scale-95"
                 title="Open in new tab"
               >
                 <ExternalLink className="w-4 h-4" />
                 <span className="hidden sm:inline">Open full</span>
               </a>
               <button
-                onClick={() => setPreviewImage(null)}
-                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+                onClick={() => {
+                  hapticImpact('light');
+                  setPreviewImage(null);
+                }}
+                className="min-w-[44px] min-h-[44px] p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center justify-center active:scale-95"
+                aria-label="Close image preview"
               >
                 <X className="w-5 h-5" />
               </button>

@@ -24,6 +24,7 @@ import {
 import { CharacterCard, ImageResult, GalleryItem, ChatThread } from '../../types';
 import { api, copyToClipboard } from '../../lib/api';
 import { buildPhysicalIdentityFromCharData, buildCanonicalCharacterLock } from '../../lib/characterLock';
+import { hapticImpact } from '../../lib/haptics';
 
 interface ReferenceCardWizardProps {
   characters: CharacterCard[];
@@ -508,12 +509,14 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
   // Reset custom raw prompt whenever changing steps
   const handleStepChange = (step: 'face' | 'body' | 'expression' | 'completed') => {
+    hapticImpact('selection');
     setCurrentStep(step);
     setCustomRawPrompt(null);
   };
 
   // Reset all state (Discard Session)
   const handleDiscardSession = () => {
+    hapticImpact('light');
     if (confirm('Discard current reference card session? This will release thread continuity and reset in-progress cards.')) {
       try {
         localStorage.removeItem(DRAFT_STORAGE_KEY);
@@ -537,6 +540,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
   // Archetype Select
   const handleSelectArchetype = (key: string) => {
+    hapticImpact('selection');
     if (ARCHETYPES[key]) {
       setCharData({ ...ARCHETYPES[key] });
       setCustomRawPrompt(null);
@@ -545,6 +549,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
   // Randomize current step's tokens
   const handleRandomize = () => {
+    hapticImpact('medium');
     const keys = Object.keys(ARCHETYPES);
     const randomKey = keys[Math.floor(Math.random() * keys.length)];
     const base = ARCHETYPES[randomKey];
@@ -562,6 +567,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
   // Update a single token field
   const handleUpdateToken = (key: keyof typeof ARCHETYPES.kaya, value: string) => {
+    hapticImpact('selection');
     setCharData((prev: typeof ARCHETYPES.kaya) => ({ ...prev, [key]: value }));
     setCustomRawPrompt(null);
     setActivePickerField(null);
@@ -570,6 +576,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
   // Copy Prompt
   const handleCopyPrompt = async () => {
+    hapticImpact('selection');
     const ok = await copyToClipboard(effectivePrompt);
     if (ok) {
       setCopiedPrompt(true);
@@ -581,6 +588,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
   const handleGenerateCurrentStep = async () => {
     if (isGenerating) return;
+    hapticImpact('medium');
     setIsGenerating(true);
     setGenerationProgress(`Submitting ${currentStep.toUpperCase()} Card to engine…`);
     // On mobile screens, automatically show the preview pane where generation is happening
@@ -648,6 +656,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
   // Pass Face and Move to Body Lock
   const handleConfirmFace = () => {
     if (!faceResult) return;
+    hapticImpact('medium');
     setIsFaceConfirmed(true);
     handleStepChange('body');
     setMobileTab('prompt');
@@ -656,6 +665,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
   // Pass Body and Move to Expression Lock
   const handleConfirmBody = () => {
     if (!bodyResult) return;
+    hapticImpact('medium');
     setIsBodyConfirmed(true);
     handleStepChange('expression');
     setMobileTab('prompt');
@@ -664,6 +674,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
   // Pass Expression and Finalize
   const handleConfirmExpression = () => {
     if (!expressionResult) return;
+    hapticImpact('medium');
     setIsExpressionConfirmed(true);
     setCurrentStep('completed');
     setIsSaveModalOpen(true);
@@ -671,6 +682,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
   // Save Character to Studio Drawer
   const handleSaveCharacter = async () => {
+    hapticImpact('medium');
     setIsSaving(true);
     try {
       const faceId = faceResult?.image_url.split('/').pop() || null;
@@ -738,10 +750,11 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
     return (
       <span
         onClick={() => {
+          hapticImpact('selection');
           setActivePickerField(field);
           setPickerSearch('');
         }}
-        className="inline-flex items-center gap-0.5 px-2 py-0.5 my-0.5 rounded-md text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 text-emerald-900 dark:text-emerald-200 border border-emerald-500/30 hover:border-emerald-500 cursor-pointer transition-all shadow-2xs group select-none"
+        className="inline-flex items-center gap-1 px-2.5 py-1 my-0.5 rounded-lg text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 text-emerald-900 dark:text-emerald-200 border border-emerald-500/30 hover:border-emerald-500 cursor-pointer transition-all shadow-2xs group select-none active:scale-95"
         title={`Click to choose or edit ${String(field).replace(/_/g, ' ')}`}
       >
         <span>{val}</span>
@@ -753,8 +766,8 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
   // ── Step 1 Face Document View ──
   const renderFaceDocument = () => {
     return (
-      <div className="space-y-4 text-xs font-serif leading-relaxed text-[#2d2d3a] dark:text-[#d4d4d8]">
-        <p className="font-mono text-[11px] text-[#6e6e80] dark:text-[#a1a1aa] uppercase tracking-wider pb-2 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between">
+      <div className="space-y-4 text-xs font-serif leading-relaxed text-foreground">
+        <p className="font-mono text-[11px] text-muted-foreground uppercase tracking-wider pb-2 border-b border-border flex items-center justify-between">
           <span>Face Turnaround Reference Sheet · 4:3 Landscape</span>
           <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[10px]">Step 1 of 3</span>
         </p>
@@ -765,11 +778,11 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
           {renderInlineToken('gender_presentation')} in her {renderInlineToken('age_appearance')}.
         </p>
 
-        <div className="bg-gray-50 dark:bg-[#151518] p-3 rounded-xl border border-gray-200/70 dark:border-zinc-800/80 font-mono text-[11px] space-y-1">
-          <div className="text-[#6e6e80] dark:text-[#a1a1aa] font-semibold">
-            Show the <strong className="text-[#0d0d0d] dark:text-white">same woman</strong> in three consistent facial views on one clean reference sheet:
+        <div className="bg-muted/50 p-3 rounded-xl border border-border font-mono text-[11px] space-y-1">
+          <div className="text-muted-foreground font-semibold">
+            Show the <strong className="text-foreground">same woman</strong> in three consistent facial views on one clean reference sheet:
           </div>
-          <div className="pl-2 space-y-0.5 text-[#4b4b59] dark:text-[#a1a1aa]">
+          <div className="pl-2 space-y-0.5 text-muted-foreground">
             <div>1. straight-on front view</div>
             <div>2. left 3/4 view</div>
             <div>3. right 3/4 view</div>
@@ -795,7 +808,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
           Use {renderInlineToken('makeup_expression')} so her actual facial identity is clearly visible.
         </p>
 
-        <p className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa] italic bg-gray-50/70 dark:bg-zinc-900/50 p-2.5 rounded-lg border border-dashed border-gray-200 dark:border-zinc-800">
+        <p className="text-[11px] text-muted-foreground italic bg-muted/40 p-2.5 rounded-lg border border-dashed border-border">
           Plain neutral background, consistent soft natural lighting, realistic human anatomy, realistic skin texture, no beauty filter, no facial reshaping, no stylization, no excessive retouching.
           All three views must depict <strong>exactly the same woman</strong> with identical facial structure and physical identity.
           No text except label of side and title.
@@ -811,8 +824,8 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
   // ── Step 2 Body Document View ──
   const renderBodyDocument = () => {
     return (
-      <div className="space-y-4 text-xs font-serif leading-relaxed text-[#2d2d3a] dark:text-[#d4d4d8]">
-        <p className="font-mono text-[11px] text-[#6e6e80] dark:text-[#a1a1aa] uppercase tracking-wider pb-2 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between">
+      <div className="space-y-4 text-xs font-serif leading-relaxed text-foreground">
+        <p className="font-mono text-[11px] text-muted-foreground uppercase tracking-wider pb-2 border-b border-border flex items-center justify-between">
           <span>Full-Body Reference Sheet · 4:3 Landscape</span>
           <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[10px] flex items-center gap-1">
             <CheckCircle2 size={11} />
@@ -826,11 +839,11 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
           {renderInlineToken('gender_presentation')} in her {renderInlineToken('age_appearance')}.
         </p>
 
-        <div className="bg-gray-50 dark:bg-[#151518] p-3 rounded-xl border border-gray-200/70 dark:border-zinc-800/80 font-mono text-[11px] space-y-1">
-          <div className="text-[#6e6e80] dark:text-[#a1a1aa] font-semibold">
-            Show the <strong className="text-[#0d0d0d] dark:text-white">same woman</strong> in three consistent full-body views on one clean reference sheet:
+        <div className="bg-muted/50 p-3 rounded-xl border border-border font-mono text-[11px] space-y-1">
+          <div className="text-muted-foreground font-semibold">
+            Show the <strong className="text-foreground">same woman</strong> in three consistent full-body views on one clean reference sheet:
           </div>
-          <div className="pl-2 space-y-0.5 text-[#4b4b59] dark:text-[#a1a1aa]">
+          <div className="pl-2 space-y-0.5 text-muted-foreground">
             <div>1. front view</div>
             <div>2. left side view</div>
             <div>3. Right side view</div>
@@ -860,7 +873,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
           Preserve her {renderInlineToken('skin_tone_undertone')} and realistic human skin texture.
         </p>
 
-        <p className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa] italic bg-gray-50/70 dark:bg-zinc-900/50 p-2.5 rounded-lg border border-dashed border-gray-200 dark:border-zinc-800">
+        <p className="text-[11px] text-muted-foreground italic bg-muted/40 p-2.5 rounded-lg border border-dashed border-border">
           Plain neutral background, consistent soft natural lighting, realistic anatomy and proportions.
           No slimming, body reshaping, exaggerated curves, muscular enhancement, artificial proportions, beauty filter, or stylization.
           All three views must depict <strong>exactly the same woman with identical body proportions</strong>.
@@ -877,8 +890,8 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
   // ── Step 3 Expression Document View ──
   const renderExpressionDocument = () => {
     return (
-      <div className="space-y-4 text-xs font-serif leading-relaxed text-[#2d2d3a] dark:text-[#d4d4d8]">
-        <p className="font-mono text-[11px] text-[#6e6e80] dark:text-[#a1a1aa] uppercase tracking-wider pb-2 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between">
+      <div className="space-y-4 text-xs font-serif leading-relaxed text-foreground">
+        <p className="font-mono text-[11px] text-muted-foreground uppercase tracking-wider pb-2 border-b border-border flex items-center justify-between">
           <span>Expression & Selfie Realism · 2×3 Grid</span>
           <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[10px] flex items-center gap-1">
             <CheckCircle2 size={11} />
@@ -892,11 +905,11 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
           {renderInlineToken('gender_presentation')} in her {renderInlineToken('age_appearance')}.
         </p>
 
-        <div className="bg-gray-50 dark:bg-[#151518] p-3 rounded-xl border border-gray-200/70 dark:border-zinc-800/80 font-mono text-[11px] space-y-1">
-          <div className="text-[#6e6e80] dark:text-[#a1a1aa] font-semibold">
-            Show <strong className="text-[#0d0d0d] dark:text-white">six expressions of the exact same woman</strong> in a clean 2×3 grid:
+        <div className="bg-muted/50 p-3 rounded-xl border border-border font-mono text-[11px] space-y-1">
+          <div className="text-muted-foreground font-semibold">
+            Show <strong className="text-foreground">six expressions of the exact same woman</strong> in a clean 2×3 grid:
           </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pl-2 text-[#4b4b59] dark:text-[#a1a1aa]">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pl-2 text-muted-foreground">
             <div>1. relaxed neutral</div>
             <div>2. soft genuine smile</div>
             <div>3. playful smirk</div>
@@ -918,7 +931,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
           Expressions should feel like a real person rather than exaggerated model poses. Include {renderInlineToken('selfie_vibe')}.
         </p>
 
-        <p className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa] italic bg-gray-50/70 dark:bg-zinc-900/50 p-2.5 rounded-lg border border-dashed border-gray-200 dark:border-zinc-800">
+        <p className="text-[11px] text-muted-foreground italic bg-muted/40 p-2.5 rounded-lg border border-dashed border-border">
           Consistent natural lighting, simple neutral background, realistic skin texture, photorealistic rendering, high resolution.
           No face redesign, beautification, excessive retouching, plastic skin, exaggerated expressions, or stylization.
           No text except label of side and title.
@@ -932,115 +945,116 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col w-full overflow-hidden bg-[#fafafa] dark:bg-[#0f0f11]">
+    <div className="flex-1 min-h-0 flex flex-col w-full overflow-hidden bg-background">
       {/* ── TOP STEPPER & STATUS HEADER ── */}
-      <div className="border-b border-[#e5e5e5] dark:border-[#27272a] bg-white dark:bg-[#141417] px-3 sm:px-4 py-2 shrink-0 z-20">
+      <div className="border-b border-border bg-card px-3 sm:px-4 py-2.5 shrink-0 z-20">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
           {/* 3-Step Wizard Stepper */}
-          <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+          <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none py-0.5">
             {/* Step 1: Face */}
             <button
               onClick={() => handleStepChange('face')}
-              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 ${
+              className={`min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-medium transition-all shrink-0 select-none active:scale-95 ${
                 currentStep === 'face'
-                  ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 font-semibold shadow-2xs'
+                  ? 'bg-primary/15 text-primary border border-primary/30 font-semibold shadow-2xs'
                   : isFaceConfirmed
-                  ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
-                  : 'text-[#6e6e80] dark:text-[#a1a1aa] hover:bg-gray-100 dark:hover:bg-zinc-800'
+                  ? 'bg-primary/10 text-primary border border-primary/20'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground border border-transparent'
               }`}
             >
               <div
-                className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] font-bold ${
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                   isFaceConfirmed
-                    ? 'bg-emerald-600 text-white'
+                    ? 'bg-primary text-primary-foreground'
                     : currentStep === 'face'
-                    ? 'bg-emerald-500 text-white ring-2 ring-emerald-500/30'
-                    : 'bg-gray-200 dark:bg-zinc-700 text-gray-600 dark:text-gray-300'
+                    ? 'bg-primary text-primary-foreground ring-2 ring-primary/30'
+                    : 'bg-muted text-muted-foreground border border-border'
                 }`}
               >
-                {isFaceConfirmed ? <Check size={11} strokeWidth={3} /> : '1'}
+                {isFaceConfirmed ? <Check size={12} strokeWidth={3} /> : '1'}
               </div>
-              <span>Face<span className="hidden sm:inline"> Lock</span></span>
+              <span className="font-semibold">Face<span className="hidden sm:inline"> Lock</span></span>
               <span className="text-[10px] opacity-70 font-mono hidden xs:inline">4:3</span>
             </button>
 
-            <span className="text-gray-300 dark:text-zinc-700 font-mono text-xs">→</span>
+            <span className="text-muted-foreground/40 font-mono text-xs">→</span>
 
             {/* Step 2: Body */}
             <button
               onClick={() => handleStepChange('body')}
-              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 ${
+              className={`min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-medium transition-all shrink-0 select-none active:scale-95 ${
                 currentStep === 'body'
-                  ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 font-semibold shadow-2xs'
+                  ? 'bg-primary/15 text-primary border border-primary/30 font-semibold shadow-2xs'
                   : isBodyConfirmed
-                  ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
-                  : 'text-[#6e6e80] dark:text-[#a1a1aa] hover:bg-gray-100 dark:hover:bg-zinc-800'
+                  ? 'bg-primary/10 text-primary border border-primary/20'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground border border-transparent'
               }`}
             >
               <div
-                className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] font-bold ${
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                   isBodyConfirmed
-                    ? 'bg-emerald-600 text-white'
+                    ? 'bg-primary text-primary-foreground'
                     : currentStep === 'body'
-                    ? 'bg-emerald-500 text-white ring-2 ring-emerald-500/30'
-                    : 'bg-gray-200 dark:bg-zinc-700 text-gray-600 dark:text-gray-300'
+                    ? 'bg-primary text-primary-foreground ring-2 ring-primary/30'
+                    : 'bg-muted text-muted-foreground border border-border'
                 }`}
               >
-                {isBodyConfirmed ? <Check size={11} strokeWidth={3} /> : '2'}
+                {isBodyConfirmed ? <Check size={12} strokeWidth={3} /> : '2'}
               </div>
-              <span>Body<span className="hidden sm:inline"> Lock</span></span>
+              <span className="font-semibold">Body<span className="hidden sm:inline"> Lock</span></span>
               <span className="text-[10px] opacity-70 font-mono hidden xs:inline">4:3</span>
             </button>
 
-            <span className="text-gray-300 dark:text-zinc-700 font-mono text-xs">→</span>
+            <span className="text-muted-foreground/40 font-mono text-xs">→</span>
 
             {/* Step 3: Expression */}
             <button
               onClick={() => handleStepChange('expression')}
-              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 ${
+              className={`min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-medium transition-all shrink-0 select-none active:scale-95 ${
                 currentStep === 'expression'
-                  ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 font-semibold shadow-2xs'
+                  ? 'bg-primary/15 text-primary border border-primary/30 font-semibold shadow-2xs'
                   : isExpressionConfirmed
-                  ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
-                  : 'text-[#6e6e80] dark:text-[#a1a1aa] hover:bg-gray-100 dark:hover:bg-zinc-800'
+                  ? 'bg-primary/10 text-primary border border-primary/20'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground border border-transparent'
               }`}
             >
               <div
-                className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] font-bold ${
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                   isExpressionConfirmed
-                    ? 'bg-emerald-600 text-white'
+                    ? 'bg-primary text-primary-foreground'
                     : currentStep === 'expression'
-                    ? 'bg-emerald-500 text-white ring-2 ring-emerald-500/30'
-                    : 'bg-gray-200 dark:bg-zinc-700 text-gray-600 dark:text-gray-300'
+                    ? 'bg-primary text-primary-foreground ring-2 ring-primary/30'
+                    : 'bg-muted text-muted-foreground border border-border'
                 }`}
               >
-                {isExpressionConfirmed ? <Check size={11} strokeWidth={3} /> : '3'}
+                {isExpressionConfirmed ? <Check size={12} strokeWidth={3} /> : '3'}
               </div>
-              <span>Expr<span className="hidden sm:inline">ession</span></span>
+              <span className="font-semibold">Expr<span className="hidden sm:inline">ession</span></span>
               <span className="text-[10px] opacity-70 font-mono hidden xs:inline">2×3</span>
             </button>
           </div>
 
           {/* Thread / Session Status & Discard Action */}
-          <div className="flex items-center gap-1.5 text-xs shrink-0">
+          <div className="flex items-center gap-2 text-xs shrink-0">
             {sessionConversationId ? (
-              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-[10px] sm:text-[11px] font-mono">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[11px] font-mono">
+                <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
                 <span className="hidden sm:inline">Thread Locked</span>
                 <span>(#{sessionConversationId.slice(-6)})</span>
               </div>
             ) : (
-              <span className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa] hidden md:inline">
+              <span className="text-[11px] text-muted-foreground hidden md:inline font-mono">
                 New Character Session
               </span>
             )}
 
             <button
               onClick={handleDiscardSession}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              className="min-w-[40px] min-h-[40px] flex items-center justify-center p-2 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95"
               title="Reset current session and discard generated cards"
+              aria-label="Discard session"
             >
-              <Trash2 size={13} />
+              <Trash2 size={15} />
             </button>
           </div>
         </div>
@@ -1048,36 +1062,40 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
       {/* ── THREAD CONTEXT CONFIRMATION BANNER ── */}
       {!sessionConversationId ? (
-        <div className="bg-white dark:bg-[#161619] border-b border-[#e5e5e5] dark:border-[#27272a] px-3 sm:px-4 py-2 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shrink-0 z-10">
+        <div className="bg-card border-b border-border px-3 sm:px-4 py-2.5 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shrink-0 z-10">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-[#6e6e80] dark:text-[#a1a1aa] flex items-center gap-1 text-[11px]">
-              <MessageSquare size={13} />
+            <span className="font-medium text-muted-foreground flex items-center gap-1.5 text-[11px]">
+              <MessageSquare size={14} className="text-primary" />
               <span>ChatGPT Thread:</span>
             </span>
 
-            <div className="flex items-center p-0.5 bg-gray-100 dark:bg-zinc-800 rounded-lg text-[11px]">
+            <div className="flex items-center p-1 bg-muted rounded-xl text-[11px]">
               <button
                 onClick={() => {
+                  hapticImpact('selection');
                   setChatMode('new');
                   setTargetExistingChatId('');
                   api.resetConversation().catch(() => {});
                 }}
-                className={`px-2.5 py-1 rounded-md transition-all font-medium flex items-center gap-1.5 ${
+                className={`min-h-[36px] px-3 py-1.5 rounded-lg transition-all font-medium flex items-center gap-1.5 active:scale-95 ${
                   chatMode === 'new'
-                    ? 'bg-white dark:bg-[#1e1e22] text-emerald-700 dark:text-emerald-300 shadow-2xs font-semibold'
-                    : 'text-[#6e6e80] dark:text-[#a1a1aa]'
+                    ? 'bg-card text-foreground shadow-2xs font-semibold'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <Sparkles size={11} className="text-emerald-500" />
+                <Sparkles size={12} className="text-primary" />
                 <span>New Chat (Clean Slate)</span>
               </button>
 
               <button
-                onClick={() => setChatMode('existing')}
-                className={`px-2.5 py-1 rounded-md transition-all font-medium flex items-center gap-1.5 ${
+                onClick={() => {
+                  hapticImpact('selection');
+                  setChatMode('existing');
+                }}
+                className={`min-h-[36px] px-3 py-1.5 rounded-lg transition-all font-medium flex items-center gap-1.5 active:scale-95 ${
                   chatMode === 'existing'
-                    ? 'bg-white dark:bg-[#1e1e22] text-emerald-700 dark:text-emerald-300 shadow-2xs font-semibold'
-                    : 'text-[#6e6e80] dark:text-[#a1a1aa]'
+                    ? 'bg-card text-foreground shadow-2xs font-semibold'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <span>Attach to Existing Chat</span>
@@ -1088,7 +1106,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               <select
                 value={targetExistingChatId}
                 onChange={(e) => setTargetExistingChatId(e.target.value)}
-                className="text-[11px] py-1 px-2 rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-[#18181b] text-[#0d0d0d] dark:text-white max-w-xs focus:ring-1 focus:ring-emerald-500"
+                className="text-[11px] py-1.5 px-2.5 rounded-xl border border-border bg-card text-foreground max-w-xs focus:ring-1 focus:ring-primary focus:outline-none"
               >
                 <option value="">-- Choose Existing Thread --</option>
                 {availableChats.map((c) => {
@@ -1106,64 +1124,70 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
           <div className="text-[11px] flex items-center gap-1.5 font-medium">
             {chatMode === 'new' ? (
-              <span className="text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md flex items-center gap-1">
-                <CheckCircle2 size={12} />
-                <span>Confirmed: Clean-slate conversation for {charData.character_name}</span>
+              <span className="text-primary bg-primary/10 px-2.5 py-1 rounded-lg flex items-center gap-1.5 border border-primary/20">
+                <CheckCircle2 size={13} />
+                <span>Clean-slate session for {charData.character_name}</span>
               </span>
             ) : (
-              <span className="text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md flex items-center gap-1">
-                <CheckCircle2 size={12} />
-                <span>Confirmed: Will attach to thread #{targetExistingChatId ? targetExistingChatId.slice(-6) : 'selected'}</span>
+              <span className="text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg flex items-center gap-1.5 border border-amber-500/20">
+                <CheckCircle2 size={13} />
+                <span>Will attach to #{targetExistingChatId ? targetExistingChatId.slice(-6) : 'selected'}</span>
               </span>
             )}
           </div>
         </div>
       ) : (
-        <div className="bg-emerald-500/5 dark:bg-emerald-950/20 border-b border-emerald-500/20 px-3 sm:px-4 py-2 text-xs flex items-center justify-between gap-2 shrink-0 z-10">
+        <div className="bg-primary/5 border-b border-primary/20 px-3 sm:px-4 py-2.5 text-xs flex items-center justify-between gap-2 shrink-0 z-10">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-mono text-[11px] font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-primary/15 text-primary font-mono text-[11px] font-semibold border border-primary/20">
+              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
               <span>Thread Locked: #{sessionConversationId.slice(-8)}</span>
             </div>
-            <span className="text-emerald-800/90 dark:text-emerald-300/90 text-[11px]">
+            <span className="text-foreground/80 text-[11px]">
               Identity Continuity Active · Face, Body & Expression share this conversation context across turns.
             </span>
           </div>
 
           <button
             onClick={handleDiscardSession}
-            className="text-[11px] px-2 py-0.5 rounded-md text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors flex items-center gap-1 font-medium"
+            className="min-h-[36px] text-[11px] px-3 py-1 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-1.5 font-medium active:scale-95 border border-transparent hover:border-destructive/20"
             title="Release conversation and reset wizard"
           >
-            <RotateCcw size={11} />
+            <RotateCcw size={12} />
             <span>Discard & Release</span>
           </button>
         </div>
       )}
 
       {/* ── MOBILE VIEW SWITCHER (< lg only) ── */}
-      <div className="flex lg:hidden items-center justify-between border-b border-[#e5e5e5] dark:border-[#27272a] bg-white dark:bg-[#141417] px-3 py-1.5 shrink-0 z-10">
-        <div className="flex items-center p-0.5 bg-gray-100 dark:bg-zinc-800 rounded-lg text-xs w-full">
+      <div className="flex lg:hidden items-center justify-between border-b border-border bg-card px-3 py-2 shrink-0 z-10">
+        <div className="flex items-center p-1 bg-muted rounded-xl text-xs w-full gap-1">
           <button
-            onClick={() => setMobileTab('prompt')}
-            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+            onClick={() => {
+              hapticImpact('selection');
+              setMobileTab('prompt');
+            }}
+            className={`flex-1 min-h-[44px] py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
               mobileTab === 'prompt'
-                ? 'bg-white dark:bg-[#18181b] text-emerald-600 dark:text-emerald-400 shadow-2xs font-semibold'
-                : 'text-[#6e6e80] dark:text-[#a1a1aa]'
+                ? 'bg-card text-foreground shadow-2xs font-semibold border border-border/40'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Pencil size={11} />
+            <Pencil size={13} className="text-primary" />
             <span>Edit Prompt</span>
           </button>
           <button
-            onClick={() => setMobileTab('preview')}
-            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+            onClick={() => {
+              hapticImpact('selection');
+              setMobileTab('preview');
+            }}
+            className={`flex-1 min-h-[44px] py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
               mobileTab === 'preview'
-                ? 'bg-white dark:bg-[#18181b] text-emerald-600 dark:text-emerald-400 shadow-2xs font-semibold'
-                : 'text-[#6e6e80] dark:text-[#a1a1aa]'
+                ? 'bg-card text-foreground shadow-2xs font-semibold border border-border/40'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Eye size={12} />
+            <Eye size={14} className="text-primary" />
             <span>Card Preview</span>
             {(() => {
               const activeResult =
@@ -1173,7 +1197,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                   ? bodyResult
                   : expressionResult;
               return activeResult ? (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-primary animate-pulse ml-0.5" />
               ) : null;
             })()}
           </button>
@@ -1183,14 +1207,14 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
       {/* ── MAIN WORKSPACE: 2-COLUMN LAYOUT ── */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col lg:flex-row">
         {/* ── LEFT COLUMN: Interactive Prompt Document ── */}
-        <div className={`w-full lg:w-[54%] border-r border-[#e5e5e5] dark:border-[#27272a] flex-col bg-white dark:bg-[#141417] overflow-hidden ${
+        <div className={`w-full lg:w-[54%] border-r border-border flex-col bg-card overflow-hidden ${
           mobileTab === 'prompt' ? 'flex' : 'hidden lg:flex'
         }`}>
           {/* Sub-header Toolbar */}
-          <div className="p-3 px-4 border-b border-[#e5e5e5] dark:border-[#27272a] bg-[#fafafa] dark:bg-[#18181b] flex items-center justify-between gap-2 shrink-0">
+          <div className="p-3 px-4 border-b border-border bg-muted/30 flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white flex items-center gap-1.5">
-                <Pencil size={13} className="text-emerald-500" />
+              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Pencil size={13} className="text-primary" />
                 <span>
                   {currentStep === 'face'
                     ? 'Face Reference Prompt'
@@ -1208,7 +1232,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                   Custom Edited
                 </span>
               ) : (
-                <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-medium">
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-primary/15 text-primary font-medium">
                   Interactive Tokens
                 </span>
               )}
@@ -1217,15 +1241,15 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
             <div className="flex items-center gap-2">
               {/* Archetype Quick-Bar */}
               <div className="flex items-center gap-1 text-[11px] overflow-x-auto scrollbar-none py-0.5 shrink-0">
-                <span className="text-[#6e6e80] dark:text-[#a1a1aa] text-[10px] hidden md:inline">Preset:</span>
+                <span className="text-muted-foreground text-[10px] hidden md:inline font-mono">Preset:</span>
                 {['nia', 'kaya', 'zia', 'nastya'].map((k) => (
                   <button
                     key={k}
                     onClick={() => handleSelectArchetype(k)}
-                    className={`px-2.5 py-1 rounded-md capitalize font-medium transition-all text-xs shrink-0 ${
+                    className={`min-h-[36px] px-3 py-1 rounded-lg capitalize font-medium transition-all text-xs shrink-0 select-none active:scale-95 ${
                       charData.character_name.toLowerCase() === k
-                        ? 'bg-emerald-600 text-white shadow-2xs font-semibold'
-                        : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-zinc-700'
+                        ? 'bg-primary text-primary-foreground shadow-2xs font-semibold'
+                        : 'bg-muted text-muted-foreground hover:text-foreground'
                     }`}
                   >
                     {k}
@@ -1236,16 +1260,17 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               {/* Randomize Button */}
               <button
                 onClick={handleRandomize}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-[#0d0d0d] dark:text-white transition-all shadow-2xs active:scale-95"
+                className="min-h-[36px] flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs bg-muted hover:bg-muted/80 text-foreground transition-all shadow-2xs active:scale-95 border border-border"
                 title="Randomize dynamic tokens with realistic harmonized values"
               >
-                <Dices size={13} className="text-emerald-500" />
+                <Dices size={14} className="text-primary" />
                 <span className="hidden sm:inline">Randomize</span>
               </button>
 
               {/* Toggle Interactive vs Raw */}
               <button
                 onClick={() => {
+                  hapticImpact('selection');
                   if (editorMode === 'tokens') {
                     setEditorMode('raw');
                     setCustomRawPrompt(effectivePrompt);
@@ -1253,10 +1278,10 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     setEditorMode('tokens');
                   }
                 }}
-                className={`px-2 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                className={`min-h-[36px] px-2.5 py-1 rounded-xl text-xs font-medium border transition-colors ${
                   editorMode === 'raw'
-                    ? 'bg-zinc-800 text-white dark:bg-zinc-200 dark:text-black border-transparent'
-                    : 'bg-white dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-[#6e6e80] dark:text-[#a1a1aa] hover:text-black dark:hover:text-white'
+                    ? 'bg-foreground text-background border-transparent'
+                    : 'bg-card border-border text-muted-foreground hover:text-foreground'
                 }`}
                 title="Toggle raw text editing"
               >
@@ -1266,10 +1291,10 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               {/* Copy prompt */}
               <button
                 onClick={handleCopyPrompt}
-                className="p-1 rounded-lg text-[#6e6e80] dark:text-[#a1a1aa] hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors active:scale-95"
                 title="Copy prompt text"
               >
-                {copiedPrompt ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                {copiedPrompt ? <Check size={14} className="text-primary" /> : <Copy size={14} />}
               </button>
             </div>
           </div>
@@ -1282,10 +1307,10 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                   value={effectivePrompt}
                   onChange={(e) => setCustomRawPrompt(e.target.value)}
                   rows={20}
-                  className="w-full flex-1 text-xs font-mono whitespace-pre-wrap text-[#2d2d3a] dark:text-[#d4d4d8] leading-relaxed bg-[#fafafa] dark:bg-[#111113] p-4 rounded-xl border border-gray-200 dark:border-zinc-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none shadow-inner"
+                  className="w-full flex-1 text-xs font-mono whitespace-pre-wrap text-foreground leading-relaxed bg-muted/20 p-4 rounded-xl border border-border focus:outline-none focus:ring-1 focus:ring-primary resize-none shadow-inner"
                   placeholder="Raw prompt editor..."
                 />
-                <div className="flex items-center justify-between text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>💡 Direct text edits are active and will be used for generation.</span>
                   {customRawPrompt !== null && (
                     <button
@@ -1299,26 +1324,29 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                 </div>
               </div>
             ) : (
-              <div className="max-w-2xl mx-auto bg-white dark:bg-[#151518] p-5 sm:p-7 rounded-2xl border border-[#eeeeee] dark:border-[#222226] shadow-sm">
+              <div className="max-w-2xl mx-auto bg-card p-5 sm:p-7 rounded-2xl border border-border shadow-sm">
                 {currentStep === 'face' && renderFaceDocument()}
                 {currentStep === 'body' && renderBodyDocument()}
                 {currentStep === 'expression' && renderExpressionDocument()}
                 {currentStep === 'completed' && (
                   <div className="text-center py-8 space-y-4">
-                    <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 mx-auto">
+                    <div className="w-16 h-16 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center text-primary mx-auto">
                       <CheckCircle2 size={36} />
                     </div>
                     <div>
-                      <h3 className="text-base font-semibold text-[#0d0d0d] dark:text-white">
+                      <h3 className="text-base font-semibold text-foreground">
                         All 3 Reference Cards Locked!
                       </h3>
-                      <p className="text-xs text-[#6e6e80] dark:text-[#a1a1aa] mt-1 max-w-sm mx-auto">
+                      <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
                         Face Turnaround (Image 1), Body Turnaround (Image 2), and Expression Grid (Image 3) have been generated in the same thread.
                       </p>
                     </div>
                     <button
-                      onClick={() => setIsSaveModalOpen(true)}
-                      className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md transition-all active:scale-95"
+                      onClick={() => {
+                        hapticImpact('medium');
+                        setIsSaveModalOpen(true);
+                      }}
+                      className="min-h-[44px] px-5 py-2.5 rounded-xl text-xs font-semibold text-primary-foreground bg-primary hover:bg-primary/90 shadow-md transition-all active:scale-95"
                     >
                       Save to Character Card
                     </button>
@@ -1328,9 +1356,8 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
             )}
           </div>
 
-
           {/* Desktop Left-Column Action Bar */}
-          <div className="hidden lg:flex p-3 px-4 border-t border-[#e5e5e5] dark:border-[#27272a] bg-white dark:bg-[#141417] items-center justify-between gap-3 shrink-0">
+          <div className="hidden lg:flex p-3 px-4 border-t border-border bg-card items-center justify-between gap-3 shrink-0">
             {(() => {
               const activeResult =
                 currentStep === 'face'
@@ -1345,7 +1372,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     <button
                       onClick={handleGenerateCurrentStep}
                       disabled={isGenerating}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 dark:border-zinc-700 text-xs font-medium text-[#6e6e80] dark:text-[#a1a1aa] hover:bg-gray-50 dark:hover:bg-zinc-800 active:scale-95 disabled:opacity-50"
+                      className="min-h-[44px] flex items-center gap-1.5 px-4 py-2 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 active:scale-95 disabled:opacity-50"
                     >
                       <RotateCcw size={13} />
                       <span>Regenerate Card</span>
@@ -1354,7 +1381,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     {currentStep === 'face' && (
                       <button
                         onClick={handleConfirmFace}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm active:scale-95"
+                        className="min-h-[44px] flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-primary-foreground bg-primary hover:bg-primary/90 shadow-sm active:scale-95"
                       >
                         <span>Pass & Proceed to Body Lock</span>
                         <ArrowRight size={14} />
@@ -1364,7 +1391,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     {currentStep === 'body' && (
                       <button
                         onClick={handleConfirmBody}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm active:scale-95"
+                        className="min-h-[44px] flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-primary-foreground bg-primary hover:bg-primary/90 shadow-sm active:scale-95"
                       >
                         <span>Pass & Proceed to Expression Lock</span>
                         <ArrowRight size={14} />
@@ -1374,7 +1401,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     {currentStep === 'expression' && (
                       <button
                         onClick={handleConfirmExpression}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm active:scale-95"
+                        className="min-h-[44px] flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-primary-foreground bg-primary hover:bg-primary/90 shadow-sm active:scale-95"
                       >
                         <span>Pass & Finalize Character</span>
                         <Check size={14} strokeWidth={3} />
@@ -1388,16 +1415,16 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                 <button
                   onClick={handleGenerateCurrentStep}
                   disabled={isGenerating}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm active:scale-95 disabled:opacity-60"
+                  className="w-full min-h-[48px] h-12 flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold text-primary-foreground bg-primary hover:bg-primary/90 shadow-sm active:scale-95 disabled:opacity-60"
                 >
                   {isGenerating ? (
                     <>
-                      <Loader2 size={14} className="animate-spin" />
+                      <Loader2 size={16} className="animate-spin" />
                       <span>{generationProgress || 'Generating Card in ChatGPT...'}</span>
                     </>
                   ) : (
                     <>
-                      <Sparkles size={14} />
+                      <Sparkles size={16} />
                       <span>
                         Generate{' '}
                         {currentStep === 'face'
@@ -1415,7 +1442,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
         </div>
 
         {/* ── RIGHT COLUMN: Reference Card Review & Pass Gate ── */}
-        <div className={`w-full lg:w-[46%] flex-col bg-[#fafafa] dark:bg-[#0d0d0f] overflow-y-auto p-4 sm:p-6 space-y-5 ${
+        <div className={`w-full lg:w-[46%] flex-col bg-muted/20 overflow-y-auto p-4 sm:p-6 space-y-5 ${
           mobileTab === 'preview' ? 'flex' : 'hidden lg:flex'
         }`}>
           {/* Card Result or Ready Card */}
@@ -1429,32 +1456,32 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
             if (activeResult) {
               return (
-                <div className="rounded-2xl border border-emerald-500/30 bg-white dark:bg-[#18181b] overflow-hidden shadow-md animate-fade flex flex-col">
+                <div className="rounded-2xl border border-primary/30 bg-card overflow-hidden shadow-md animate-fade flex flex-col">
                   {/* Header */}
-                  <div className="p-3 px-4 bg-emerald-500/10 border-b border-emerald-500/20 flex items-center justify-between">
+                  <div className="p-3 px-4 bg-primary/10 border-b border-primary/20 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400" />
+                      <CheckCircle2 size={16} className="text-primary" />
                       <div>
-                        <span className="text-xs font-semibold text-emerald-900 dark:text-emerald-300 block">
+                        <span className="text-xs font-semibold text-foreground block">
                           {currentStep === 'face'
                             ? 'Face Reference Card (Image 1)'
                             : currentStep === 'body'
                             ? 'Body Reference Card (Image 2)'
                             : 'Expression Reference Card (Image 3)'}
                         </span>
-                        <span className="text-[10px] text-emerald-700/80 dark:text-emerald-400/80">
+                        <span className="text-[10px] text-muted-foreground">
                           Review sheet below. Pass to lock or Regenerate.
                         </span>
                       </div>
                     </div>
 
-                    <div className="text-[10px] font-mono text-[#6e6e80] dark:text-[#a1a1aa] text-right shrink-0">
+                    <div className="text-[10px] font-mono text-muted-foreground text-right shrink-0">
                       {activeResult.duration_s ? `${activeResult.duration_s.toFixed(1)}s` : ''} · {activeResult.account_used || 'Primary'}
                     </div>
                   </div>
 
                   {/* Image Display */}
-                  <div className="relative aspect-[4/3] w-full bg-black/5 dark:bg-black/50 flex items-center justify-center overflow-hidden group">
+                  <div className="relative aspect-[4/3] w-full bg-black/50 flex items-center justify-center overflow-hidden group">
                     <img
                       src={activeResult.image_url}
                       alt="Generated Reference Sheet"
@@ -1496,7 +1523,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                           tweaked_prompt_2: null,
                         })
                       }
-                      className="absolute top-3 right-3 p-2 rounded-xl bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-xs hover:bg-black/80"
+                      className="absolute top-3 right-3 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-xs hover:bg-black/80"
                       title="Inspect full screen"
                     >
                       <Maximize2 size={16} />
@@ -1504,11 +1531,11 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                   </div>
 
                   {/* Step Confirmation & Next Action Bar (Desktop only, mobile uses sticky footer) */}
-                  <div className="hidden lg:flex p-3.5 bg-white dark:bg-[#18181b] border-t border-gray-100 dark:border-zinc-800 flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                  <div className="hidden lg:flex p-3.5 bg-card border-t border-border flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
                     <button
                       onClick={handleGenerateCurrentStep}
                       disabled={isGenerating}
-                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-[#6e6e80] dark:text-[#a1a1aa] hover:bg-gray-100 dark:hover:bg-zinc-800 border border-gray-200 dark:border-zinc-700 sm:border-transparent transition-colors active:scale-95 disabled:opacity-50"
+                      className="min-h-[44px] flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 border border-border transition-colors active:scale-95 disabled:opacity-50"
                       title="Regenerate this step's reference card"
                     >
                       <RotateCcw size={13} />
@@ -1518,7 +1545,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     {currentStep === 'face' && (
                       <button
                         onClick={handleConfirmFace}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition-all active:scale-95"
+                        className="flex-1 min-h-[44px] flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-sm transition-all active:scale-95"
                       >
                         <span>✓ Pass & Proceed to Body Lock</span>
                         <ArrowRight size={14} />
@@ -1528,7 +1555,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     {currentStep === 'body' && (
                       <button
                         onClick={handleConfirmBody}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition-all active:scale-95"
+                        className="flex-1 min-h-[44px] flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-sm transition-all active:scale-95"
                       >
                         <span>✓ Pass & Proceed to Expression Lock</span>
                         <ArrowRight size={14} />
@@ -1538,7 +1565,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     {currentStep === 'expression' && (
                       <button
                         onClick={handleConfirmExpression}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition-all active:scale-95"
+                        className="flex-1 min-h-[44px] flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-sm transition-all active:scale-95"
                       >
                         <span>✓ Pass & Finalize Character</span>
                         <Check size={14} strokeWidth={3} />
@@ -1551,8 +1578,8 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
             // Before Generation Card
             return (
-              <div className="rounded-2xl border border-dashed border-gray-300 dark:border-zinc-700 p-6 sm:p-8 bg-white dark:bg-[#18181b] flex flex-col items-center justify-center text-center space-y-4 shadow-2xs">
-                <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+              <div className="rounded-2xl border border-dashed border-border p-6 sm:p-8 bg-card flex flex-col items-center justify-center text-center space-y-4 shadow-2xs">
+                <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                   {currentStep === 'face' ? (
                     <User size={28} />
                   ) : currentStep === 'body' ? (
@@ -1563,14 +1590,14 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                 </div>
 
                 <div>
-                  <h4 className="text-sm font-semibold text-[#0d0d0d] dark:text-white">
+                  <h4 className="text-sm font-semibold text-foreground">
                     {currentStep === 'face'
                       ? 'Ready to Generate Face Lock Card'
                       : currentStep === 'body'
                       ? 'Ready to Generate Body Lock Card'
                       : 'Ready to Generate Expression Lock Card'}
                   </h4>
-                  <p className="text-xs text-[#6e6e80] dark:text-[#a1a1aa] mt-1 max-w-sm">
+                  <p className="text-xs text-muted-foreground mt-1 max-w-sm">
                     {currentStep === 'face'
                       ? `Renders a 4:3 high-res sheet with 3 consistent views to lock ${charData.character_name}'s facial features, skin, eyes, and hair.`
                       : currentStep === 'body'
@@ -1582,7 +1609,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                 <button
                   onClick={handleGenerateCurrentStep}
                   disabled={isGenerating}
-                  className="w-full max-w-xs flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md transition-all active:scale-95 disabled:opacity-60"
+                  className="w-full max-w-xs min-h-[48px] h-12 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm text-primary-foreground bg-primary hover:bg-primary/90 shadow-md transition-all active:scale-95 disabled:opacity-60"
                 >
                   {isGenerating ? (
                     <>
@@ -1609,38 +1636,38 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
           {/* Locked Cards Showcase */}
           <div className="space-y-3">
-            <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white block">
+            <span className="text-xs font-semibold text-foreground block">
               Character Reference Locks
             </span>
 
             <div className="grid grid-cols-3 gap-2.5">
               {/* Slot 1: Face */}
               <div className="flex flex-col space-y-1">
-                <span className="text-[10px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] flex items-center gap-1">
+                <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
                   <span>1. Face Lock</span>
-                  {isFaceConfirmed && <Check size={11} className="text-emerald-500" strokeWidth={3} />}
+                  {isFaceConfirmed && <Check size={11} className="text-primary" strokeWidth={3} />}
                 </span>
                 <div
                   onClick={() => handleStepChange('face')}
                   className={`aspect-[4/3] rounded-xl border overflow-hidden flex items-center justify-center cursor-pointer transition-all ${
                     currentStep === 'face'
-                      ? 'ring-2 ring-emerald-500 border-emerald-500'
-                      : 'border-gray-200 dark:border-zinc-800 hover:border-gray-300'
-                  } bg-white dark:bg-[#151518]`}
+                      ? 'ring-2 ring-primary border-primary'
+                      : 'border-border hover:border-border/80'
+                  } bg-card`}
                 >
                   {faceResult ? (
                     <img src={faceResult.image_url} alt="Face Lock" className="w-full h-full object-cover" />
                   ) : (
-                    <User size={20} className="text-gray-300 dark:text-zinc-600" />
+                    <User size={20} className="text-muted-foreground/40" />
                   )}
                 </div>
               </div>
 
               {/* Slot 2: Body */}
               <div className="flex flex-col space-y-1">
-                <span className="text-[10px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] flex items-center gap-1">
+                <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
                   <span>2. Body Lock</span>
-                  {isBodyConfirmed && <Check size={11} className="text-emerald-500" strokeWidth={3} />}
+                  {isBodyConfirmed && <Check size={11} className="text-primary" strokeWidth={3} />}
                 </span>
                 <div
                   onClick={() => isFaceConfirmed && handleStepChange('body')}
@@ -1648,23 +1675,23 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     !isFaceConfirmed ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
                   } ${
                     currentStep === 'body'
-                      ? 'ring-2 ring-emerald-500 border-emerald-500'
-                      : 'border-gray-200 dark:border-zinc-800 hover:border-gray-300'
-                  } bg-white dark:bg-[#151518]`}
+                      ? 'ring-2 ring-primary border-primary'
+                      : 'border-border hover:border-border/80'
+                  } bg-card`}
                 >
                   {bodyResult ? (
                     <img src={bodyResult.image_url} alt="Body Lock" className="w-full h-full object-cover" />
                   ) : (
-                    <UserCheck size={20} className="text-gray-300 dark:text-zinc-600" />
+                    <UserCheck size={20} className="text-muted-foreground/40" />
                   )}
                 </div>
               </div>
 
               {/* Slot 3: Expression */}
               <div className="flex flex-col space-y-1">
-                <span className="text-[10px] font-medium text-[#6e6e80] dark:text-[#a1a1aa] flex items-center gap-1">
+                <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
                   <span>3. Expression Lock</span>
-                  {isExpressionConfirmed && <Check size={11} className="text-emerald-500" strokeWidth={3} />}
+                  {isExpressionConfirmed && <Check size={11} className="text-primary" strokeWidth={3} />}
                 </span>
                 <div
                   onClick={() => isBodyConfirmed && handleStepChange('expression')}
@@ -1672,14 +1699,14 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     !isBodyConfirmed ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
                   } ${
                     currentStep === 'expression'
-                      ? 'ring-2 ring-emerald-500 border-emerald-500'
-                      : 'border-gray-200 dark:border-zinc-800 hover:border-gray-300'
-                  } bg-white dark:bg-[#151518]`}
+                      ? 'ring-2 ring-primary border-primary'
+                      : 'border-border hover:border-border/80'
+                  } bg-card`}
                 >
                   {expressionResult ? (
                     <img src={expressionResult.image_url} alt="Expression Lock" className="w-full h-full object-cover" />
                   ) : (
-                    <Smile size={20} className="text-gray-300 dark:text-zinc-600" />
+                    <Smile size={20} className="text-muted-foreground/40" />
                   )}
                 </div>
               </div>
@@ -1688,10 +1715,13 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
             {/* Quick action to save once ready */}
             {(faceResult || bodyResult || expressionResult) && (
               <button
-                onClick={() => setIsSaveModalOpen(true)}
-                className="w-full mt-2 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border border-gray-200 dark:border-zinc-700 hover:bg-gray-50 dark:hover:bg-zinc-800 text-[#0d0d0d] dark:text-white transition-colors shadow-2xs active:scale-95"
+                onClick={() => {
+                  hapticImpact('medium');
+                  setIsSaveModalOpen(true);
+                }}
+                className="w-full min-h-[44px] mt-2 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold border border-border hover:bg-muted bg-card text-foreground transition-colors shadow-2xs active:scale-95"
               >
-                <Save size={13} className="text-emerald-500" />
+                <Save size={14} className="text-primary" />
                 <span>Save Progress to Character Card</span>
               </button>
             )}
@@ -1700,7 +1730,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
       </div>
 
       {/* ── MOBILE STICKY ACTION FOOTER (< lg only) ── */}
-      <div className="lg:hidden p-3 border-t border-[#e5e5e5] dark:border-[#27272a] bg-white/95 dark:bg-[#141417]/95 backdrop-blur-md shadow-lg shrink-0 z-30 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="lg:hidden p-3 border-t border-border bg-card/95 backdrop-blur-md shadow-lg shrink-0 z-30 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         {(() => {
           const activeResult =
             currentStep === 'face'
@@ -1711,7 +1741,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
           if (isGenerating) {
             return (
-              <div className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-xs text-white bg-emerald-600 shadow-md">
+              <div className="w-full min-h-[48px] h-12 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-xs text-primary-foreground bg-primary shadow-md">
                 <Loader2 size={16} className="animate-spin" />
                 <span>{generationProgress || 'Generating Card in ChatGPT…'}</span>
               </div>
@@ -1723,7 +1753,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleGenerateCurrentStep}
-                  className="min-h-[48px] flex items-center justify-center gap-1.5 px-3.5 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 text-xs font-semibold text-[#6e6e80] dark:text-[#a1a1aa] bg-gray-50 dark:bg-zinc-800 active:scale-95 shrink-0"
+                  className="min-h-[48px] h-12 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 active:scale-95 shrink-0"
                   title="Regenerate this step's reference card"
                 >
                   <RotateCcw size={13} />
@@ -1733,7 +1763,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                 {currentStep === 'face' && (
                   <button
                     onClick={handleConfirmFace}
-                    className="flex-1 min-h-[48px] flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md active:scale-95"
+                    className="flex-1 min-h-[48px] h-12 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-md active:scale-95"
                   >
                     <span>✓ Pass & Proceed to Body Lock</span>
                     <ArrowRight size={14} />
@@ -1743,7 +1773,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                 {currentStep === 'body' && (
                   <button
                     onClick={handleConfirmBody}
-                    className="flex-1 min-h-[48px] flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md active:scale-95"
+                    className="flex-1 min-h-[48px] h-12 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-md active:scale-95"
                   >
                     <span>✓ Pass & Proceed to Expression Lock</span>
                     <ArrowRight size={14} />
@@ -1753,7 +1783,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                 {currentStep === 'expression' && (
                   <button
                     onClick={handleConfirmExpression}
-                    className="flex-1 min-h-[48px] flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md active:scale-95"
+                    className="flex-1 min-h-[48px] h-12 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-md active:scale-95"
                   >
                     <span>✓ Pass & Finalize Character</span>
                     <Check size={14} strokeWidth={3} />
@@ -1767,7 +1797,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
           return (
             <button
               onClick={handleGenerateCurrentStep}
-              className="w-full min-h-[48px] flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md active:scale-95"
+              className="w-full min-h-[48px] h-12 flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm text-primary-foreground bg-primary hover:bg-primary/90 shadow-md active:scale-95"
             >
               <Sparkles size={16} />
               <span>
@@ -1786,36 +1816,36 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
       {/* ── INLINE TOKEN PICKER POPOVER / MODAL ── */}
       {activePickerField && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-2xs animate-fade"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50 backdrop-blur-2xs animate-fade"
           onClick={() => setActivePickerField(null)}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full sm:max-w-md bg-white dark:bg-[#18181b] rounded-t-2xl sm:rounded-2xl border border-gray-200 dark:border-zinc-800 shadow-2xl overflow-hidden max-h-[85vh] flex flex-col animate-slide-up sm:animate-fade"
+            className="w-full sm:max-w-md bg-card rounded-t-2xl sm:rounded-2xl border border-border shadow-2xl overflow-hidden max-h-[85vh] flex flex-col animate-slide-up sm:animate-fade"
           >
             {/* Header */}
-            <div className="p-3.5 px-4 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between bg-gray-50 dark:bg-[#151518]">
+            <div className="p-3.5 px-4 border-b border-border flex items-center justify-between bg-muted/30">
               <div>
-                <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white capitalize">
+                <span className="text-xs font-semibold text-foreground capitalize">
                   Edit {String(activePickerField).replace(/_/g, ' ')}
                 </span>
-                <p className="text-[10px] text-[#6e6e80] dark:text-[#a1a1aa]">
+                <p className="text-[10px] text-muted-foreground">
                   Search presets or enter any custom trait
                 </p>
               </div>
 
               <button
                 onClick={() => setActivePickerField(null)}
-                className="p-1 rounded-lg text-gray-400 hover:text-black dark:hover:text-white"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground"
               >
                 <X size={16} />
               </button>
             </div>
 
             {/* Search / Custom write-in input */}
-            <div className="p-3 border-b border-gray-100 dark:border-zinc-800">
+            <div className="p-3 border-b border-border">
               <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   value={pickerSearch}
@@ -1827,7 +1857,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                   }}
                   autoFocus
                   placeholder={`Search or type custom ${String(activePickerField).replace(/_/g, ' ')}...`}
-                  className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-gray-100 dark:bg-zinc-800 border border-transparent focus:border-emerald-500 focus:bg-white dark:focus:bg-[#121214] text-[#0d0d0d] dark:text-white focus:outline-none transition-all"
+                  className="w-full min-h-[40px] pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:border-primary focus:bg-card text-foreground focus:outline-none transition-all"
                 />
               </div>
             </div>
@@ -1838,7 +1868,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               {pickerSearch.trim() && (
                 <button
                   onClick={() => handleUpdateToken(activePickerField, pickerSearch.trim())}
-                  className="w-full text-left p-2.5 px-3 rounded-xl text-xs bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 font-medium flex items-center justify-between border border-emerald-500/30 transition-colors"
+                  className="w-full min-h-[40px] text-left p-2.5 px-3 rounded-xl text-xs bg-primary/10 hover:bg-primary/20 text-primary font-medium flex items-center justify-between border border-primary/30 transition-colors"
                 >
                   <span className="truncate">✨ Use custom: "{pickerSearch.trim()}"</span>
                   <span className="text-[10px] opacity-75 font-mono">Press ↵</span>
@@ -1854,14 +1884,14 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     <button
                       key={opt}
                       onClick={() => handleUpdateToken(activePickerField, opt)}
-                      className={`w-full text-left p-2.5 px-3 rounded-xl text-xs flex items-center justify-between transition-colors ${
+                      className={`w-full min-h-[40px] text-left p-2.5 px-3 rounded-xl text-xs flex items-center justify-between transition-colors ${
                         isCurrent
-                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-medium border border-emerald-500/20'
-                          : 'hover:bg-gray-100 dark:hover:bg-zinc-800/60 text-[#2d2d3a] dark:text-[#d4d4d8]'
+                          ? 'bg-primary/10 text-primary font-semibold border border-primary/20'
+                          : 'hover:bg-muted text-foreground'
                       }`}
                     >
                       <span className="capitalize">{opt}</span>
-                      {isCurrent && <Check size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />}
+                      {isCurrent && <Check size={14} className="text-primary shrink-0" />}
                     </button>
                   );
                 })}
@@ -1873,24 +1903,24 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
       {/* ── SAVE CHARACTER MODAL ── */}
       {isSaveModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade">
-          <div className="bg-white dark:bg-[#18181b] border border-gray-200 dark:border-zinc-800 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl animate-scale-up">
-            <div className="p-4 border-b border-gray-100 dark:border-zinc-800 flex items-center justify-between">
+          <div className="bg-card border border-border rounded-2xl max-w-md w-full overflow-hidden shadow-2xl animate-scale-up">
+            <div className="p-4 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-                  <Save size={16} />
+                <div className="w-9 h-9 rounded-xl bg-primary/15 text-primary flex items-center justify-center">
+                  <Save size={18} />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-sm text-[#0d0d0d] dark:text-white">
+                  <h3 className="font-semibold text-sm text-foreground">
                     Save Reference Sheet Character
                   </h3>
-                  <span className="text-[11px] text-[#6e6e80] dark:text-[#a1a1aa]">
+                  <span className="text-[11px] text-muted-foreground">
                     Preserve Face, Body, and Expression cards in Studio
                   </span>
                 </div>
               </div>
               <button
                 onClick={() => setIsSaveModalOpen(false)}
-                className="p-1 rounded-lg text-gray-400 hover:text-black dark:hover:text-white"
+                className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground"
               >
                 <X size={16} />
               </button>
@@ -1898,29 +1928,35 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
             <div className="p-5 space-y-4">
               {saveSuccess ? (
-                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-2">
+                <div className="p-4 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs flex items-center gap-2">
                   <CheckCircle2 size={18} className="shrink-0" />
                   <span>{saveSuccess}</span>
                 </div>
               ) : (
                 <>
-                  <div className="flex rounded-xl bg-gray-100 dark:bg-zinc-800 p-1">
+                  <div className="flex rounded-xl bg-muted p-1 gap-1">
                     <button
-                      onClick={() => setSaveMode('new')}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      onClick={() => {
+                        hapticImpact('selection');
+                        setSaveMode('new');
+                      }}
+                      className={`flex-1 min-h-[36px] py-1.5 rounded-lg text-xs font-medium transition-all ${
                         saveMode === 'new'
-                          ? 'bg-white dark:bg-[#18181b] text-emerald-600 dark:text-emerald-400 shadow-xs'
-                          : 'text-[#6e6e80] dark:text-[#a1a1aa]'
+                          ? 'bg-card text-foreground shadow-xs font-semibold'
+                          : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       New Character
                     </button>
                     <button
-                      onClick={() => setSaveMode('existing')}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      onClick={() => {
+                        hapticImpact('selection');
+                        setSaveMode('existing');
+                      }}
+                      className={`flex-1 min-h-[36px] py-1.5 rounded-lg text-xs font-medium transition-all ${
                         saveMode === 'existing'
-                          ? 'bg-white dark:bg-[#18181b] text-emerald-600 dark:text-emerald-400 shadow-xs'
-                          : 'text-[#6e6e80] dark:text-[#a1a1aa]'
+                          ? 'bg-card text-foreground shadow-xs font-semibold'
+                          : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       Update Existing
@@ -1929,26 +1965,26 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
                   {saveMode === 'new' ? (
                     <div>
-                      <label className="text-xs font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">
                         Character Name
                       </label>
                       <input
                         type="text"
                         value={charData.character_name}
                         onChange={(e) => setCharData({ ...charData, character_name: e.target.value })}
-                        className="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        className="w-full text-xs p-2.5 rounded-xl border border-border bg-muted/20 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                         placeholder="e.g. Kaya"
                       />
                     </div>
                   ) : (
                     <div>
-                      <label className="text-xs font-medium text-[#6e6e80] dark:text-[#a1a1aa] block mb-1">
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">
                         Select Character to Update
                       </label>
                       <select
                         value={targetCharId}
                         onChange={(e) => setTargetCharId(e.target.value)}
-                        className="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 bg-[#fafafa] dark:bg-[#121214] focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        className="w-full text-xs p-2.5 rounded-xl border border-border bg-muted/20 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                       >
                         <option value="">-- Choose Character --</option>
                         {characters.map((c) => (
@@ -1960,27 +1996,27 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     </div>
                   )}
 
-                  <div className="bg-gray-50 dark:bg-zinc-900/50 p-3 rounded-xl border border-gray-100 dark:border-zinc-800 text-[11px] text-[#6e6e80] dark:text-[#a1a1aa] space-y-1">
+                  <div className="bg-muted/40 p-3 rounded-xl border border-border text-[11px] text-muted-foreground space-y-1">
                     <div className="flex items-center justify-between">
                       <span>Face Lock:</span>
-                      <span className="font-medium">{faceResult ? 'Ready ✓' : 'None'}</span>
+                      <span className="font-medium text-foreground">{faceResult ? 'Ready ✓' : 'None'}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span>Body Lock:</span>
-                      <span className="font-medium">{bodyResult ? 'Ready ✓' : 'None'}</span>
+                      <span className="font-medium text-foreground">{bodyResult ? 'Ready ✓' : 'None'}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span>Expression Lock:</span>
-                      <span className="font-medium">{expressionResult ? 'Ready ✓' : 'None'}</span>
+                      <span className="font-medium text-foreground">{expressionResult ? 'Ready ✓' : 'None'}</span>
                     </div>
                   </div>
 
                   <button
                     onClick={handleSaveCharacter}
                     disabled={isSaving || (saveMode === 'existing' && !targetCharId)}
-                    className="w-full py-2.5 rounded-xl font-semibold text-xs text-white bg-emerald-600 hover:bg-emerald-700 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="w-full min-h-[48px] h-12 py-2.5 rounded-xl font-semibold text-sm text-primary-foreground bg-primary hover:bg-primary/90 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                    {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                     <span>Confirm & Save Character</span>
                   </button>
                 </>

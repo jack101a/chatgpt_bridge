@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Search,
   X,
+  Rows3,
   LayoutGrid,
   Columns,
   Grid3X3,
@@ -10,8 +11,9 @@ import {
   CheckSquare,
 } from 'lucide-react';
 import { GalleryTimeFilter, GallerySortBy } from '../../types';
+import { hapticImpact } from '../../lib/haptics';
 
-export type GalleryDensityMode = 'grid' | 'masonry' | 'compact';
+export type GalleryDensityMode = 'feed' | 'grid' | 'masonry' | 'compact';
 export type AspectRatioFilter = 'all' | 'square' | 'wide' | 'tall';
 
 export interface GalleryToolbarProps {
@@ -88,7 +90,24 @@ export const GalleryToolbar: React.FC<GalleryToolbarProps> = ({
           {/* Density Controls (sv-table style) */}
           <div className="flex items-center bg-muted/60 p-0.5 rounded-lg border border-border">
             <button
-              onClick={() => onDensityChange('grid')}
+              onClick={() => {
+                hapticImpact('selection');
+                onDensityChange('feed');
+              }}
+              className={`p-1.5 rounded-md transition-colors ${
+                density === 'feed'
+                  ? 'bg-card text-foreground shadow-2xs font-semibold'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="Feed View (Vertical Scrolling Stream)"
+            >
+              <Rows3 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => {
+                hapticImpact('selection');
+                onDensityChange('grid');
+              }}
               className={`p-1.5 rounded-md transition-colors ${
                 density === 'grid'
                   ? 'bg-card text-foreground shadow-2xs font-semibold'
@@ -99,7 +118,10 @@ export const GalleryToolbar: React.FC<GalleryToolbarProps> = ({
               <LayoutGrid className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={() => onDensityChange('masonry')}
+              onClick={() => {
+                hapticImpact('selection');
+                onDensityChange('masonry');
+              }}
               className={`p-1.5 rounded-md transition-colors ${
                 density === 'masonry'
                   ? 'bg-card text-foreground shadow-2xs font-semibold'
@@ -110,7 +132,10 @@ export const GalleryToolbar: React.FC<GalleryToolbarProps> = ({
               <Columns className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={() => onDensityChange('compact')}
+              onClick={() => {
+                hapticImpact('selection');
+                onDensityChange('compact');
+              }}
               className={`p-1.5 rounded-md transition-colors ${
                 density === 'compact'
                   ? 'bg-card text-foreground shadow-2xs font-semibold'
@@ -124,7 +149,10 @@ export const GalleryToolbar: React.FC<GalleryToolbarProps> = ({
 
           {/* Batch Mode Toggle */}
           <button
-            onClick={onToggleBatchMode}
+            onClick={() => {
+              hapticImpact('light');
+              onToggleBatchMode();
+            }}
             className={`flex items-center space-x-1.5 px-2.5 h-8 rounded-lg text-xs font-medium border transition-colors ${
               isBatchMode
                 ? 'bg-primary/15 text-primary border-primary/40 font-semibold'
