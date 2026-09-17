@@ -109,11 +109,12 @@ const GalleryFeedCard: React.FC<GalleryFeedCardProps> = ({
           {isBatchMode && (
             <button
               onClick={onToggleSelect}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border transition-all active:scale-90"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border border-border transition-all active:scale-90"
               title={isSelected ? 'Deselect' : 'Select'}
+              aria-label={isSelected ? 'Deselect image' : 'Select image'}
             >
               <div
-                className={`w-5 h-5 rounded flex items-center justify-center transition-all ${
+                className={`w-5 h-5 rounded-md flex items-center justify-center transition-all ${
                   isSelected
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-muted border border-border text-transparent'
@@ -123,15 +124,15 @@ const GalleryFeedCard: React.FC<GalleryFeedCardProps> = ({
               </div>
             </button>
           )}
-          <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-medium border border-border/40">
+          <span className="text-[11px] font-mono px-2.5 py-1 rounded-md bg-muted text-muted-foreground font-medium border border-border/40">
             {item.account_used || 'Primary'}
           </span>
           {item.tg_file_id && (
             <span
-              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[10px] font-mono font-medium border border-primary/20"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary/10 text-primary text-[10.5px] font-mono font-medium border border-primary/20"
               title="Secured in Telegram Cloud Vault"
             >
-              <Cloud className="w-3 h-3 text-primary" />
+              <Cloud className="w-3.5 h-3.5 text-primary" />
               <span>Vault</span>
             </span>
           )}
@@ -140,7 +141,7 @@ const GalleryFeedCard: React.FC<GalleryFeedCardProps> = ({
         <div className="flex items-center space-x-1">
           <button
             onClick={handleCopyPrompt}
-            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 active:scale-95 transition-all"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 active:scale-95 transition-all"
             title="Copy prompt"
             aria-label="Copy prompt"
           >
@@ -152,7 +153,7 @@ const GalleryFeedCard: React.FC<GalleryFeedCardProps> = ({
           </button>
           <button
             onClick={handleHeartClick}
-            className={`min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl active:scale-90 transition-all ${
+            className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl active:scale-90 transition-all ${
               item.favorite
                 ? 'text-rose-500 bg-rose-500/10'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/80'
@@ -171,7 +172,7 @@ const GalleryFeedCard: React.FC<GalleryFeedCardProps> = ({
               hapticImpact('light');
               onOpenViewer(item);
             }}
-            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 active:scale-95 transition-all"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/80 active:scale-95 transition-all"
             title="Inspect full screen"
             aria-label="Open full screen"
           >
@@ -464,7 +465,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
         ref={scrollContainerRef}
         onScroll={handleScroll}
         onRefresh={onRefresh}
-        className="flex-1 p-3 sm:p-4 overflow-y-auto no-scrollbar"
+        className="flex-1 p-3 sm:p-4 pb-28 sm:pb-24 overflow-y-auto no-scrollbar"
       >
         {/* Empty State */}
         {visibleItems.length === 0 && !isLoading && (
