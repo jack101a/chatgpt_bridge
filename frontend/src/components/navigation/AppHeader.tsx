@@ -218,8 +218,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             hapticImpact('light');
             onToggleTheme();
           }}
-          className="min-w-[40px] min-h-[40px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-90 transition-all flex items-center justify-center"
+          className="min-w-[44px] min-h-[44px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-90 transition-all flex items-center justify-center"
           title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          aria-label={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         >
           {isDarkMode ? (
             <Sun className="w-4 h-4 text-amber-400 hover:rotate-45 transition-transform" />

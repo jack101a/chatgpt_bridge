@@ -117,12 +117,12 @@ const GalleryFeedCard: React.FC<{
   return (
     <div
       onClick={handleClick}
-      className="relative w-full bg-black flex items-center justify-center cursor-pointer select-none overflow-hidden my-1.5 sm:my-2.5 group"
+      className="relative w-full bg-white dark:bg-black border-y border-border/50 dark:border-transparent flex items-center justify-center cursor-pointer select-none overflow-hidden my-1.5 sm:my-2.5 group transition-colors shadow-2xs dark:shadow-none"
     >
       {/* Loading Skeleton Shimmer */}
       {!isLoaded && (
-        <div className="w-full aspect-[3/4] max-h-[75vh] bg-zinc-950/90 animate-pulse flex items-center justify-center">
-          <Loader2 size={24} className="text-zinc-700 animate-spin" />
+        <div className="w-full aspect-[3/4] max-h-[75vh] bg-muted/60 dark:bg-zinc-950/90 animate-pulse flex items-center justify-center">
+          <Loader2 size={24} className="text-muted-foreground dark:text-zinc-700 animate-spin" />
         </div>
       )}
 
@@ -268,8 +268,8 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
         }
       } else if (diff < -8) {
         accumulatedUpScrollRef.current += Math.abs(diff);
-        // Reveal chrome only after continuous deliberate upward scroll of 600px, or right near the top
-        if ((accumulatedUpScrollRef.current > 600 || scrollTop < 30) && !isChromeVisible) {
+        // Reveal chrome on deliberate upward scroll of 200px (natural thumb swipe), or right near the top
+        if ((accumulatedUpScrollRef.current > 200 || scrollTop < 30) && !isChromeVisible) {
           setIsChromeVisible(true);
           onToggleChrome?.(true);
         }
@@ -420,7 +420,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
             setIsChromeVisible(true);
             onToggleChrome?.(true);
           }}
-          className="fixed top-4 right-4 z-40 min-h-[44px] px-4 py-2 rounded-full bg-black/80 hover:bg-black/95 border border-white/20 backdrop-blur-xl text-xs font-semibold text-white/95 shadow-2xl flex items-center gap-1.5 active:scale-95 transition-all animate-fade"
+          className="fixed top-4 right-4 z-40 min-h-[44px] px-4 py-2 rounded-full bg-card/90 dark:bg-black/85 hover:bg-card dark:hover:bg-black border border-border/80 dark:border-white/20 backdrop-blur-xl text-xs font-semibold text-foreground dark:text-white/95 shadow-2xl flex items-center gap-1.5 active:scale-95 transition-all animate-fade"
           aria-label="Show Menu"
         >
           <Menu size={14} className="text-primary" />
@@ -436,7 +436,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({
         onRefresh={onRefresh}
         className={`min-h-full no-scrollbar ${
           density === 'feed'
-            ? 'bg-black px-0 pt-36 pb-28 space-y-2'
+            ? 'bg-[#f7f7f8] dark:bg-black px-0 pt-36 pb-28 space-y-3'
             : 'p-3 sm:p-4 pb-28'
         }`}
       >
