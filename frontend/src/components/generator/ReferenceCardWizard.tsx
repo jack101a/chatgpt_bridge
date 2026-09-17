@@ -1050,7 +1050,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
             <button
               onClick={handleDiscardSession}
-              className="min-w-[40px] min-h-[40px] flex items-center justify-center p-2 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95"
               title="Reset current session and discard generated cards"
               aria-label="Discard session"
             >
@@ -1291,7 +1291,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               {/* Copy prompt */}
               <button
                 onClick={handleCopyPrompt}
-                className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors active:scale-95"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors active:scale-95"
                 title="Copy prompt text"
               >
                 {copiedPrompt ? <Check size={14} className="text-primary" /> : <Copy size={14} />}
@@ -1836,7 +1836,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
               <button
                 onClick={() => setActivePickerField(null)}
-                className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground active:scale-95"
               >
                 <X size={16} />
               </button>
@@ -1920,7 +1920,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               </div>
               <button
                 onClick={() => setIsSaveModalOpen(false)}
-                className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground active:scale-95"
               >
                 <X size={16} />
               </button>

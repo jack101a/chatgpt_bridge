@@ -366,8 +366,14 @@ export function App() {
 
       {/* ── Main Content Stage ── */}
       <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative z-10">
-        {/* Modern App Header (Chat, Cards, Settings - Gallery has its own darkroom auto-hiding header) */}
-        {currentTab !== 'gallery' && (
+        {/* Modern App Header (Auto-hides in sync with feed scroll) */}
+        <div
+          className={`transition-transform duration-300 ease-out z-30 shrink-0 ${
+            currentTab === 'gallery' && !isMobileNavVisible
+              ? '-translate-y-full pointer-events-none absolute top-0 left-0 right-0'
+              : 'relative translate-y-0'
+          }`}
+        >
           <AppHeader
             currentTab={currentTab}
             activeCharacter={activeCharacter}
@@ -383,7 +389,7 @@ export function App() {
             activeAccountName={activeAccount?.alias}
             onNavigateTab={handleSelectTab}
           />
-        )}
+        </div>
 
         {/* Tab 1: Chat Studio */}
         <div className={`flex-1 min-h-0 flex flex-col w-full overflow-hidden ${currentTab === 'chat' ? 'flex' : 'hidden'}`}>
