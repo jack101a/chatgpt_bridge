@@ -31,7 +31,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
   return (
     <nav
-      className={`lg:hidden flex items-center justify-around border-t border-border/80 bg-card/85 backdrop-blur-xl saturate-150 px-3 pt-2 pb-[max(0.65rem,env(safe-area-inset-bottom))] z-40 select-none ${
+      className={`lg:hidden flex items-center justify-around border-t border-border/80 bg-card/95 dark:bg-[#0e0e11]/95 backdrop-blur-2xl saturate-150 px-3 pt-2 pb-[max(0.65rem,env(safe-area-inset-bottom))] z-40 select-none shadow-[0_-4px_24px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_24px_rgba(0,0,0,0.4)] ${
         fixed
           ? `fixed bottom-0 left-0 right-0 transition-transform duration-300 ease-out ${
               isVisible ? 'translate-y-0' : 'translate-y-full pointer-events-none'

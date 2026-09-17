@@ -366,22 +366,24 @@ export function App() {
 
       {/* ── Main Content Stage ── */}
       <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative z-10">
-        {/* Modern App Header (All Screens) */}
-        <AppHeader
-          currentTab={currentTab}
-          activeCharacter={activeCharacter}
-          onOpenCharacters={() => setIsCharacterStudioOpen(true)}
-          onOpenAccounts={handleOpenAccounts}
-          onOpenCommandPalette={commandPalette.openPalette}
-          onOpenShortcuts={commandPalette.openShortcuts}
-          onOpenSidebarMobile={handleOpenSidebarMobile}
-          onToggleTheme={() => setIsDarkMode(!isDarkMode)}
-          isDarkMode={isDarkMode}
-          isConnected={bridge.wsConnected}
-          onOpenDirector={() => setIsDirectorOpen(true)}
-          activeAccountName={activeAccount?.alias}
-          onNavigateTab={handleSelectTab}
-        />
+        {/* Modern App Header (Chat, Cards, Settings - Gallery has its own darkroom auto-hiding header) */}
+        {currentTab !== 'gallery' && (
+          <AppHeader
+            currentTab={currentTab}
+            activeCharacter={activeCharacter}
+            onOpenCharacters={() => setIsCharacterStudioOpen(true)}
+            onOpenAccounts={handleOpenAccounts}
+            onOpenCommandPalette={commandPalette.openPalette}
+            onOpenShortcuts={commandPalette.openShortcuts}
+            onOpenSidebarMobile={handleOpenSidebarMobile}
+            onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+            isDarkMode={isDarkMode}
+            isConnected={bridge.wsConnected}
+            onOpenDirector={() => setIsDirectorOpen(true)}
+            activeAccountName={activeAccount?.alias}
+            onNavigateTab={handleSelectTab}
+          />
+        )}
 
         {/* Tab 1: Chat Studio */}
         <div className={`flex-1 min-h-0 flex flex-col w-full overflow-hidden ${currentTab === 'chat' ? 'flex' : 'hidden'}`}>
