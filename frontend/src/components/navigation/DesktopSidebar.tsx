@@ -1,6 +1,18 @@
-import React from 'react';
-import { Plus, MessageSquare, Image as ImageIcon, Settings2, Trash2, X, Sparkles, UserCircle2, Layers } from 'lucide-react';
+import React, { useRef, useEffect } from 'react';
+import {
+  Plus,
+  MessageSquare,
+  Image as ImageIcon,
+  Settings2,
+  Trash2,
+  X,
+  Sparkles,
+  UserCircle2,
+  Layers,
+  PanelLeftClose,
+} from 'lucide-react';
 import { ChatThread, Account } from '../../types';
+import { hapticImpact } from '../../lib/haptics';
 
 interface DesktopSidebarProps {
   threads: ChatThread[];
@@ -14,7 +26,11 @@ interface DesktopSidebarProps {
   onSelectTab: (tab: 'chat' | 'gallery' | 'generator' | 'settings') => void;
   isOpenMobile: boolean;
   onCloseMobile: () => void;
+  onOpenMobile?: () => void;
   onOpenCharacterStudio?: () => void;
+  isDesktopCollapsed?: boolean;
+  onToggleDesktopCollapse?: () => void;
+  disabledGestures?: boolean;
 }
 
 export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
@@ -29,26 +45,267 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   onSelectTab,
   isOpenMobile,
   onCloseMobile,
+  onOpenMobile,
   onOpenCharacterStudio,
+  isDesktopCollapsed = false,
+  onToggleDesktopCollapse,
+  disabledGestures = false,
 }) => {
+  const asideRef = useRef<HTMLElement | null>(null);
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+  const snapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isOpenMobileRef = useRef(isOpenMobile);
+  const disabledGesturesRef = useRef(disabledGestures);
+  const onOpenMobileRef = useRef(onOpenMobile);
+  const onCloseMobileRef = useRef(onCloseMobile);
+
+  useEffect(() => {
+    isOpenMobileRef.current = isOpenMobile;
+  }, [isOpenMobile]);
+
+  useEffect(() => {
+    disabledGesturesRef.current = disabledGestures;
+  }, [disabledGestures]);
+
+  useEffect(() => {
+    onOpenMobileRef.current = onOpenMobile;
+  }, [onOpenMobile]);
+
+  useEffect(() => {
+    onCloseMobileRef.current = onCloseMobile;
+  }, [onCloseMobile]);
+
+  // High-precision 1:1 real-time interactive gesture engine
+  useEffect(() => {
+    const touchState = {
+      startX: 0,
+      startY: 0,
+      startTime: 0,
+      phase: 'idle' as 'idle' | 'potential' | 'dragging' | 'canceled',
+      wasOpen: false,
+      drawerWidth: 288,
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      // 1. Single touch only
+      if (e.touches.length !== 1) return;
+      // 2. Mobile screen width only (< 1024px)
+      if (window.innerWidth >= 1024) return;
+      // 3. Modals open or gestures explicitly disabled
+      if (disabledGesturesRef.current) return;
+
+      const touch = e.touches[0];
+      const isOpen = isOpenMobileRef.current;
+      const aside = asideRef.current;
+      const drawerWidth = aside?.offsetWidth || 288;
+
+      if (!isOpen) {
+        // Edge swipe to OPEN:
+        // Must start within comfortable 75px zone from left edge
+        if (touch.clientX > 75) return;
+        // Don't intercept form inputs/textareas
+        const target = e.target instanceof Element ? e.target : (e.target as Node | null)?.parentElement;
+        if (target && typeof target.closest === 'function' && target.closest('input, textarea, select, [data-no-swipe]')) return;
+      }
+
+      if (snapTimeoutRef.current) {
+        clearTimeout(snapTimeoutRef.current);
+        snapTimeoutRef.current = null;
+      }
+
+      touchState.startX = touch.clientX;
+      touchState.startY = touch.clientY;
+      touchState.startTime = performance.now();
+      touchState.phase = 'potential';
+      touchState.wasOpen = isOpen;
+      touchState.drawerWidth = drawerWidth;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (touchState.phase === 'idle' || touchState.phase === 'canceled') return;
+      if (e.touches.length !== 1) return;
+
+      const touch = e.touches[0];
+      const dx = touch.clientX - touchState.startX;
+      const dy = touch.clientY - touchState.startY;
+
+      // Disambiguate horizontal swipe vs vertical scroll during first ~8px of movement
+      if (touchState.phase === 'potential') {
+        const absX = Math.abs(dx);
+        const absY = Math.abs(dy);
+
+        if (absX < 8 && absY < 8) return;
+
+        // Vertical movement exceeds horizontal: cancel gesture to allow native scroll
+        if (absY > absX) {
+          touchState.phase = 'canceled';
+          return;
+        }
+
+        // Swiping left while closed or swiping right while open: cancel
+        if (!touchState.wasOpen && dx <= 0) {
+          touchState.phase = 'canceled';
+          return;
+        }
+        if (touchState.wasOpen && dx >= 0) {
+          touchState.phase = 'canceled';
+          return;
+        }
+
+        // Horizontal gesture intent locked!
+        touchState.phase = 'dragging';
+      }
+
+      if (touchState.phase === 'dragging') {
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+
+        const aside = asideRef.current;
+        const backdrop = backdropRef.current;
+        if (!aside) return;
+
+        let currentOffset = 0;
+        if (!touchState.wasOpen) {
+          // Opening: starts at -drawerWidth, moves towards 0
+          const rawOffset = -touchState.drawerWidth + dx;
+          if (rawOffset > 0) {
+            // Subtle elastic rubber-banding past 0
+            currentOffset = Math.pow(rawOffset, 0.75);
+          } else {
+            currentOffset = rawOffset;
+          }
+        } else {
+          // Closing: starts at 0, moves towards -drawerWidth
+          const rawOffset = dx;
+          if (rawOffset < -touchState.drawerWidth) {
+            // Elastic rubber-banding past closed
+            currentOffset = -touchState.drawerWidth - Math.pow(-touchState.drawerWidth - rawOffset, 0.75);
+          } else {
+            currentOffset = Math.min(0, rawOffset);
+          }
+        }
+
+        const progress = Math.max(
+          0,
+          Math.min(1, (touchState.drawerWidth + Math.min(0, currentOffset)) / touchState.drawerWidth)
+        );
+
+        aside.style.transition = 'none';
+        aside.style.transform = `translate3d(${currentOffset}px, 0, 0)`;
+
+        if (backdrop) {
+          backdrop.style.transition = 'none';
+          backdrop.style.opacity = `${progress}`;
+          backdrop.style.pointerEvents = 'auto';
+        }
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (touchState.phase !== 'dragging') {
+        touchState.phase = 'idle';
+        return;
+      }
+      touchState.phase = 'idle';
+
+      const touch = e.changedTouches[0];
+      const dx = touch ? touch.clientX - touchState.startX : 0;
+      const elapsed = Math.max(1, performance.now() - touchState.startTime);
+      const velocity = dx / elapsed; // px/ms (+ = right, - = left)
+
+      const aside = asideRef.current;
+      const backdrop = backdropRef.current;
+
+      // Smart Snapping Decisions:
+      // Velocity flick (>0.35 px/ms) or distance threshold (>35% of width)
+      let shouldBeOpen = false;
+      if (!touchState.wasOpen) {
+        // Was closed: open if flicked right or pulled past 35%
+        shouldBeOpen = velocity > 0.35 || dx > touchState.drawerWidth * 0.35;
+      } else {
+        // Was open: close if flicked left or pushed past 35%
+        shouldBeOpen = !(velocity < -0.35 || dx < -touchState.drawerWidth * 0.35);
+      }
+
+      if (aside) {
+        aside.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
+        aside.style.transform = shouldBeOpen ? 'translate3d(0, 0, 0)' : 'translate3d(-100%, 0, 0)';
+      }
+
+      if (backdrop) {
+        backdrop.style.transition = 'opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
+        backdrop.style.opacity = shouldBeOpen ? '1' : '0';
+        backdrop.style.pointerEvents = shouldBeOpen ? 'auto' : 'none';
+      }
+
+      if (shouldBeOpen !== touchState.wasOpen) {
+        hapticImpact('light');
+        if (shouldBeOpen) {
+          onOpenMobileRef.current?.();
+        } else {
+          onCloseMobileRef.current();
+        }
+      }
+
+      // Settle cleanup: restore pure CSS classes
+      snapTimeoutRef.current = setTimeout(() => {
+        if (asideRef.current) {
+          asideRef.current.style.transform = '';
+          asideRef.current.style.transition = '';
+        }
+        if (backdropRef.current) {
+          backdropRef.current.style.opacity = '';
+          backdropRef.current.style.transition = '';
+          backdropRef.current.style.pointerEvents = '';
+        }
+        snapTimeoutRef.current = null;
+      }, 300);
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchEnd);
+      if (snapTimeoutRef.current) {
+        clearTimeout(snapTimeoutRef.current);
+      }
+    };
+  }, []);
+
   return (
     <>
       {/* Mobile Backdrop */}
-      {isOpenMobile && (
-        <div
-          onClick={onCloseMobile}
-          className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40 animate-fade-in"
-        />
-      )}
+      <div
+        ref={backdropRef}
+        onClick={onCloseMobile}
+        className={`lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity duration-300 ease-out ${
+          isOpenMobile ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        style={{ willChange: 'opacity' }}
+      />
 
       {/* Sidebar Shell */}
       <aside
-        className={`fixed lg:static top-0 bottom-0 left-0 z-50 w-72 lg:w-64 bg-card border-r border-border flex flex-col transition-transform duration-300 ease-in-out select-none ${
-          isOpenMobile ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        ref={asideRef}
+        style={{ willChange: 'transform' }}
+        className={`fixed lg:static top-0 bottom-0 left-0 z-50 bg-card border-r border-border flex flex-col transition-all duration-300 ease-in-out select-none ${
+          isOpenMobile
+            ? 'w-72 translate-x-0'
+            : isDesktopCollapsed
+            ? 'w-72 -translate-x-full lg:translate-x-0 lg:w-0 lg:border-r-0 lg:opacity-0 pointer-events-none lg:pointer-events-none overflow-hidden'
+            : 'w-72 -translate-x-full lg:translate-x-0 lg:w-64 lg:opacity-100'
         }`}
       >
         {/* Header: App Title & New Chat */}
-        <div className="p-3 border-b border-border flex items-center justify-between">
+        <div className="p-3 border-b border-border flex items-center justify-between min-w-[16rem]">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-xs shrink-0">
               <Sparkles size={16} />
@@ -75,6 +332,16 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             >
               <Plus size={17} />
             </button>
+            {onToggleDesktopCollapse && (
+              <button
+                onClick={onToggleDesktopCollapse}
+                className="hidden lg:flex p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
+                title="Collapse sidebar (⌘\)"
+                aria-label="Collapse sidebar"
+              >
+                <PanelLeftClose size={17} />
+              </button>
+            )}
             <button
               onClick={onCloseMobile}
               className="lg:hidden p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"

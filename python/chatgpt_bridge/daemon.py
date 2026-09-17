@@ -1805,7 +1805,11 @@ async def _execute_director_sequence(
     _director_state["conversation_id"] = conversation_id
 
     mgr = _get_character_manager()
-    char = mgr.get(character_id) if character_id else mgr.get_active_character()
+    char = None
+    if character_id and character_id != "freeform":
+        char = mgr.get(character_id)
+    elif character_id != "freeform":
+        char = mgr.get_active_character()
     conv_id = conversation_id
 
     # Automated Turn 0 Handshake if character is bound and conversation is fresh / unprimed:
@@ -1939,9 +1943,9 @@ async def api_director_execute(req: DirectorExecuteRequest, background_tasks: Ba
 async def api_director_plan(req: DirectorPlanRequest):
     mgr = _get_character_manager()
     char = None
-    if req.character_id:
+    if req.character_id and req.character_id != "freeform":
         char = mgr.get(req.character_id)
-    else:
+    elif req.character_id != "freeform":
         char = mgr.get_active_character()
 
     settings = _load_json(SETTINGS_FILE, {})

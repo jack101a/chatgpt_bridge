@@ -191,19 +191,26 @@ class CharacterCard(BaseModel):
                     }
                 }
 
-        face_shape = char_data.get("face_structure") or ""
-        eyes = char_data.get("eyes") or ""
-        brows = char_data.get("eyebrows") or ""
+        face_shape = char_data.get("face_shape") or char_data.get("face_structure") or ""
+        eye_size = char_data.get("eye_size") or ""
+        eye_color = char_data.get("eye_color") or ""
+        eyes = f"{eye_size} {eye_color}".strip() or char_data.get("eyes") or ""
+        brow_shape = char_data.get("brow_shape") or ""
+        brow_color = char_data.get("brow_color") or ""
+        brows = f"{brow_shape} {brow_color}".strip() or char_data.get("eyebrows") or ""
         nose = char_data.get("nose") or ""
         cheeks = char_data.get("cheeks") or ""
         if not cheeks and "cheeks" in face_shape.lower():
             cheeks = "full soft cheeks"
-        lips = char_data.get("lips") or ""
-        distinctive_features = char_data.get("distinctive_features") or ""
+        lip_shape = char_data.get("lip_shape") or ""
+        lip_color = char_data.get("lip_color") or ""
+        lips = f"{lip_shape} {lip_color}".strip() or char_data.get("lips") or ""
+        distinctive_features = char_data.get("makeup") or char_data.get("distinctive_features") or ""
 
-        skin_tone = char_data.get("skin_tone_undertone") or ""
+        skin_tone = char_data.get("skin_tone") or char_data.get("skin_tone_undertone") or ""
+        skin_undertone = char_data.get("skin_undertone") or ""
         skin_texture = char_data.get("skin_texture") or ""
-        skin_finish = char_data.get("finish") or ("soft, silky, naturally luminous" if "luminous" in (skin_tone + skin_texture).lower() else "")
+        skin_finish = char_data.get("finish") or ("soft, silky, naturally luminous" if "luminous" in (skin_tone + skin_texture + skin_undertone).lower() else "")
 
         hair_desc = char_data.get("hair_description") or ""
         hair_color = char_data.get("hair_color") or ""
@@ -218,22 +225,21 @@ class CharacterCard(BaseModel):
         hair_texture = char_data.get("hair_texture") or hair_desc
         hair_details = char_data.get("hair_details") or ""
 
-        silhouette = char_data.get("presence_silhouette") or ""
+        silhouette = char_data.get("silhouette") or char_data.get("presence_silhouette") or ""
         build = char_data.get("physique") or ""
         proportions = char_data.get("proportions_limbs") or ""
         abdomen = char_data.get("abdomen") or ""
 
         bust = (
-            "very heavy prominent natural bust"
-            if any(k in proportions.lower() for k in ("heavy", "prominent", "big natural", "ultra"))
-            else "natural firm bust"
+            char_data.get("bust")
+            or ("very heavy prominent natural bust" if any(k in proportions.lower() for k in ("heavy", "prominent", "big natural", "ultra")) else "natural firm bust")
         )
-        waist = "narrow and clearly defined" if any(k in proportions.lower() for k in ("defined", "narrow", "tiny")) else "naturally defined"
-        hips = "wide and rounded" if any(k in proportions.lower() for k in ("wide", "round", "curv")) else "naturally proportioned"
-        thighs = "full and soft" if any(k in proportions.lower() for k in ("full", "soft")) else "toned"
-        legs = "long-looking with natural feminine shape" if "legs" in proportions.lower() else "naturally proportioned"
-        arms = "soft with natural fullness" if "arms" in proportions.lower() else "naturally proportioned"
-        shoulders = "soft balanced feminine shoulders" if "shoulders" in proportions.lower() else "balanced"
+        waist = char_data.get("waist") or ("narrow and clearly defined" if any(k in proportions.lower() for k in ("defined", "narrow", "tiny")) else "naturally defined")
+        hips = char_data.get("hips") or ("wide and rounded" if any(k in proportions.lower() for k in ("wide", "round", "curv")) else "naturally proportioned")
+        thighs = char_data.get("thighs") or ("full and soft" if any(k in proportions.lower() for k in ("full", "soft")) else "toned")
+        legs = char_data.get("legs") or char_data.get("limbs") or ("long-looking with natural feminine shape" if "legs" in proportions.lower() else "naturally proportioned")
+        arms = char_data.get("arms") or ("soft with natural fullness" if "arms" in proportions.lower() else "naturally proportioned")
+        shoulders = char_data.get("shoulders") or ("soft balanced feminine shoulders" if "shoulders" in proportions.lower() else "balanced")
 
         if not face_shape and not build:
             face_shape = self.visual_dna
@@ -259,7 +265,7 @@ class CharacterCard(BaseModel):
                     },
                     "skin": {
                         "tone": skin_tone,
-                        "undertone": "",
+                        "undertone": skin_undertone,
                         "texture": skin_texture,
                         "finish": skin_finish,
                     },

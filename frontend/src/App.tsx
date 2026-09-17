@@ -41,6 +41,19 @@ export function App() {
 
   const [isAccountsOpen, setIsAccountsOpen] = useState(false);
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState(false);
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('bridge:desktop_sidebar_collapsed') === 'true';
+  });
+
+  const handleToggleDesktopSidebar = useCallback(() => {
+    setIsDesktopSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('bridge:desktop_sidebar_collapsed', String(next));
+      } catch (e) {}
+      return next;
+    });
+  }, []);
   const [isCharacterStudioOpen, setIsCharacterStudioOpen] = useState(false);
   const [isDirectorOpen, setIsDirectorOpen] = useState(false);
   const [activeCharacter, setActiveCharacter] = useState<CharacterCard | null>(null);
@@ -227,6 +240,21 @@ export function App() {
     }
   };
 
+  // Desktop sidebar shortcut (⌘\ or Ctrl+\)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+        e.preventDefault();
+        handleToggleDesktopSidebar();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleToggleDesktopSidebar]);
+
+  // Mobile edge gestures are handled with 1:1 real-time tracking in DesktopSidebar
+
+
   // Viewer navigation with history push
   const handleOpenViewer = (item: GalleryItem) => {
     setViewerItem(item);
@@ -360,8 +388,12 @@ export function App() {
         currentTab={currentTab}
         onSelectTab={handleSelectTab}
         isOpenMobile={isSidebarOpenMobile}
+        onOpenMobile={handleOpenSidebarMobile}
         onCloseMobile={handleCloseSidebarMobile}
         onOpenCharacterStudio={() => setIsCharacterStudioOpen(true)}
+        isDesktopCollapsed={isDesktopSidebarCollapsed}
+        onToggleDesktopCollapse={handleToggleDesktopSidebar}
+        disabledGestures={Boolean(viewerItem || isAccountsOpen || isDirectorOpen || isCharacterStudioOpen)}
       />
 
       {/* ── Main Content Stage ── */}
@@ -382,6 +414,8 @@ export function App() {
             onOpenCommandPalette={commandPalette.openPalette}
             onOpenShortcuts={commandPalette.openShortcuts}
             onOpenSidebarMobile={handleOpenSidebarMobile}
+            onToggleDesktopSidebar={handleToggleDesktopSidebar}
+            isDesktopSidebarCollapsed={isDesktopSidebarCollapsed}
             onToggleTheme={() => setIsDarkMode(!isDarkMode)}
             isDarkMode={isDarkMode}
             isConnected={bridge.wsConnected}

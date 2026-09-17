@@ -7,22 +7,23 @@ import {
   Menu,
   Clapperboard,
   Sparkles,
-  Lock,
-  Unlock,
   Radio,
   Keyboard,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { CharacterCard } from '../../types';
 import { hapticImpact } from '../../lib/haptics';
 
 export interface AppHeaderProps {
   currentTab: 'chat' | 'gallery' | 'generator' | 'settings';
-  activeCharacter: CharacterCard | null;
-  onOpenCharacters: () => void;
+  activeCharacter?: CharacterCard | null;
+  onOpenCharacters?: () => void;
   onOpenAccounts: () => void;
   onOpenCommandPalette: () => void;
   onOpenShortcuts?: () => void;
   onOpenSidebarMobile?: () => void;
+  onToggleDesktopSidebar?: () => void;
+  isDesktopSidebarCollapsed?: boolean;
   onToggleTheme: () => void;
   isDarkMode: boolean;
   isConnected: boolean;
@@ -33,12 +34,12 @@ export interface AppHeaderProps {
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
   currentTab,
-  activeCharacter,
-  onOpenCharacters,
   onOpenAccounts,
   onOpenCommandPalette,
   onOpenShortcuts,
   onOpenSidebarMobile,
+  onToggleDesktopSidebar,
+  isDesktopSidebarCollapsed,
   onToggleTheme,
   isDarkMode,
   isConnected,
@@ -62,8 +63,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
   return (
     <header className="h-[calc(3.5rem+env(safe-area-inset-top,0px))] pt-[env(safe-area-inset-top,0px)] w-full border-b border-border/80 bg-card/85 backdrop-blur-xl saturate-150 px-3 sm:px-4 flex items-center justify-between z-30 select-none shrink-0 transition-colors">
-      {/* Left: Mobile hamburger + App Title */}
+      {/* Left: Desktop expand + Mobile hamburger + App Title */}
       <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+        {/* Mobile hamburger */}
         {onOpenSidebarMobile && (
           <button
             onClick={() => {
@@ -74,6 +76,21 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             aria-label="Open sidebar"
           >
             <Menu className="w-5 h-5" />
+          </button>
+        )}
+
+        {/* Desktop expand sidebar toggle when collapsed */}
+        {isDesktopSidebarCollapsed && onToggleDesktopSidebar && (
+          <button
+            onClick={() => {
+              hapticImpact('light');
+              onToggleDesktopSidebar();
+            }}
+            className="hidden lg:flex items-center justify-center min-w-[36px] min-h-[36px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
+            title="Expand sidebar (⌘\)"
+            aria-label="Expand sidebar"
+          >
+            <PanelLeftOpen className="w-5 h-5" />
           </button>
         )}
 
@@ -95,39 +112,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </span>
           </div>
         </div>
-
-        {/* Character Lock Status Pill */}
-        <button
-          onClick={() => {
-            hapticImpact('light');
-            onOpenCharacters();
-          }}
-          className={`flex items-center space-x-1.5 min-h-[34px] px-3 py-1 rounded-full text-xs font-mono transition-all border shrink-0 active:scale-95 ${
-            activeCharacter
-              ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20 shadow-2xs'
-              : 'bg-muted/50 text-muted-foreground border-border hover:text-foreground hover:bg-muted'
-          }`}
-          title={
-            activeCharacter
-              ? `Locked to ${activeCharacter.name}. Click to switch or unlock.`
-              : 'No character locked. Click to select a persona.'
-          }
-        >
-          {activeCharacter ? (
-            <>
-              <Lock className="w-3 h-3 text-primary" />
-              <span className="font-semibold truncate max-w-[80px] sm:max-w-[120px]">
-                {activeCharacter.name}
-              </span>
-            </>
-          ) : (
-            <>
-              <Unlock className="w-3 h-3 text-muted-foreground" />
-              <span className="hidden sm:inline">Freeform Mode</span>
-              <span className="sm:hidden">Free</span>
-            </>
-          )}
-        </button>
       </div>
 
       {/* Center: Command Palette Trigger Button (sv-agentation style) */}

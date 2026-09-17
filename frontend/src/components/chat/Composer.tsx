@@ -9,9 +9,6 @@ import {
   ChevronDown,
   CheckCircle2,
   Layers,
-  Square,
-  Smartphone,
-  Tv,
 } from 'lucide-react';
 import {
   ImageRequest,
@@ -48,7 +45,6 @@ export const Composer: React.FC<ComposerProps> = ({
   onSelectCharacter,
 }) => {
   const [promptText, setPromptText] = useState('');
-  const [selectedAspect, setSelectedAspect] = useState<'1:1' | '9:16' | '16:9'>('1:1');
   const [showLibrary, setShowLibrary] = useState(false);
   const [isDirectorModalOpen, setIsDirectorModalOpen] = useState(false);
 
@@ -90,13 +86,6 @@ export const Composer: React.FC<ComposerProps> = ({
     }
   }, [promptText]);
 
-  const handleSelectAspect = (aspect: '1:1' | '9:16' | '16:9') => {
-    if (aspect !== selectedAspect) {
-      hapticImpact('selection');
-    }
-    setSelectedAspect(aspect);
-  };
-
   const handleSubmit = () => {
     if (isGenerating) return;
 
@@ -117,7 +106,7 @@ export const Composer: React.FC<ComposerProps> = ({
       onSend({
         prompt: compiledPrompt,
         conversation_id: activeConvId || null,
-        aspect: selectedAspect,
+        aspect: '1:1',
         reference_image: referenceImage ? referenceImage.id : null,
       });
 
@@ -140,7 +129,7 @@ export const Composer: React.FC<ComposerProps> = ({
     onSend({
       prompt: finalPrompt,
       conversation_id: activeConvId || null,
-      aspect: selectedAspect,
+      aspect: '1:1',
       reference_image: referenceImage ? referenceImage.id : null,
     });
 
@@ -173,10 +162,10 @@ export const Composer: React.FC<ComposerProps> = ({
       )}
 
       {/* ── Main Floating Capsule Stage ── */}
-      <div className="rounded-2xl border border-border bg-card shadow-lg overflow-hidden transition-all duration-200">
+      <div className="relative rounded-2xl border border-border bg-card shadow-lg transition-all duration-200">
         {/* ── Active Reference Preview Banner ── */}
         {referenceImage && (
-          <div className="flex items-center justify-between px-3 py-2 bg-primary/10 border-b border-primary/20 text-xs">
+          <div className="flex items-center justify-between px-3 py-2 bg-primary/10 border-b border-primary/20 text-xs rounded-t-2xl">
             <div className="flex items-center gap-2 min-w-0">
               <img
                 src={referenceImage.thumbnail_url || referenceImage.url}
@@ -202,8 +191,8 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
         )}
 
-        {/* ── Top Bar: Character Pill, Aspect Ratio & Tools ── */}
-        <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 gap-2 flex-wrap border-b border-border/50 bg-muted/20">
+        {/* ── Top Bar: Character Pill, Delta Mode & Tools ── */}
+        <div className={`flex items-center justify-between px-3 pt-2.5 pb-1.5 gap-2 border-b border-border/50 bg-muted/20 ${!referenceImage ? 'rounded-t-2xl' : ''}`}>
           {/* Left: Character Lock Pill & Selector */}
           <div className="flex items-center gap-2" ref={menuRef}>
             <div className="relative">
@@ -235,7 +224,7 @@ export const Composer: React.FC<ComposerProps> = ({
               </button>
 
               {isCharacterMenuOpen && (
-                <div className="absolute left-0 bottom-full mb-2 w-64 rounded-2xl bg-card border border-border shadow-2xl py-1.5 z-50 animate-fade-in">
+                <div className="absolute left-0 bottom-full mb-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl bg-card border border-border shadow-2xl py-1.5 z-50 animate-fade-in">
                   <div className="px-3.5 py-2 border-b border-border text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
                     <span>Active Persona</span>
                     <span className="font-mono text-primary">{characters.length} cards</span>
@@ -244,6 +233,7 @@ export const Composer: React.FC<ComposerProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      hapticImpact('selection');
                       onSelectCharacter?.(null);
                       setIsCharacterMenuOpen(false);
                     }}
@@ -251,19 +241,25 @@ export const Composer: React.FC<ComposerProps> = ({
                       !activeCharacter ? 'font-bold text-primary bg-primary/10' : 'text-foreground'
                     }`}
                   >
-                    <div>
-                      <div className="font-medium">✦ Freeform (No Character)</div>
-                      <div className="text-[10px] text-muted-foreground">Direct DALL·E generation</div>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-6 h-6 rounded-full bg-muted border border-border flex items-center justify-center shrink-0">
+                        <Sparkles size={12} className="text-muted-foreground" />
+                      </div>
+                      <div>
+                        <div className="font-medium">✦ Freeform (No Character)</div>
+                        <div className="text-[10px] text-muted-foreground">Direct DALL·E generation</div>
+                      </div>
                     </div>
                     {!activeCharacter && <CheckCircle2 size={14} className="text-primary shrink-0" />}
                   </button>
 
-                  <div className="max-h-56 overflow-y-auto divide-y divide-border/60">
+                  <div className="max-h-60 overflow-y-auto divide-y divide-border/60">
                     {characters.map((c) => (
                       <button
                         key={c.id}
                         type="button"
                         onClick={() => {
+                          hapticImpact('selection');
                           onSelectCharacter?.(c);
                           setIsCharacterMenuOpen(false);
                         }}
@@ -325,49 +321,6 @@ export const Composer: React.FC<ComposerProps> = ({
                 </button>
               </div>
             )}
-          </div>
-
-          {/* Center/Right: Aspect Ratio Selector Pills */}
-          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border">
-            <button
-              type="button"
-              onClick={() => handleSelectAspect('1:1')}
-              className={`min-h-[32px] sm:min-h-[26px] px-2.5 py-1 rounded-lg flex items-center justify-center gap-1.5 text-[11px] font-mono transition-all active:scale-95 ${
-                selectedAspect === '1:1'
-                  ? 'bg-card text-foreground font-semibold shadow-2xs'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="1:1 Square"
-            >
-              <Square size={11} />
-              <span>1:1</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSelectAspect('9:16')}
-              className={`min-h-[32px] sm:min-h-[26px] px-2.5 py-1 rounded-lg flex items-center justify-center gap-1.5 text-[11px] font-mono transition-all active:scale-95 ${
-                selectedAspect === '9:16'
-                  ? 'bg-card text-foreground font-semibold shadow-2xs'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="9:16 Mobile Wallpaper"
-            >
-              <Smartphone size={11} />
-              <span>9:16</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSelectAspect('16:9')}
-              className={`min-h-[32px] sm:min-h-[26px] px-2.5 py-1 rounded-lg flex items-center justify-center gap-1.5 text-[11px] font-mono transition-all active:scale-95 ${
-                selectedAspect === '16:9'
-                  ? 'bg-card text-foreground font-semibold shadow-2xs'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="16:9 Cinema Wide"
-            >
-              <Tv size={11} />
-              <span>16:9</span>
-            </button>
           </div>
 
           {/* Right: AI Director Button & Prompt Library */}

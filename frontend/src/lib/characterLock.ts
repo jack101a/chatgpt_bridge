@@ -111,30 +111,44 @@ export function buildPhysicalIdentityFromCharData(charData: any): CanonicalPhysi
   }
 
   // Face
-  const faceShape = charData.face_structure || '';
+  const faceShape = charData.face_shape || charData.face_structure || '';
   const cheeks =
     charData.cheeks || (faceShape.toLowerCase().includes('cheek') ? 'full soft cheeks' : '');
+  
+  const eyeSize = charData.eye_size || '';
+  const eyeColor = charData.eye_color || '';
+  const eyes = [eyeSize, eyeColor].filter(Boolean).join(' ') || charData.eyes || '';
+
+  const browShape = charData.brow_shape || '';
+  const browColor = charData.brow_color || '';
+  const brows = [browShape, browColor].filter(Boolean).join(' ') || charData.eyebrows || '';
+
+  const lipShape = charData.lip_shape || '';
+  const lipColor = charData.lip_color || '';
+  const lips = [lipShape, lipColor].filter(Boolean).join(' ') || charData.lips || '';
+
   const face: PhysicalIdentityFace = {
     shape: faceShape,
-    eyes: charData.eyes || '',
-    brows: charData.eyebrows || '',
+    eyes,
+    brows,
     nose: charData.nose || '',
     cheeks,
-    lips: charData.lips || '',
-    distinctive_features: charData.distinctive_features || '',
+    lips,
+    distinctive_features: charData.makeup || charData.distinctive_features || '',
   };
 
   // Skin
-  const skinTone = charData.skin_tone_undertone || '';
+  const skinTone = charData.skin_tone || charData.skin_tone_undertone || '';
+  const skinUndertone = charData.skin_undertone || '';
   const skinTexture = charData.skin_texture || '';
   const skinFinish =
     charData.finish ||
-    (skinTone.toLowerCase().includes('luminous') || skinTexture.toLowerCase().includes('luminous')
+    (skinTone.toLowerCase().includes('luminous') || skinTexture.toLowerCase().includes('luminous') || skinUndertone.toLowerCase().includes('luminous')
       ? 'soft, silky, naturally luminous'
       : '');
   const skin: PhysicalIdentitySkin = {
     tone: skinTone,
-    undertone: charData.skin_undertone || '',
+    undertone: skinUndertone,
     texture: skinTexture,
     finish: skinFinish,
   };
@@ -202,7 +216,7 @@ export function buildPhysicalIdentityFromCharData(charData: any): CanonicalPhysi
       : 'toned');
 
   const legs =
-    charData.legs ||
+    charData.legs || charData.limbs ||
     (proportions.toLowerCase().includes('legs')
       ? 'long-looking with natural feminine shape'
       : 'naturally proportioned');
@@ -217,7 +231,7 @@ export function buildPhysicalIdentityFromCharData(charData: any): CanonicalPhysi
 
   const body: PhysicalIdentityBody = {
     build: charData.physique || 'soft, dramatic feminine curvy physique',
-    silhouette: charData.presence_silhouette || 'pronounced hourglass',
+    silhouette: charData.silhouette || charData.presence_silhouette || 'pronounced hourglass',
     shoulders,
     chest_bust: bust,
     waist,

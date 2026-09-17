@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   Sparkles,
-  ChevronDown,
   RotateCcw,
   Copy,
   Check,
@@ -18,7 +17,6 @@ import {
   Maximize2,
   Trash2,
   Save,
-  Eye,
   MessageSquare,
 } from 'lucide-react';
 import { CharacterCard, ImageResult, GalleryItem, ChatThread } from '../../types';
@@ -34,260 +32,436 @@ interface ReferenceCardWizardProps {
 }
 
 // ── Persistent Storage Key ──
-const DRAFT_STORAGE_KEY = 'bridge:card_wizard_draft';
+const DRAFT_STORAGE_KEY = 'bridge:card_wizard_draft_v2';
 
-// ── Dictionary & Presets ──
-const DICTIONARY_OPTIONS = {
-  character_name: ['Kaya', 'Priya', 'Anya', 'Elena', 'Mei', 'Zara', 'Amara', 'Leila', 'Sophia'],
+// ── Dictionary & Presets (Granular Atomic Tokens) ──
+const DICTIONARY_OPTIONS: Record<string, string[]> = {
+  character_name: ['Kaya', 'Nia', 'Zia', 'Nastya', 'Priya', 'Anya', 'Elena', 'Mei', 'Zara', 'Amara', 'Leila', 'Sophia'],
   ethnicity_ancestry: [
     'Indian',
     'South Asian',
     'North Indian',
-    'Bengali',
-    'Punjabi',
+    'Nordic-Irish',
+    'Biracial Black-White',
+    'Slavic Russian',
     'East Asian',
-    'Southeast Asian',
-    'Middle Eastern',
     'Mediterranean',
-    'Scandinavian / Nordic',
-    'Western European',
-    'Celtic / Irish',
-    'African',
-    'West African',
-    'Latin American',
-    'mixed ancestry',
+    'Latina',
+    'Middle Eastern',
   ],
-  gender_presentation: ['woman', 'man', 'person'],
+  gender_presentation: ['woman', 'man', 'non-binary person'],
   age_appearance: ['early 20s', 'mid-20s', 'late 20s', 'early 30s', 'mid-30s'],
-  
-  // Face specific
-  face_structure: [
-    'soft feminine face with fuller plush cheeks',
-    'defined oval face with high cheekbones and soft jawline',
-    'heart-shaped face with delicate chin and sculpted cheeks',
-    'sculpted square jaw with defined bone structure',
-    'round soft face with youthful apple cheeks',
-    'lean aristocratic face with subtle hollow cheeks',
+
+  // Face Granular Tokens
+  face_shape: [
+    'soft oval',
+    'heart-shaped',
+    'delicate round',
+    'defined square',
+    'radiant oval',
+    'delicate Slavic oval',
+    'slender oval',
   ],
-  eyes: [
-    'large expressive hazel-brown to warm light-brown eyes',
-    'deep almond dark brown eyes with dense dark lashes',
-    'striking amber-brown eyes with bright catchlights',
-    'warm deep-set espresso eyes with soft gaze',
-    'expressive luminous honey-brown eyes',
-    'large doe-like dark eyes with natural moisture',
+  cheeks: [
+    'fuller cheeks',
+    'high cheekbones',
+    'soft cheeks',
+    'defined cheekbones',
+    'refined high cheekbones',
+    'gentle contoured cheeks',
   ],
-  eyebrows: [
-    'natural dark expressive eyebrows',
-    'softly arched medium-full dark brown brows',
-    'straight modern feathered natural brows',
-    'delicately arched fine dark eyebrows',
-    'bold structured feathered brows',
+  eye_size: [
+    'large expressive',
+    'soft almond-shaped',
+    'wide-awake expressive',
+    'warm almond-shaped',
+    'deep-set natural',
+    'delicate natural',
+  ],
+  eye_color: [
+    'hazel-brown',
+    'sea-glass green',
+    'amber-brown',
+    'icy blue-gray',
+    'deep dark brown',
+    'warm honey-brown',
+  ],
+  brow_shape: [
+    'softly arched',
+    'natural feathered',
+    'soft straight',
+    'delicately curved',
+    'defined arched',
+  ],
+  brow_color: [
+    'natural dark',
+    'light-auburn',
+    'ash-blonde',
+    'dark feathered',
+    'soft dark brown',
+    'deep espresso',
   ],
   nose: [
-    'a small refined natural nose',
-    'straight narrow nose with soft rounded tip',
-    'delicate button nose with subtle bridge',
-    'refined classical straight nose',
-    'gentle curved nose with soft natural tip',
+    'small refined',
+    'delicate button',
+    'small natural freckled',
+    'neat straight button',
+    'softly sculpted',
+    'classical straight',
   ],
-  lips: [
-    'soft pink naturally plush lips',
-    'full pillowy lips with defined cupid\'s bow',
-    'moderately full natural rosy lips',
-    'softly defined peach-toned plush lips',
-    'naturally full lower lip with soft pink tone',
+  lip_shape: [
+    'naturally plush',
+    'plush',
+    'full pillowy',
+    'moderately full',
+    'petal-plush',
   ],
-  skin_tone_undertone: [
-    'bright natural milky-white with subtle peach-pink warmth',
-    'warm golden olive with radiant sunlit undertones',
-    'warm honey-beige with luminous golden warmth',
-    'fair porcelain with delicate rose undertones',
-    'medium warm tan with golden undertones',
-    'deep rich espresso with warm caramel undertones',
+  lip_color: [
+    'soft pink',
+    'rose-tinted',
+    'warm caramel-toned',
+    'nude petal-pink',
+    'natural berry',
+    'soft rose',
+  ],
+  skin_tone: [
+    'milky-white',
+    'pale porcelain',
+    'warm golden olive',
+    'warm honey-beige',
+    'cool alabaster',
+    'medium warm tan',
+    'deep rich espresso',
+  ],
+  skin_undertone: [
+    'peach warmth',
+    'subtle freckles',
+    'luminous clarity',
+    'translucent undertones',
+    'cool rose undertones',
+    'golden undertones',
   ],
   skin_texture: [
-    'smooth but realistic, with visible natural pores, slight tonal variation, and soft healthy luminosity',
-    'ultra-realistic human skin texture with subtle micro-pores and satin sheen',
-    'dewy natural texture with delicate radiance and visible pores',
-    'natural soft matte texture with authentic skin grain',
+    'smooth with visible natural pores',
+    'natural human texture with fine pores',
+    'dewy with fine pores',
+    'soft natural matte grain',
+    'fine pore structure with satin sheen',
+    'realistic texture with fine pores',
   ],
-  hair_description: [
-    'long, thick, naturally voluminous dark brown-to-black hair',
-    'waist-length soft wavy dark chocolate-brown hair',
-    'medium-length shoulder-sweeping voluminous silky black hair',
-    'long sleek straight jet-black hair',
-    'textured wavy rich dark espresso hair with natural volume',
+  hair_length: [
+    'long',
+    'waist-length',
+    'shoulder-length',
+    'mid-back',
+    'short bob',
+  ],
+  hair_texture: [
+    'thick wavy',
+    'soft wavy',
+    'sleek silky',
+    'voluminous wavy',
+    'loose bouncy curls',
+  ],
+  hair_color: [
+    'dark brown-to-black',
+    'copper-strawberry auburn',
+    'rich chocolate brown',
+    'dark espresso brown',
+    'natural ash-blonde',
+    'jet black',
   ],
   hair_details: [
-    'warm golden/caramel face-framing strands',
-    'subtle honey highlights catching the light',
-    'soft baby hairs along the hairline',
-    'glossy natural highlights without artificial dye',
-    'delicate sun-kissed strands around the face',
+    'warm caramel highlights',
+    'wispy face-framing baby hairs',
+    'subtle honey highlights',
+    'glossy natural highlights',
+    'soft platinum-blonde strands',
   ],
-  makeup_expression: [
-    'minimal natural makeup and a relaxed neutral expression',
-    'bare-faced clean look with soft neutral expression',
-    'delicate mascara and tinted balm with gentle calm expression',
-    'soft dewy natural makeup with slight pleasant resting expression',
+  makeup: [
+    'minimal natural makeup',
+    'bare-faced clean',
+    'dewy natural glow',
+    'subtle nude balm',
+  ],
+  facial_expression: [
+    'relaxed neutral',
+    'earnest gentle',
+    'confident approachable',
+    'calm serene',
   ],
 
-  // Body specific
-  presence_silhouette: [
-    'tall-looking feminine presence and dramatic curvy hourglass silhouette',
-    'balanced feminine silhouette with graceful tall presence',
-    'soft petite curvy silhouette with delicate proportions',
-    'slender elegant silhouette with statuesque presence',
-    'dramatic feminine silhouette with prominent curves',
+  // Body Granular Tokens
+  silhouette: [
+    'curvy hourglass',
+    'voluptuous natural',
+    'lean athletic',
+    'slender graceful hourglass',
+    'soft petite curvy',
   ],
-  proportions_limbs: [
-    'soft balanced shoulders, a very prominent natural bust, clearly narrow defined waist, wide rounded hips, full soft thighs, long-looking feminine legs, and soft naturally full arms',
-    'graceful balanced shoulders, moderate bust, defined waist, naturally curved hips, lean toned legs, and slender arms',
-    'soft natural curves, full bust, narrow waist, rounded hips, plush thighs, and soft feminine limbs',
-    'classic feminine proportions with narrow waist, wide hips, shapely legs, and soft arms',
+  bust: [
+    'prominent natural bust',
+    'prominent firm bust',
+    'full prominent bust',
+    'moderate firm natural bust',
+    'proportional soft bust',
+  ],
+  waist: [
+    'narrow defined waist',
+    'narrow waist',
+    'natural gentle waist',
+    'softly tapered waist',
+  ],
+  hips: [
+    'wide rounded hips',
+    'rounded hips',
+    'shapely wide hips',
+    'naturally rounded hips',
+  ],
+  limbs: [
+    'soft feminine limbs',
+    'soft natural limbs',
+    'toned thighs and arms',
+    'long shapely legs and soft arms',
   ],
   abdomen: [
-    'natural gentle lower-belly softness, without visible abdominal definition or athletic muscularity',
-    'flat soft feminine stomach without visible muscle lines',
-    'smooth natural abdomen with gentle organic contours and realistic softness',
+    'natural gentle lower-belly softness',
+    'flat toned natural abdomen',
+    'natural soft feminine abdomen',
+    'smooth flat feminine stomach',
   ],
   physique: [
-    'soft, plush, curvy, feminine, and naturally proportioned, not muscular or bodybuilder-like',
-    'fit, natural, feminine, and healthy with soft curves',
-    'slender, soft, graceful, and naturally balanced',
-    'naturally full-figured, soft, plush, and voluptuous',
+    'soft, curvy, and naturally proportioned',
+    'curvy, feminine, and naturally proportioned',
+    'athletic, fit, and naturally feminine',
+    'slender, soft, and graceful',
+    'plush, curvy, and voluptuous',
   ],
   clothing: [
-    'skim , NO clothing',
-    'minimal neutral reference sports set',
-    'simple close-fitting neutral reference attire',
-    'skimpy neutral reference two-piece',
+    'simple neutral two-piece',
+    'simple rustic minimal slip',
+    'minimal neutral reference attire',
+    'minimal neutral athletic two-piece',
+    'minimal neutral sports set',
   ],
   posture: [
-    'Neutral relaxed standing posture, feet visible, arms naturally positioned',
-    'Confident relaxed posture, weight evenly distributed, feet visible',
-    'Graceful natural standing posture, shoulders relaxed, arms at sides',
+    'relaxed natural standing posture',
+    'confident upright standing posture',
+    'graceful natural standing stance',
   ],
 
-  // Expression specific
-  expression_focus: [
-    'natural eye behavior and facial movement: realistic catchlights, active gaze, eyelid movement, lower-lid engagement, eyebrow movement, cheek movement, natural mouth shapes, and believable emotional variation',
-    'authentic emotional subtlety, micro-expressions, lively catchlights, relaxed facial muscle tone, and expressive mouth shapes',
-    'candid human presence, nuanced smile variations, expressive eyebrow play, and realistic eye engagement',
+  // Expression Granular Tokens
+  expression_realism: [
+    'authentic micro-expressions',
+    'natural eye behavior and subtle facial movement',
+    'confident direct gaze and natural catchlights',
+    'serene gaze and subtle authentic smile',
   ],
   selfie_vibe: [
-    'subtle smartphone/selfie realism while keeping the face clearly visible',
-    'candid portrait presence with natural focal depth',
-    'intimate authentic selfie perspective with clear facial lighting',
+    'subtle smartphone selfie realism',
+    'intimate candid authentic presence',
+    'fresh authentic portrait presence',
+    'candid realism with natural ambient lighting',
   ],
 };
 
 // Preset Archetypes
 const ARCHETYPES: Record<string, any> = {
-  nia: {
-    character_name: 'Nia',
-    ethnicity_ancestry: 'Nordic-Irish',
-    gender_presentation: 'woman',
-    age_appearance: 'early 20s',
-    face_structure: 'delicate heart-shaped Celtic face with high cheekbones and soft natural jawline',
-    eyes: 'striking sea-glass green eyes with bright natural catchlights',
-    eyebrows: 'softly arched natural light-auburn brows',
-    nose: 'small natural freckled nose',
-    lips: 'soft rose-tinted natural plush lips',
-    skin_tone_undertone: 'pale porcelain skin with subtle warm freckles across bridge and cheeks',
-    skin_texture: 'authentic natural human skin texture with delicate pores and subtle tone variations',
-    hair_description: 'tousled wavy copper-strawberry auburn hair with windblown natural volume',
-    hair_details: 'wispy face-framing strands and delicate baby hairs',
-    makeup_expression: 'completely bare-faced natural look with earnest gentle expression',
-
-    presence_silhouette: 'dramatic ultra curvy hourglass silhouette with zero excess body fat',
-    proportions_limbs: 'prominent ultra natural bust, clearly narrow tiny defined waist, wide rounded curvy hips, soft feminine thighs, and soft naturally full arms',
-    abdomen: 'tight, flat, toned natural abdomen with zero fat, smooth feminine waist contour without athletic bulk',
-    physique: 'ultra voluptuous, curvy, feminine, and naturally proportioned with zero fat, tiny waist and wide hips',
-    clothing: 'simple unadorned rustic minimal slip that clearly shows her natural proportions without being revealing',
-    posture: 'Neutral relaxed standing posture, feet visible, arms naturally positioned',
-
-    expression_focus: 'natural eye behavior, earnest gaze, delicate micro-expressions, authentic catchlights',
-    selfie_vibe: 'intimate candid authentic presence with natural focal depth',
-  },
   kaya: {
     character_name: 'Kaya',
     ethnicity_ancestry: 'Indian',
     gender_presentation: 'woman',
     age_appearance: 'mid-20s',
-    face_structure: 'soft feminine face with fuller plush cheeks',
-    eyes: 'large expressive hazel-brown to warm light-brown eyes',
-    eyebrows: 'natural dark expressive eyebrows',
-    nose: 'a small refined natural nose',
-    lips: 'soft pink naturally plush lips',
-    skin_tone_undertone: 'bright natural milky-white with subtle peach-pink warmth',
-    skin_texture: 'smooth but realistic, with visible natural pores, slight tonal variation, and soft healthy luminosity',
-    hair_description: 'long, thick, naturally voluminous dark brown-to-black hair',
-    hair_details: 'warm golden/caramel face-framing strands',
-    makeup_expression: 'minimal natural makeup and a relaxed neutral expression',
+    face_shape: 'soft oval',
+    cheeks: 'fuller cheeks',
+    eye_size: 'large expressive',
+    eye_color: 'hazel-brown',
+    brow_shape: 'softly arched',
+    brow_color: 'natural dark',
+    nose: 'small refined',
+    lip_shape: 'naturally plush',
+    lip_color: 'soft pink',
+    skin_tone: 'milky-white',
+    skin_undertone: 'peach warmth',
+    skin_texture: 'smooth with visible natural pores',
+    hair_length: 'long',
+    hair_texture: 'thick wavy',
+    hair_color: 'dark brown-to-black',
+    hair_details: 'warm caramel highlights',
+    makeup: 'minimal natural makeup',
+    facial_expression: 'relaxed neutral',
     
-    presence_silhouette: 'tall-looking feminine presence and dramatic curvy hourglass silhouette',
-    proportions_limbs: 'soft balanced shoulders, a very prominent natural bust, clearly narrow defined waist, wide rounded hips and prominent curved rear, full soft thighs, long-looking feminine legs, and soft naturally full arms',
-    abdomen: 'natural gentle lower-belly softness, without visible abdominal definition or athletic muscularity',
-    physique: 'soft, plush, curvy, feminine, and naturally proportioned with prominent natural curves, not muscular or bodybuilder-like',
-    clothing: 'minimal neutral reference attire that clearly shows her natural proportions without being revealing',
-    posture: 'Neutral relaxed standing posture, feet visible, arms naturally positioned',
+    silhouette: 'curvy hourglass',
+    bust: 'prominent natural bust',
+    waist: 'narrow defined waist',
+    hips: 'wide rounded hips',
+    limbs: 'soft feminine limbs',
+    abdomen: 'natural gentle lower-belly softness',
+    physique: 'soft, curvy, and naturally proportioned',
+    clothing: 'simple neutral two-piece',
+    posture: 'relaxed natural standing posture',
 
-    expression_focus: 'natural eye behavior and facial movement: realistic catchlights, active gaze, eyelid movement, lower-lid engagement, eyebrow movement, cheek movement, natural mouth shapes, and believable emotional variation',
-    selfie_vibe: 'subtle smartphone/selfie realism while keeping the face clearly visible',
+    expression_realism: 'authentic micro-expressions',
+    selfie_vibe: 'subtle smartphone selfie realism',
+
+    // Legacy compatibility fields
+    face_structure: 'soft feminine face with fuller cheeks',
+    eyes: 'large expressive hazel-brown eyes',
+    eyebrows: 'natural dark expressive eyebrows',
+    lips: 'soft pink naturally plush lips',
+    skin_tone_undertone: 'bright milky-white with peach warmth',
+    hair_description: 'long thick dark brown-to-black hair',
+    makeup_expression: 'minimal natural makeup and relaxed neutral expression',
+    presence_silhouette: 'tall feminine presence with curvy hourglass silhouette',
+    proportions_limbs: 'balanced shoulders, prominent bust, narrow waist, rounded hips, and soft thighs',
+    expression_focus: 'natural eye behavior and subtle facial movement',
+  },
+  nia: {
+    character_name: 'Nia',
+    ethnicity_ancestry: 'Nordic-Irish',
+    gender_presentation: 'woman',
+    age_appearance: 'early 20s',
+    face_shape: 'heart-shaped',
+    cheeks: 'high cheekbones',
+    eye_size: 'wide-awake expressive',
+    eye_color: 'sea-glass green',
+    brow_shape: 'softly arched',
+    brow_color: 'light-auburn',
+    nose: 'small natural freckled',
+    lip_shape: 'plush',
+    lip_color: 'rose-tinted',
+    skin_tone: 'pale porcelain',
+    skin_undertone: 'subtle freckles',
+    skin_texture: 'natural human texture with fine pores',
+    hair_length: 'long',
+    hair_texture: 'soft wavy',
+    hair_color: 'copper-strawberry auburn',
+    hair_details: 'wispy face-framing baby hairs',
+    makeup: 'bare-faced clean',
+    facial_expression: 'earnest gentle',
+
+    silhouette: 'curvy hourglass',
+    bust: 'prominent firm bust',
+    waist: 'narrow waist',
+    hips: 'rounded hips',
+    limbs: 'soft natural limbs',
+    abdomen: 'flat toned natural abdomen',
+    physique: 'curvy, feminine, and naturally proportioned',
+    clothing: 'simple rustic minimal slip',
+    posture: 'relaxed natural standing posture',
+
+    expression_realism: 'authentic micro-expressions',
+    selfie_vibe: 'intimate candid authentic presence',
+
+    // Legacy compatibility fields
+    face_structure: 'heart-shaped Celtic face with high cheekbones',
+    eyes: 'sea-glass green eyes with bright catchlights',
+    eyebrows: 'softly arched light-auburn brows',
+    lips: 'soft rose-tinted plush lips',
+    skin_tone_undertone: 'pale porcelain with subtle freckles',
+    hair_description: 'wavy copper-strawberry auburn hair',
+    makeup_expression: 'bare-faced with earnest gentle expression',
+    presence_silhouette: 'curvy hourglass silhouette',
+    proportions_limbs: 'prominent bust, narrow waist, rounded hips, and soft limbs',
+    expression_focus: 'natural eye behavior and micro-expressions',
   },
   zia: {
     character_name: 'Zia',
-    ethnicity_ancestry: 'Biracial Black-White American',
+    ethnicity_ancestry: 'Biracial Black-White',
     gender_presentation: 'woman',
     age_appearance: 'mid-20s',
-    face_structure: 'radiant oval face with defined cheekbones and warm soft jawline',
-    eyes: 'warm amber-brown eyes with thick natural lashes and lively catchlights',
-    eyebrows: 'naturally defined softly arched dark brows',
-    nose: 'softly sculpted natural nose with balanced bridge',
+    face_shape: 'radiant oval',
+    cheeks: 'defined cheekbones',
+    eye_size: 'warm almond-shaped',
+    eye_color: 'amber-brown',
+    brow_shape: 'softly arched',
+    brow_color: 'dark feathered',
+    nose: 'softly sculpted',
+    lip_shape: 'full pillowy',
+    lip_color: 'warm caramel-toned',
+    skin_tone: 'warm golden olive',
+    skin_undertone: 'luminous clarity',
+    skin_texture: 'realistic texture with fine pores',
+    hair_length: 'waist-length',
+    hair_texture: 'voluminous wavy',
+    hair_color: 'rich chocolate brown',
+    hair_details: 'subtle honey highlights',
+    makeup: 'dewy natural glow',
+    facial_expression: 'confident approachable',
+
+    silhouette: 'lean athletic',
+    bust: 'full prominent bust',
+    waist: 'narrow defined waist',
+    hips: 'shapely wide hips',
+    limbs: 'toned thighs and arms',
+    abdomen: 'natural soft feminine abdomen',
+    physique: 'athletic, fit, and naturally feminine',
+    clothing: 'minimal neutral athletic two-piece',
+    posture: 'confident upright standing posture',
+
+    expression_realism: 'dynamic emotional subtlety',
+    selfie_vibe: 'fresh authentic portrait presence',
+
+    // Legacy compatibility fields
+    face_structure: 'radiant oval face with defined cheekbones',
+    eyes: 'warm amber-brown eyes with thick natural lashes',
+    eyebrows: 'softly arched dark brows',
     lips: 'full warm caramel-toned plush lips',
-    skin_tone_undertone: 'warm sun-kissed golden honey-caramel with luminous radiant undertones',
-    skin_texture: 'smooth healthy skin with satin finish, visible pores, and athletic glow',
-    hair_description: 'voluminous shoulder-length bouncy textured dark spiral curls',
-    hair_details: 'naturally defined coil texture with sunlit highlights',
-    makeup_expression: 'bare-faced clean athletic look with confident calm gaze',
-
-    presence_silhouette: 'lean athletic feminine silhouette with balanced proportions and graceful posture',
-    proportions_limbs: 'sculpted shoulders, average natural firm bust, defined narrow waist, naturally proportioned athletic hips, toned thighs, and sleek sculpted legs',
-    abdomen: 'lean, flat, softly defined athletic stomach without excessive bodybuilder definition',
-    physique: 'athletic, fit, toned, and naturally feminine with healthy lean proportions',
-    clothing: 'minimal neutral athletic reference two-piece that clearly shows her natural proportions without being revealing',
-    posture: 'Confident upright athletic standing posture, shoulders relaxed, feet visible, arms at sides',
-
-    expression_focus: 'confident direct gaze, natural catchlights, relaxed facial muscle tone, expressive warmth',
-    selfie_vibe: 'fresh authentic portrait presence with natural ambient light',
+    skin_tone_undertone: 'warm sun-kissed golden honey',
+    hair_description: 'voluminous shoulder-length bouncy curls',
+    makeup_expression: 'bare-faced clean athletic look',
+    presence_silhouette: 'lean athletic feminine silhouette',
+    proportions_limbs: 'sculpted shoulders, average bust, narrow waist, athletic hips, and toned thighs',
+    expression_focus: 'confident direct gaze and natural catchlights',
   },
   nastya: {
     character_name: 'Nastya',
     ethnicity_ancestry: 'Slavic Russian',
     gender_presentation: 'woman',
     age_appearance: 'early 20s',
-    face_structure: 'soft delicate Slavic facial structure with soft cheek contour and refined chin',
+    face_shape: 'delicate Slavic oval',
+    cheeks: 'refined high cheekbones',
+    eye_size: 'large expressive',
+    eye_color: 'icy blue-gray',
+    brow_shape: 'soft straight',
+    brow_color: 'ash-blonde',
+    nose: 'neat straight button',
+    lip_shape: 'petal-plush',
+    lip_color: 'soft rose',
+    skin_tone: 'cool alabaster',
+    skin_undertone: 'translucent undertones',
+    skin_texture: 'fine pore structure with satin sheen',
+    hair_length: 'long',
+    hair_texture: 'sleek silky',
+    hair_color: 'dark espresso brown',
+    hair_details: 'soft platinum-blonde strands',
+    makeup: 'clean bare-faced',
+    facial_expression: 'calm serene',
+
+    silhouette: 'slender graceful hourglass',
+    bust: 'moderate firm natural bust',
+    waist: 'narrow waist',
+    hips: 'naturally rounded hips',
+    limbs: 'long shapely legs and soft arms',
+    abdomen: 'smooth flat feminine stomach',
+    physique: 'slender, soft, and graceful',
+    clothing: 'minimal neutral sports set',
+    posture: 'graceful natural standing stance',
+
+    expression_realism: 'serene gaze and subtle authentic smile',
+    selfie_vibe: 'candid realism with natural ambient lighting',
+
+    // Legacy compatibility fields
+    face_structure: 'soft delicate Slavic face structure with refined chin',
     eyes: 'clear icy blue-gray eyes with delicate lash line',
     eyebrows: 'soft straight natural ash-blonde brows',
-    nose: 'small neat straight button nose',
     lips: 'naturally full plush petal-pink lips',
-    skin_tone_undertone: 'fair alabaster with cool rose-peach undertones and natural soft luminosity',
-    skin_texture: 'delicate dewy skin texture with natural micro-pores and satin softness',
-    hair_description: 'long straight-to-softly-wavy natural ash-blonde hair falling to mid-back',
-    hair_details: 'soft platinum-blonde strands catching the light around temples',
-    makeup_expression: 'minimal natural makeup, soft pink lip balm, calm serene expression',
-
-    presence_silhouette: 'voluptuous natural soft silhouette with prominent curves and tall elegant posture',
-    proportions_limbs: 'soft balanced shoulders, big natural bust, clearly narrow defined waist, wide rounded hips and prominent rear curve, soft full thighs, graceful legs',
-    abdomen: 'smooth flat feminine stomach with no belly fat and natural organic softness',
-    physique: 'natural soft, plush, curvy, feminine, and voluptuous, with big bust and curved hips, no belly fat',
-    clothing: 'simple close-fitting neutral reference attire that clearly shows her natural proportions without being revealing',
-    posture: 'Neutral relaxed standing posture, feet visible, arms naturally positioned',
-
-    expression_focus: 'serene gaze, subtle authentic smile, lively natural catchlights, relaxed eyelid engagement',
-    selfie_vibe: 'natural ambient lighting with soft candid realism',
+    skin_tone_undertone: 'fair alabaster with cool rose undertones',
+    hair_description: 'long straight-to-wavy natural ash-blonde hair',
+    makeup_expression: 'minimal natural makeup and calm serene expression',
+    presence_silhouette: 'voluptuous natural silhouette with prominent curves',
+    proportions_limbs: 'soft balanced shoulders, big bust, narrow waist, rounded hips, and full thighs',
+    expression_focus: 'serene gaze and subtle authentic smile',
   },
 };
 
@@ -437,49 +611,96 @@ export function ReferenceCardWizard({
 
   const compiledFacePrompt = useMemo(() => {
     const pronoun = charData.gender_presentation === 'man' ? 'his' : 'her';
-    return `Create a 4:3 high-resolution photorealistic **FACE IDENTITY REFERENCE CARD** for ${charData.character_name}, a fictional adult ${charData.ethnicity_ancestry} ${charData.gender_presentation} in ${pronoun} ${charData.age_appearance}.
-Show the **same ${charData.gender_presentation}** in three consistent facial views on one clean reference sheet:
+    const faceShape = charData.face_shape || charData.face_structure || 'soft oval';
+    const cheeks = charData.cheeks || 'fuller cheeks';
+    const eyeSize = charData.eye_size || 'large expressive';
+    const eyeColor = charData.eye_color || 'hazel-brown';
+    const browShape = charData.brow_shape || 'softly arched';
+    const browColor = charData.brow_color || 'natural dark';
+    const nose = charData.nose || 'small refined';
+    const lipShape = charData.lip_shape || 'naturally plush';
+    const lipColor = charData.lip_color || 'soft pink';
+    const skinTone = charData.skin_tone || 'milky-white';
+    const skinUndertone = charData.skin_undertone || 'peach warmth';
+    const skinTexture = charData.skin_texture || 'smooth with visible natural pores';
+    const hairLength = charData.hair_length || 'long';
+    const hairTexture = charData.hair_texture || 'thick wavy';
+    const hairColor = charData.hair_color || 'dark brown-to-black';
+    const hairDetails = charData.hair_details || 'warm caramel highlights';
+    const makeup = charData.makeup || 'minimal natural makeup';
+    const facialExpr = charData.facial_expression || 'relaxed neutral';
+
+    return `Create a 4:3 high-resolution photorealistic face identity reference card for ${charData.character_name}, a fictional adult ${charData.ethnicity_ancestry} ${charData.gender_presentation} in ${pronoun} ${charData.age_appearance}.
+Show the same ${charData.gender_presentation} in three consistent facial views on one clean reference sheet:
 
 1. straight-on front view
 2. left 3/4 view
 3. right 3/4 view
 
-${charData.character_name} has a ${charData.face_structure}, ${charData.eyes}, ${charData.eyebrows}, ${charData.nose}, and ${charData.lips}.
-Her skin is **${charData.skin_tone_undertone}**, ${charData.skin_texture}. Never chalky, waxy, plastic, or overly airbrushed.
-Her hair is **${charData.hair_description}**, with distinctive **${charData.hair_details}**.
-Use ${charData.makeup_expression} so her actual facial identity is clearly visible.
+${charData.character_name} has a ${faceShape} face structure with ${cheeks}. She has ${eyeSize} ${eyeColor} eyes, framed by ${browShape} ${browColor} eyebrows, a ${nose} nose, and ${lipShape} ${lipColor} lips.
+Her skin tone is ${skinTone} with ${skinUndertone}, featuring a ${skinTexture} texture. Never chalky, waxy, plastic, or overly airbrushed.
+Her hair is ${hairLength}, ${hairTexture}, and ${hairColor}, styled with ${hairDetails}.
+Use ${makeup} and a ${facialExpr} so her actual facial identity is clearly visible.
 Plain neutral background, consistent soft natural lighting, realistic human anatomy, realistic skin texture, no beauty filter, no facial reshaping, no stylization, no excessive retouching.
-All three views must depict **exactly the same ${charData.gender_presentation}** with identical facial structure and physical identity.
+All three views must depict exactly the same ${charData.gender_presentation} with identical facial structure and physical identity.
 No text except label of side and title
-Purpose: **FACE LOCK — this image is the primary reference for ${charData.character_name}'s facial identity, skin, eyes, hair, and recognizable features.**`.trim();
+Purpose: FACE LOCK — this image is the primary reference for ${charData.character_name}'s facial identity, skin, eyes, hair, and recognizable features.`.trim();
   }, [charData]);
 
   const compiledBodyPrompt = useMemo(() => {
     const pronoun = charData.gender_presentation === 'man' ? 'his' : 'her';
-    return `Create a 4:3 high-resolution photorealistic **BODY IDENTITY REFERENCE CARD** for ${charData.character_name}, the same fictional adult ${charData.ethnicity_ancestry} ${charData.gender_presentation} in ${pronoun} ${charData.age_appearance}.
-Show the **same woman** in three consistent full-body views on one clean reference sheet:
+    const silhouette = charData.silhouette || charData.presence_silhouette || 'curvy hourglass';
+    const bust = charData.bust || 'prominent natural bust';
+    const waist = charData.waist || 'narrow defined waist';
+    const hips = charData.hips || 'wide rounded hips';
+    const limbs = charData.limbs || 'soft feminine limbs';
+    const abdomen = charData.abdomen || 'natural gentle lower-belly softness';
+    const physique = charData.physique || 'soft, curvy, and naturally proportioned';
+    const clothing = charData.clothing || 'simple neutral two-piece';
+    const posture = charData.posture || 'relaxed natural standing posture';
+    const skinTone = charData.skin_tone || 'milky-white';
+    const skinUndertone = charData.skin_undertone || 'peach warmth';
+    const skinTexture = charData.skin_texture || 'smooth with visible natural pores';
+
+    return `Create a 4:3 high-resolution photorealistic body identity reference card for ${charData.character_name}, the same fictional adult ${charData.ethnicity_ancestry} ${charData.gender_presentation} in ${pronoun} ${charData.age_appearance}.
+Show the same woman in four consistent full-body views on one clean reference sheet:
 
 1. front view
 2. left side view
-3. Right side view
+3. right side view
 4. back view
 
-${charData.character_name} has a **${charData.presence_silhouette}** with ${charData.proportions_limbs}.
-Her abdomen has **${charData.abdomen}**.
-Her overall physique is **${charData.physique}**.
-Use ${charData.clothing} that clearly shows her natural proportions without being revealing. ${charData.posture}.
-Preserve her ${charData.skin_tone_undertone} and realistic human skin texture.
+${charData.character_name} has a ${silhouette} with a ${bust}, ${waist}, and ${hips}, balanced by ${limbs}.
+Her abdomen has ${abdomen}, with an overall ${physique} physique.
+She is dressed in a ${clothing} that clearly shows her natural proportions without being revealing, standing in a ${posture}.
+Preserve her ${skinTone} skin with ${skinUndertone} and ${skinTexture}.
 Plain neutral background, consistent soft natural lighting, realistic anatomy and proportions.
 No slimming, body reshaping, exaggerated curves, muscular enhancement, artificial proportions, beauty filter, or stylization.
-All three views must depict **exactly the same woman with identical body proportions**.
+All four views must depict exactly the same woman with identical body proportions.
 No text except label of side and title
-Purpose: **BODY LOCK — this image is the primary reference for ${charData.character_name}'s body proportions, silhouette, and physical structure.**`.trim();
+Purpose: BODY LOCK — this image is the primary reference for ${charData.character_name}'s body proportions, silhouette, and physical structure.`.trim();
   }, [charData]);
 
   const compiledExpressionPrompt = useMemo(() => {
     const pronoun = charData.gender_presentation === 'man' ? 'his' : 'her';
-    return `Create a high-resolution photorealistic **EXPRESSION AND SELFIE-REALISM REFERENCE CARD** for ${charData.character_name}, the same fictional adult ${charData.ethnicity_ancestry} ${charData.gender_presentation} in ${pronoun} ${charData.age_appearance}.
-Show **six expressions of the exact same woman** in a clean 2×3 grid:
+    const faceShape = charData.face_shape || charData.face_structure || 'soft oval';
+    const cheeks = charData.cheeks || 'fuller cheeks';
+    const eyeSize = charData.eye_size || 'large expressive';
+    const eyeColor = charData.eye_color || 'hazel-brown';
+    const browShape = charData.brow_shape || 'softly arched';
+    const nose = charData.nose || 'small refined';
+    const lipShape = charData.lip_shape || 'naturally plush';
+    const lipColor = charData.lip_color || 'soft pink';
+    const skinTone = charData.skin_tone || 'milky-white';
+    const skinUndertone = charData.skin_undertone || 'peach warmth';
+    const hairLength = charData.hair_length || 'long';
+    const hairTexture = charData.hair_texture || 'thick wavy';
+    const hairColor = charData.hair_color || 'dark brown-to-black';
+    const exprRealism = charData.expression_realism || charData.expression_focus || 'authentic micro-expressions';
+    const selfieVibe = charData.selfie_vibe || 'subtle smartphone selfie realism';
+
+    return `Create a high-resolution photorealistic expression and selfie-realism reference card for ${charData.character_name}, the same fictional adult ${charData.ethnicity_ancestry} ${charData.gender_presentation} in ${pronoun} ${charData.age_appearance}.
+Show six expressions of the exact same woman in a clean 2×3 grid:
 
 1. relaxed neutral
 2. soft genuine smile
@@ -488,14 +709,14 @@ Show **six expressions of the exact same woman** in a clean 2×3 grid:
 5. confident direct gaze
 6. soft thoughtful expression
 
-Keep ${charData.character_name}'s exact established facial identity in every panel: ${charData.face_structure}, ${charData.eyes}, ${charData.eyebrows}, ${charData.nose}, ${charData.lips}, ${charData.skin_tone_undertone}, and ${charData.hair_description} with ${charData.hair_details}.
-Focus on **${charData.expression_focus}**.
-Expressions should feel like a real person rather than exaggerated model poses. Include ${charData.selfie_vibe}.
+Keep ${charData.character_name}'s exact established facial identity in every panel: ${faceShape} with ${cheeks}, ${eyeSize} ${eyeColor} eyes, ${browShape} eyebrows, ${nose} nose, ${lipShape} ${lipColor} lips, ${skinTone} skin with ${skinUndertone}, and ${hairLength} ${hairTexture} ${hairColor} hair.
+Focus on ${exprRealism} and authentic emotion.
+Expressions should feel like a real person rather than exaggerated model poses. Include ${selfieVibe}.
 Consistent natural lighting, simple neutral background, realistic skin texture, photorealistic rendering, high resolution.
 No face redesign, beautification, excessive retouching, plastic skin, exaggerated expressions, or stylization.
 
 No text except label of side and title
-Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}'s natural facial animation, eye behavior, expression range, and realistic selfie presence.**`.trim();
+Purpose: EXPRESSION LOCK — this image establishes ${charData.character_name}'s natural facial animation, eye behavior, expression range, and realistic selfie presence.`.trim();
   }, [charData]);
 
   // Current effective prompt based on active step and raw/tokens mode
@@ -705,13 +926,23 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
         saved_at: Date.now() / 1000,
       };
 
+      const faceStr = `${charData.face_shape || ''} with ${charData.cheeks || ''}, ${charData.eye_size || ''} ${charData.eye_color || ''} eyes, ${charData.brow_shape || ''} brows, ${charData.nose || ''} nose, ${charData.lip_shape || ''} ${charData.lip_color || ''} lips`.replace(/\s+/g, ' ').trim();
+      const skinStr = `${charData.skin_tone || ''} skin (${charData.skin_undertone || ''}), ${charData.skin_texture || ''}`.replace(/\s+/g, ' ').trim();
+      const hairStr = `${charData.hair_length || ''} ${charData.hair_texture || ''} ${charData.hair_color || ''} hair with ${charData.hair_details || ''}`.replace(/\s+/g, ' ').trim();
+      const bodyStr = `${charData.silhouette || ''} with ${charData.bust || ''}, ${charData.waist || ''}, ${charData.hips || ''}, and ${charData.limbs || ''}. ${charData.physique || ''}`.replace(/\s+/g, ' ').trim();
+      const visualDna = `${faceStr}. Skin: ${skinStr}. Hair: ${hairStr}. Body: ${bodyStr}.`.replace(/\s+/g, ' ');
+
+      const tagline = `${charData.ethnicity_ancestry || 'Fictional'} ${charData.gender_presentation || 'woman'}, ${charData.age_appearance || 'mid-20s'}`;
+
+      const roleplayInstructions = `Use locked Image 1 (Face Lock), Image 2 (Body Lock), and Image 3 (Expression Lock) as the ground-truth identity reference set for ${charName}. Maintain identical facial structure (${faceStr}), skin texture (${skinStr}), hair (${hairStr}), and body proportions (${bodyStr}) across all generations.`;
+
       if (saveMode === 'new') {
         await api.saveCharacter({
-          name: charData.character_name || 'Kaya',
-          tagline: `${charData.ethnicity_ancestry} ${charData.gender_presentation}, ${charData.age_appearance}`,
-          visual_dna: `${charData.face_structure}, ${charData.eyes}, ${charData.skin_tone_undertone}, ${charData.hair_description}. Body: ${charData.presence_silhouette}, ${charData.physique}.`,
+          name: charName,
+          tagline,
+          visual_dna: visualDna,
           persona: 'Friendly, naturally expressive, candid human presence.',
-          roleplay_instructions: 'Photorealistic reference sheet, natural soft daylight, clean neutral studio background, 4:3 aspect ratio.',
+          roleplay_instructions: roleplayInstructions,
           avatar_image_id: faceId || undefined,
           face_lock_image_id: faceId || undefined,
           body_lock_image_id: bodyId || undefined,
@@ -721,6 +952,10 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
       } else if (saveMode === 'existing' && targetCharId) {
         await api.saveCharacter({
           id: targetCharId,
+          tagline,
+          visual_dna: visualDna,
+          roleplay_instructions: roleplayInstructions,
+          avatar_image_id: faceId || undefined,
           face_lock_image_id: faceId || undefined,
           body_lock_image_id: bodyId || undefined,
           expression_lock_image_id: expressionId || undefined,
@@ -728,7 +963,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
         });
       }
 
-      setSaveSuccess('Character cards saved successfully!');
+      setSaveSuccess('Character cards & prompt merged successfully into Character Studio!');
       try {
         localStorage.removeItem(DRAFT_STORAGE_KEY);
       } catch (e) {}
@@ -744,7 +979,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
     }
   };
 
-  // ── Render Dynamic Interactive Token Pill ──
+  // ── Render Dynamic Interactive Token Highlight ──
   const renderInlineToken = (field: keyof typeof ARCHETYPES.kaya) => {
     const val = charData[field] || '';
     return (
@@ -754,69 +989,110 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
           setActivePickerField(field);
           setPickerSearch('');
         }}
-        className="inline-flex items-center gap-1 px-2.5 py-1 my-0.5 rounded-lg text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 text-emerald-900 dark:text-emerald-200 border border-emerald-500/30 hover:border-emerald-500 cursor-pointer transition-all shadow-2xs group select-none active:scale-95"
+        className="inline cursor-pointer px-1 py-0.5 rounded-sm bg-emerald-500/10 hover:bg-emerald-500/20 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 text-emerald-800 dark:text-emerald-300 font-medium border-b border-emerald-500/50 hover:border-emerald-500 transition-all select-none"
         title={`Click to choose or edit ${String(field).replace(/_/g, ' ')}`}
       >
-        <span>{val}</span>
-        <ChevronDown size={11} className="text-emerald-600 dark:text-emerald-400 group-hover:translate-y-0.5 transition-transform" />
+        {val}
       </span>
+    );
+  };
+
+  // ── Document In-Card Generate Action Bar ──
+  const renderPromptCardBottomBar = () => {
+    const activeResult =
+      currentStep === 'face'
+        ? faceResult
+        : currentStep === 'body'
+        ? bodyResult
+        : expressionResult;
+
+    return (
+      <div className="mt-5 pt-4 border-t border-border/60 hidden lg:flex items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Sparkles size={14} className="text-primary shrink-0" />
+          <span className="font-medium">
+            {currentStep === 'face'
+              ? 'Step 1/3: 3-Angle Face Lock'
+              : currentStep === 'body'
+              ? 'Step 2/3: 4-View Body Lock'
+              : 'Step 3/3: 2×3 Expression Sheet'}
+          </span>
+          {activeResult && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-semibold">
+              Ready
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 justify-end">
+          {activeResult && (
+            <button
+              onClick={handleGenerateCurrentStep}
+              disabled={isGenerating}
+              className="min-h-[36px] flex items-center justify-center gap-1 px-3 py-1.5 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 active:scale-95 disabled:opacity-50"
+              title="Regenerate this step's reference card"
+            >
+              <RotateCcw size={12} />
+              <span>Regen</span>
+            </button>
+          )}
+
+          <button
+            onClick={handleGenerateCurrentStep}
+            disabled={isGenerating}
+            className="min-h-[36px] flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-2xs active:scale-95 disabled:opacity-60"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 size={13} className="animate-spin" />
+                <span>{generationProgress || 'Generating...'}</span>
+              </>
+            ) : (
+              <>
+                <Sparkles size={13} />
+                <span>
+                  {activeResult ? 'Re-Generate' : 'Generate'}{' '}
+                  {currentStep === 'face'
+                    ? 'Face Card (4:3)'
+                    : currentStep === 'body'
+                    ? 'Body Card (4:3)'
+                    : 'Expression Card (2×3)'}
+                </span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
     );
   };
 
   // ── Step 1 Face Document View ──
   const renderFaceDocument = () => {
     return (
-      <div className="space-y-4 text-xs font-serif leading-relaxed text-foreground">
-        <p className="font-mono text-[11px] text-muted-foreground uppercase tracking-wider pb-2 border-b border-border flex items-center justify-between">
-          <span>Face Turnaround Reference Sheet · 4:3 Landscape</span>
-          <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[10px]">Step 1 of 3</span>
-        </p>
-
+      <div className="text-xs sm:text-sm font-sans leading-relaxed text-foreground space-y-3">
         <p>
-          Create a 4:3 high-resolution photorealistic <strong className="font-sans font-semibold">FACE IDENTITY REFERENCE CARD</strong> for{' '}
+          Create a 4:3 high-resolution photorealistic face identity reference card for{' '}
           {renderInlineToken('character_name')}, a fictional adult {renderInlineToken('ethnicity_ancestry')}{' '}
-          {renderInlineToken('gender_presentation')} in her {renderInlineToken('age_appearance')}.
-        </p>
-
-        <div className="bg-muted/50 p-3 rounded-xl border border-border font-mono text-[11px] space-y-1">
-          <div className="text-muted-foreground font-semibold">
-            Show the <strong className="text-foreground">same woman</strong> in three consistent facial views on one clean reference sheet:
-          </div>
-          <div className="pl-2 space-y-0.5 text-muted-foreground">
-            <div>1. straight-on front view</div>
-            <div>2. left 3/4 view</div>
-            <div>3. right 3/4 view</div>
-          </div>
-        </div>
-
-        <p>
-          {charData.character_name} has a {renderInlineToken('face_structure')}, {renderInlineToken('eyes')},{' '}
-          {renderInlineToken('eyebrows')}, {renderInlineToken('nose')}, and {renderInlineToken('lips')}.
+          {renderInlineToken('gender_presentation')} in her {renderInlineToken('age_appearance')}. Show the same woman in three consistent facial views on one clean reference sheet: straight-on front view, left 3/4 view, and right 3/4 view.
         </p>
 
         <p>
-          Her skin is <strong className="text-emerald-700 dark:text-emerald-300">{renderInlineToken('skin_tone_undertone')}</strong>,{' '}
-          {renderInlineToken('skin_texture')}. Never chalky, waxy, plastic, or overly airbrushed.
+          {charData.character_name} has a {renderInlineToken('face_shape')} face structure with {renderInlineToken('cheeks')}. She has {renderInlineToken('eye_size')} {renderInlineToken('eye_color')} eyes, framed by {renderInlineToken('brow_shape')} {renderInlineToken('brow_color')} eyebrows, a {renderInlineToken('nose')} nose, and {renderInlineToken('lip_shape')} {renderInlineToken('lip_color')} lips.
         </p>
 
         <p>
-          Her hair is <strong className="text-emerald-700 dark:text-emerald-300">{renderInlineToken('hair_description')}</strong>, with
-          distinctive <strong className="text-emerald-700 dark:text-emerald-300">{renderInlineToken('hair_details')}</strong>.
+          Her skin tone is {renderInlineToken('skin_tone')} with {renderInlineToken('skin_undertone')}, featuring a {renderInlineToken('skin_texture')} texture.
         </p>
 
         <p>
-          Use {renderInlineToken('makeup_expression')} so her actual facial identity is clearly visible.
+          Her hair is {renderInlineToken('hair_length')}, {renderInlineToken('hair_texture')}, and {renderInlineToken('hair_color')}, styled with {renderInlineToken('hair_details')}.
         </p>
 
-        <p className="text-[11px] text-muted-foreground italic bg-muted/40 p-2.5 rounded-lg border border-dashed border-border">
-          Plain neutral background, consistent soft natural lighting, realistic human anatomy, realistic skin texture, no beauty filter, no facial reshaping, no stylization, no excessive retouching.
-          All three views must depict <strong>exactly the same woman</strong> with identical facial structure and physical identity.
-          No text except label of side and title.
+        <p>
+          She wears {renderInlineToken('makeup')} and a {renderInlineToken('facial_expression')} so her actual facial identity is clearly visible. Plain neutral background, consistent soft natural lighting, realistic human anatomy and skin texture, no beauty filter, no facial reshaping, no stylization, and no excessive retouching. All three views depict exactly the same woman with identical facial structure and physical identity.
         </p>
 
-        <div className="pt-2 text-[11px] font-mono text-emerald-700 dark:text-emerald-400 font-medium">
-          Purpose: **FACE LOCK — this image is the primary reference for {charData.character_name}'s facial identity, skin, eyes, hair, and recognizable features.**
-        </div>
+        {renderPromptCardBottomBar()}
       </div>
     );
   };
@@ -824,65 +1100,26 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
   // ── Step 2 Body Document View ──
   const renderBodyDocument = () => {
     return (
-      <div className="space-y-4 text-xs font-serif leading-relaxed text-foreground">
-        <p className="font-mono text-[11px] text-muted-foreground uppercase tracking-wider pb-2 border-b border-border flex items-center justify-between">
-          <span>Full-Body Reference Sheet · 4:3 Landscape</span>
-          <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[10px] flex items-center gap-1">
-            <CheckCircle2 size={11} />
-            <span>Face DNA Inherited</span>
-          </span>
-        </p>
-
+      <div className="text-xs sm:text-sm font-sans leading-relaxed text-foreground space-y-3">
         <p>
-          Create a 4:3 high-resolution photorealistic <strong className="font-sans font-semibold">BODY IDENTITY REFERENCE CARD</strong> for{' '}
+          Create a 4:3 high-resolution photorealistic body identity reference card for{' '}
           {renderInlineToken('character_name')}, the same fictional adult {renderInlineToken('ethnicity_ancestry')}{' '}
-          {renderInlineToken('gender_presentation')} in her {renderInlineToken('age_appearance')}.
-        </p>
-
-        <div className="bg-muted/50 p-3 rounded-xl border border-border font-mono text-[11px] space-y-1">
-          <div className="text-muted-foreground font-semibold">
-            Show the <strong className="text-foreground">same woman</strong> in three consistent full-body views on one clean reference sheet:
-          </div>
-          <div className="pl-2 space-y-0.5 text-muted-foreground">
-            <div>1. front view</div>
-            <div>2. left side view</div>
-            <div>3. Right side view</div>
-            <div>4. back view</div>
-          </div>
-        </div>
-
-        <p>
-          {charData.character_name} has a <strong className="text-emerald-700 dark:text-emerald-300">{renderInlineToken('presence_silhouette')}</strong>{' '}
-          with {renderInlineToken('proportions_limbs')}.
+          {renderInlineToken('gender_presentation')} in her {renderInlineToken('age_appearance')}. Show the same woman in four consistent full-body views on one clean reference sheet: straight-on front view, left side view, right side view, and back view.
         </p>
 
         <p>
-          Her abdomen has <strong className="text-emerald-700 dark:text-emerald-300">{renderInlineToken('abdomen')}</strong>.
+          {charData.character_name} has a {renderInlineToken('silhouette')} with a {renderInlineToken('bust')}, {renderInlineToken('waist')}, and {renderInlineToken('hips')}, balanced by {renderInlineToken('limbs')}. Her abdomen has {renderInlineToken('abdomen')}, with an overall {renderInlineToken('physique')} physique.
         </p>
 
         <p>
-          Her overall physique is <strong className="text-emerald-700 dark:text-emerald-300">{renderInlineToken('physique')}</strong>.
+          She is dressed in a {renderInlineToken('clothing')} that clearly shows her natural proportions without being revealing, standing in a {renderInlineToken('posture')}.
         </p>
 
         <p>
-          Use {renderInlineToken('clothing')} that clearly shows her natural proportions without being revealing.{' '}
-          {renderInlineToken('posture')}.
+          Preserve her {renderInlineToken('skin_tone')} skin with {renderInlineToken('skin_undertone')} and {renderInlineToken('skin_texture')}. Plain neutral background, consistent soft natural lighting, realistic anatomy and proportions. No slimming, body reshaping, exaggerated curves, muscular enhancement, artificial proportions, beauty filter, or stylization. All four views depict exactly the same woman with identical body proportions.
         </p>
 
-        <p>
-          Preserve her {renderInlineToken('skin_tone_undertone')} and realistic human skin texture.
-        </p>
-
-        <p className="text-[11px] text-muted-foreground italic bg-muted/40 p-2.5 rounded-lg border border-dashed border-border">
-          Plain neutral background, consistent soft natural lighting, realistic anatomy and proportions.
-          No slimming, body reshaping, exaggerated curves, muscular enhancement, artificial proportions, beauty filter, or stylization.
-          All three views must depict <strong>exactly the same woman with identical body proportions</strong>.
-          No text except label of side and title.
-        </p>
-
-        <div className="pt-2 text-[11px] font-mono text-emerald-700 dark:text-emerald-400 font-medium">
-          Purpose: **BODY LOCK — this image is the primary reference for {charData.character_name}'s body proportions, silhouette, and physical structure.**
-        </div>
+        {renderPromptCardBottomBar()}
       </div>
     );
   };
@@ -890,56 +1127,26 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
   // ── Step 3 Expression Document View ──
   const renderExpressionDocument = () => {
     return (
-      <div className="space-y-4 text-xs font-serif leading-relaxed text-foreground">
-        <p className="font-mono text-[11px] text-muted-foreground uppercase tracking-wider pb-2 border-b border-border flex items-center justify-between">
-          <span>Expression & Selfie Realism · 2×3 Grid</span>
-          <span className="text-emerald-600 dark:text-emerald-400 font-mono text-[10px] flex items-center gap-1">
-            <CheckCircle2 size={11} />
-            <span>Face & Body DNA Locked</span>
-          </span>
-        </p>
-
+      <div className="text-xs sm:text-sm font-sans leading-relaxed text-foreground space-y-3">
         <p>
-          Create a high-resolution photorealistic <strong className="font-sans font-semibold">EXPRESSION AND SELFIE-REALISM REFERENCE CARD</strong> for{' '}
+          Create a high-resolution photorealistic expression and selfie-realism reference card for{' '}
           {renderInlineToken('character_name')}, the same fictional adult {renderInlineToken('ethnicity_ancestry')}{' '}
-          {renderInlineToken('gender_presentation')} in her {renderInlineToken('age_appearance')}.
-        </p>
-
-        <div className="bg-muted/50 p-3 rounded-xl border border-border font-mono text-[11px] space-y-1">
-          <div className="text-muted-foreground font-semibold">
-            Show <strong className="text-foreground">six expressions of the exact same woman</strong> in a clean 2×3 grid:
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pl-2 text-muted-foreground">
-            <div>1. relaxed neutral</div>
-            <div>2. soft genuine smile</div>
-            <div>3. playful smirk</div>
-            <div>4. subtle laugh</div>
-            <div>5. confident direct gaze</div>
-            <div>6. soft thoughtful expression</div>
-          </div>
-        </div>
-
-        <p>
-          Keep {charData.character_name}'s exact established facial identity in every panel: {charData.face_structure}, {charData.eyes}, {charData.eyebrows}, {charData.nose}, {charData.lips}, {charData.skin_tone_undertone}, and {charData.hair_description} with {charData.hair_details}.
+          {renderInlineToken('gender_presentation')} in her {renderInlineToken('age_appearance')}. Show six expressions of the exact same woman in a clean 2×3 grid: relaxed neutral, soft genuine smile, playful smirk, subtle laugh, confident direct gaze, and soft thoughtful expression.
         </p>
 
         <p>
-          Focus on <strong className="text-emerald-700 dark:text-emerald-300">{renderInlineToken('expression_focus')}</strong>.
+          Keep {charData.character_name}'s exact established facial identity in every panel: {renderInlineToken('face_shape')} with {renderInlineToken('cheeks')}, {renderInlineToken('eye_size')} {renderInlineToken('eye_color')} eyes, {renderInlineToken('brow_shape')} eyebrows, {renderInlineToken('nose')} nose, {renderInlineToken('lip_shape')} {renderInlineToken('lip_color')} lips, {renderInlineToken('skin_tone')} skin with {renderInlineToken('skin_undertone')}, and {renderInlineToken('hair_length')} {renderInlineToken('hair_texture')} {renderInlineToken('hair_color')} hair.
         </p>
 
         <p>
-          Expressions should feel like a real person rather than exaggerated model poses. Include {renderInlineToken('selfie_vibe')}.
+          Focus on {renderInlineToken('expression_realism')} and authentic emotion. Expressions should feel like a real person rather than exaggerated model poses, capturing {renderInlineToken('selfie_vibe')}.
         </p>
 
-        <p className="text-[11px] text-muted-foreground italic bg-muted/40 p-2.5 rounded-lg border border-dashed border-border">
-          Consistent natural lighting, simple neutral background, realistic skin texture, photorealistic rendering, high resolution.
-          No face redesign, beautification, excessive retouching, plastic skin, exaggerated expressions, or stylization.
-          No text except label of side and title.
+        <p>
+          Consistent natural lighting, simple neutral background, realistic skin texture, photorealistic rendering, high resolution. No face redesign, beautification, excessive retouching, plastic skin, exaggerated expressions, or stylization. All six panels depict exactly the same woman with consistent identity.
         </p>
 
-        <div className="pt-2 text-[11px] font-mono text-emerald-700 dark:text-emerald-400 font-medium">
-          Purpose: **EXPRESSION LOCK — this image establishes {charData.character_name}'s natural facial animation, eye behavior, expression range, and realistic selfie presence.**
-        </div>
+        {renderPromptCardBottomBar()}
       </div>
     );
   };
@@ -947,14 +1154,15 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
   return (
     <div className="flex-1 min-h-0 flex flex-col w-full overflow-hidden bg-background">
       {/* ── TOP STEPPER & STATUS HEADER ── */}
-      <div className="border-b border-border bg-card px-3 sm:px-4 py-2.5 shrink-0 z-20">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
+      {/* ── TOP STEPPER & STATUS HEADER ── */}
+      <div className="border-b border-border bg-card px-2.5 sm:px-4 py-2 shrink-0 z-20">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-1.5 sm:gap-2">
           {/* 3-Step Wizard Stepper */}
-          <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none py-0.5">
+          <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none">
             {/* Step 1: Face */}
             <button
               onClick={() => handleStepChange('face')}
-              className={`min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-medium transition-all shrink-0 select-none active:scale-95 ${
+              className={`min-h-[36px] sm:min-h-[44px] flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl text-xs font-medium transition-all shrink-0 select-none active:scale-95 ${
                 currentStep === 'face'
                   ? 'bg-primary/15 text-primary border border-primary/30 font-semibold shadow-2xs'
                   : isFaceConfirmed
@@ -963,7 +1171,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               }`}
             >
               <div
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                className={`w-4.5 h-4.5 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                   isFaceConfirmed
                     ? 'bg-primary text-primary-foreground'
                     : currentStep === 'face'
@@ -971,18 +1179,18 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     : 'bg-muted text-muted-foreground border border-border'
                 }`}
               >
-                {isFaceConfirmed ? <Check size={12} strokeWidth={3} /> : '1'}
+                {isFaceConfirmed ? <Check size={11} strokeWidth={3} /> : '1'}
               </div>
-              <span className="font-semibold">Face<span className="hidden sm:inline"> Lock</span></span>
-              <span className="text-[10px] opacity-70 font-mono hidden xs:inline">4:3</span>
+              <span className="font-semibold text-xs">Face<span className="hidden sm:inline"> Lock</span></span>
+              <span className="text-[10px] opacity-70 font-mono hidden md:inline">4:3</span>
             </button>
 
-            <span className="text-muted-foreground/40 font-mono text-xs">→</span>
+            <span className="text-muted-foreground/40 font-mono text-[11px]">→</span>
 
             {/* Step 2: Body */}
             <button
               onClick={() => handleStepChange('body')}
-              className={`min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-medium transition-all shrink-0 select-none active:scale-95 ${
+              className={`min-h-[36px] sm:min-h-[44px] flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl text-xs font-medium transition-all shrink-0 select-none active:scale-95 ${
                 currentStep === 'body'
                   ? 'bg-primary/15 text-primary border border-primary/30 font-semibold shadow-2xs'
                   : isBodyConfirmed
@@ -991,7 +1199,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               }`}
             >
               <div
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                className={`w-4.5 h-4.5 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                   isBodyConfirmed
                     ? 'bg-primary text-primary-foreground'
                     : currentStep === 'body'
@@ -999,18 +1207,18 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     : 'bg-muted text-muted-foreground border border-border'
                 }`}
               >
-                {isBodyConfirmed ? <Check size={12} strokeWidth={3} /> : '2'}
+                {isBodyConfirmed ? <Check size={11} strokeWidth={3} /> : '2'}
               </div>
-              <span className="font-semibold">Body<span className="hidden sm:inline"> Lock</span></span>
-              <span className="text-[10px] opacity-70 font-mono hidden xs:inline">4:3</span>
+              <span className="font-semibold text-xs">Body<span className="hidden sm:inline"> Lock</span></span>
+              <span className="text-[10px] opacity-70 font-mono hidden md:inline">4:3</span>
             </button>
 
-            <span className="text-muted-foreground/40 font-mono text-xs">→</span>
+            <span className="text-muted-foreground/40 font-mono text-[11px]">→</span>
 
             {/* Step 3: Expression */}
             <button
               onClick={() => handleStepChange('expression')}
-              className={`min-h-[44px] flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-medium transition-all shrink-0 select-none active:scale-95 ${
+              className={`min-h-[36px] sm:min-h-[44px] flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl text-xs font-medium transition-all shrink-0 select-none active:scale-95 ${
                 currentStep === 'expression'
                   ? 'bg-primary/15 text-primary border border-primary/30 font-semibold shadow-2xs'
                   : isExpressionConfirmed
@@ -1019,7 +1227,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               }`}
             >
               <div
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                className={`w-4.5 h-4.5 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                   isExpressionConfirmed
                     ? 'bg-primary text-primary-foreground'
                     : currentStep === 'expression'
@@ -1027,20 +1235,60 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     : 'bg-muted text-muted-foreground border border-border'
                 }`}
               >
-                {isExpressionConfirmed ? <Check size={12} strokeWidth={3} /> : '3'}
+                {isExpressionConfirmed ? <Check size={11} strokeWidth={3} /> : '3'}
               </div>
-              <span className="font-semibold">Expr<span className="hidden sm:inline">ession</span></span>
-              <span className="text-[10px] opacity-70 font-mono hidden xs:inline">2×3</span>
+              <span className="font-semibold text-xs">Expr<span className="hidden sm:inline">ession</span></span>
+              <span className="text-[10px] opacity-70 font-mono hidden md:inline">2×3</span>
             </button>
           </div>
 
-          {/* Thread / Session Status & Discard Action */}
-          <div className="flex items-center gap-2 text-xs shrink-0">
+          {/* Right side: Mobile Prompt/Card segmented toggle + session actions */}
+          <div className="flex items-center gap-1.5 text-xs shrink-0">
+            {/* Embedded Mobile View Switcher */}
+            <div className="flex lg:hidden items-center p-0.5 bg-muted rounded-xl text-xs">
+              <button
+                onClick={() => {
+                  hapticImpact('selection');
+                  setMobileTab('prompt');
+                }}
+                className={`min-h-[32px] px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all active:scale-95 ${
+                  mobileTab === 'prompt'
+                    ? 'bg-card text-foreground shadow-2xs font-semibold'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Prompt
+              </button>
+              <button
+                onClick={() => {
+                  hapticImpact('selection');
+                  setMobileTab('preview');
+                }}
+                className={`min-h-[32px] px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all flex items-center gap-1 active:scale-95 ${
+                  mobileTab === 'preview'
+                    ? 'bg-card text-foreground shadow-2xs font-semibold'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <span>Card</span>
+                {(() => {
+                  const activeResult =
+                    currentStep === 'face'
+                      ? faceResult
+                      : currentStep === 'body'
+                      ? bodyResult
+                      : expressionResult;
+                  return activeResult ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                  ) : null;
+                })()}
+              </button>
+            </div>
+
             {sessionConversationId ? (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[11px] font-mono">
+              <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[11px] font-mono">
                 <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                <span className="hidden sm:inline">Thread Locked</span>
-                <span>(#{sessionConversationId.slice(-6)})</span>
+                <span>Thread Locked (#{sessionConversationId.slice(-6)})</span>
               </div>
             ) : (
               <span className="text-[11px] text-muted-foreground hidden md:inline font-mono">
@@ -1050,159 +1298,119 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
             <button
               onClick={handleDiscardSession}
-              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95"
+              className="min-w-[36px] min-h-[36px] flex items-center justify-center p-1.5 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95"
               title="Reset current session and discard generated cards"
               aria-label="Discard session"
             >
-              <Trash2 size={15} />
+              <Trash2 size={14} />
             </button>
           </div>
         </div>
       </div>
 
-      {/* ── THREAD CONTEXT CONFIRMATION BANNER ── */}
+      {/* ── THREAD CONTEXT CONFIRMATION BANNER (Desktop full, Mobile ultra-slim chip) ── */}
       {!sessionConversationId ? (
-        <div className="bg-card border-b border-border px-3 sm:px-4 py-2.5 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shrink-0 z-10">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-muted-foreground flex items-center gap-1.5 text-[11px]">
-              <MessageSquare size={14} className="text-primary" />
-              <span>ChatGPT Thread:</span>
-            </span>
+        <>
+          {/* Desktop Banner */}
+          <div className="hidden lg:flex bg-card border-b border-border px-3 sm:px-4 py-2 text-xs items-center justify-between gap-2.5 shrink-0 z-10">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium text-muted-foreground flex items-center gap-1.5 text-[11px]">
+                <MessageSquare size={14} className="text-primary" />
+                <span>ChatGPT Thread:</span>
+              </span>
 
-            <div className="flex items-center p-1 bg-muted rounded-xl text-[11px]">
-              <button
-                onClick={() => {
-                  hapticImpact('selection');
-                  setChatMode('new');
-                  setTargetExistingChatId('');
-                  api.resetConversation().catch(() => {});
-                }}
-                className={`min-h-[36px] px-3 py-1.5 rounded-lg transition-all font-medium flex items-center gap-1.5 active:scale-95 ${
-                  chatMode === 'new'
-                    ? 'bg-card text-foreground shadow-2xs font-semibold'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Sparkles size={12} className="text-primary" />
-                <span>New Chat (Clean Slate)</span>
-              </button>
+              <div className="flex items-center p-1 bg-muted rounded-xl text-[11px]">
+                <button
+                  onClick={() => {
+                    hapticImpact('selection');
+                    setChatMode('new');
+                    setTargetExistingChatId('');
+                    api.resetConversation().catch(() => {});
+                  }}
+                  className={`min-h-[34px] px-3 py-1 rounded-lg transition-all font-medium flex items-center gap-1.5 active:scale-95 ${
+                    chatMode === 'new'
+                      ? 'bg-card text-foreground shadow-2xs font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Sparkles size={12} className="text-primary" />
+                  <span>New Chat (Clean Slate)</span>
+                </button>
 
-              <button
-                onClick={() => {
-                  hapticImpact('selection');
-                  setChatMode('existing');
-                }}
-                className={`min-h-[36px] px-3 py-1.5 rounded-lg transition-all font-medium flex items-center gap-1.5 active:scale-95 ${
-                  chatMode === 'existing'
-                    ? 'bg-card text-foreground shadow-2xs font-semibold'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <span>Attach to Existing Chat</span>
-              </button>
+                <button
+                  onClick={() => {
+                    hapticImpact('selection');
+                    setChatMode('existing');
+                  }}
+                  className={`min-h-[34px] px-3 py-1 rounded-lg transition-all font-medium flex items-center gap-1.5 active:scale-95 ${
+                    chatMode === 'existing'
+                      ? 'bg-card text-foreground shadow-2xs font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <span>Attach to Existing Chat</span>
+                </button>
+              </div>
+
+              {chatMode === 'existing' && (
+                <select
+                  value={targetExistingChatId}
+                  onChange={(e) => setTargetExistingChatId(e.target.value)}
+                  className="text-[11px] py-1 px-2 rounded-xl border border-border bg-card text-foreground max-w-xs focus:ring-1 focus:ring-primary focus:outline-none"
+                >
+                  <option value="">-- Choose Existing Thread --</option>
+                  {availableChats.map((c) => {
+                    const label = (c.title || c.last_prompt || 'Untitled Chat').slice(0, 30);
+                    const cidSuffix = c.conversation_id ? ` · #${c.conversation_id.slice(-6)}` : '';
+                    return (
+                      <option key={c.conversation_id} value={c.conversation_id}>
+                        {label} ({c.turns || 0} turns{cidSuffix})
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
             </div>
 
-            {chatMode === 'existing' && (
-              <select
-                value={targetExistingChatId}
-                onChange={(e) => setTargetExistingChatId(e.target.value)}
-                className="text-[11px] py-1.5 px-2.5 rounded-xl border border-border bg-card text-foreground max-w-xs focus:ring-1 focus:ring-primary focus:outline-none"
-              >
-                <option value="">-- Choose Existing Thread --</option>
-                {availableChats.map((c) => {
-                  const label = (c.title || c.last_prompt || 'Untitled Chat').slice(0, 30);
-                  const cidSuffix = c.conversation_id ? ` · #${c.conversation_id.slice(-6)}` : '';
-                  return (
-                    <option key={c.conversation_id} value={c.conversation_id}>
-                      {label} ({c.turns || 0} turns{cidSuffix})
-                    </option>
-                  );
-                })}
-              </select>
-            )}
+            <div className="text-[11px] flex items-center gap-1.5 font-medium">
+              {chatMode === 'new' ? (
+                <span className="text-primary bg-primary/10 px-2 py-0.5 rounded-lg flex items-center gap-1.5 border border-primary/20">
+                  <CheckCircle2 size={13} />
+                  <span>Clean-slate session for {charData.character_name}</span>
+                </span>
+              ) : (
+                <span className="text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg flex items-center gap-1.5 border border-amber-500/20">
+                  <CheckCircle2 size={13} />
+                  <span>Will attach to #{targetExistingChatId ? targetExistingChatId.slice(-6) : 'selected'}</span>
+                </span>
+              )}
+            </div>
           </div>
 
-          <div className="text-[11px] flex items-center gap-1.5 font-medium">
-            {chatMode === 'new' ? (
-              <span className="text-primary bg-primary/10 px-2.5 py-1 rounded-lg flex items-center gap-1.5 border border-primary/20">
-                <CheckCircle2 size={13} />
-                <span>Clean-slate session for {charData.character_name}</span>
-              </span>
-            ) : (
-              <span className="text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg flex items-center gap-1.5 border border-amber-500/20">
-                <CheckCircle2 size={13} />
-                <span>Will attach to #{targetExistingChatId ? targetExistingChatId.slice(-6) : 'selected'}</span>
-              </span>
-            )}
-          </div>
-        </div>
+          {/* Mobile Slim Chip hidden to preserve vertical screen estate */}
+        </>
       ) : (
-        <div className="bg-primary/5 border-b border-primary/20 px-3 sm:px-4 py-2.5 text-xs flex items-center justify-between gap-2 shrink-0 z-10">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-primary/15 text-primary font-mono text-[11px] font-semibold border border-primary/20">
-              <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+        <div className="bg-primary/5 border-b border-primary/20 px-3 py-1.5 text-xs flex items-center justify-between gap-2 shrink-0 z-10">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-primary/15 text-primary font-mono text-[10px] sm:text-[11px] font-semibold border border-primary/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
               <span>Thread Locked: #{sessionConversationId.slice(-8)}</span>
             </div>
-            <span className="text-foreground/80 text-[11px]">
-              Identity Continuity Active · Face, Body & Expression share this conversation context across turns.
+            <span className="text-foreground/80 text-[10px] sm:text-[11px] hidden sm:inline">
+              Identity Continuity Active
             </span>
           </div>
 
           <button
             onClick={handleDiscardSession}
-            className="min-h-[36px] text-[11px] px-3 py-1 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-1.5 font-medium active:scale-95 border border-transparent hover:border-destructive/20"
+            className="min-h-[28px] text-[10px] sm:text-[11px] px-2 py-0.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-1 font-medium active:scale-95"
             title="Release conversation and reset wizard"
           >
-            <RotateCcw size={12} />
-            <span>Discard & Release</span>
+            <RotateCcw size={11} />
+            <span>Reset</span>
           </button>
         </div>
       )}
-
-      {/* ── MOBILE VIEW SWITCHER (< lg only) ── */}
-      <div className="flex lg:hidden items-center justify-between border-b border-border bg-card px-3 py-2 shrink-0 z-10">
-        <div className="flex items-center p-1 bg-muted rounded-xl text-xs w-full gap-1">
-          <button
-            onClick={() => {
-              hapticImpact('selection');
-              setMobileTab('prompt');
-            }}
-            className={`flex-1 min-h-[44px] py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
-              mobileTab === 'prompt'
-                ? 'bg-card text-foreground shadow-2xs font-semibold border border-border/40'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Pencil size={13} className="text-primary" />
-            <span>Edit Prompt</span>
-          </button>
-          <button
-            onClick={() => {
-              hapticImpact('selection');
-              setMobileTab('preview');
-            }}
-            className={`flex-1 min-h-[44px] py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
-              mobileTab === 'preview'
-                ? 'bg-card text-foreground shadow-2xs font-semibold border border-border/40'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Eye size={14} className="text-primary" />
-            <span>Card Preview</span>
-            {(() => {
-              const activeResult =
-                currentStep === 'face'
-                  ? faceResult
-                  : currentStep === 'body'
-                  ? bodyResult
-                  : expressionResult;
-              return activeResult ? (
-                <span className="w-2 h-2 rounded-full bg-primary animate-pulse ml-0.5" />
-              ) : null;
-            })()}
-          </button>
-        </div>
-      </div>
 
       {/* ── MAIN WORKSPACE: 2-COLUMN LAYOUT ── */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col lg:flex-row">
@@ -1211,9 +1419,9 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
           mobileTab === 'prompt' ? 'flex' : 'hidden lg:flex'
         }`}>
           {/* Sub-header Toolbar */}
-          <div className="p-3 px-4 border-b border-border bg-muted/30 flex items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <div className="py-1.5 px-2.5 sm:p-3 sm:px-4 border-b border-border bg-muted/30 flex items-center justify-between gap-1.5 shrink-0 overflow-x-auto scrollbar-none">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-foreground hidden sm:flex items-center gap-1.5">
                 <Pencil size={13} className="text-primary" />
                 <span>
                   {currentStep === 'face'
@@ -1226,27 +1434,14 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                 </span>
               </span>
 
-              {/* Mode indicator */}
-              {editorMode === 'raw' && customRawPrompt !== null ? (
-                <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 font-medium">
-                  Custom Edited
-                </span>
-              ) : (
-                <span className="text-[10px] px-2 py-0.5 rounded-md bg-primary/15 text-primary font-medium">
-                  Interactive Tokens
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
               {/* Archetype Quick-Bar */}
-              <div className="flex items-center gap-1 text-[11px] overflow-x-auto scrollbar-none py-0.5 shrink-0">
+              <div className="flex items-center gap-1 text-[11px] overflow-x-auto scrollbar-none shrink-0">
                 <span className="text-muted-foreground text-[10px] hidden md:inline font-mono">Preset:</span>
                 {['nia', 'kaya', 'zia', 'nastya'].map((k) => (
                   <button
                     key={k}
                     onClick={() => handleSelectArchetype(k)}
-                    className={`min-h-[36px] px-3 py-1 rounded-lg capitalize font-medium transition-all text-xs shrink-0 select-none active:scale-95 ${
+                    className={`min-h-[30px] sm:min-h-[34px] px-2.5 sm:px-3 py-0.5 rounded-lg capitalize font-medium transition-all text-xs shrink-0 select-none active:scale-95 ${
                       charData.character_name.toLowerCase() === k
                         ? 'bg-primary text-primary-foreground shadow-2xs font-semibold'
                         : 'bg-muted text-muted-foreground hover:text-foreground'
@@ -1256,14 +1451,31 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              {/* Quick Generate Button In Toolbar */}
+              <button
+                onClick={handleGenerateCurrentStep}
+                disabled={isGenerating}
+                className="min-h-[30px] sm:min-h-[34px] flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1 rounded-xl text-xs font-semibold text-primary-foreground bg-primary hover:bg-primary/90 shadow-2xs active:scale-95 disabled:opacity-60 shrink-0"
+                title="Generate current step reference card"
+              >
+                {isGenerating ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Sparkles size={13} />
+                )}
+                <span>Generate</span>
+              </button>
 
               {/* Randomize Button */}
               <button
                 onClick={handleRandomize}
-                className="min-h-[36px] flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs bg-muted hover:bg-muted/80 text-foreground transition-all shadow-2xs active:scale-95 border border-border"
+                className="min-h-[30px] sm:min-h-[34px] flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-xl text-xs bg-muted hover:bg-muted/80 text-foreground transition-all shadow-2xs active:scale-95 border border-border"
                 title="Randomize dynamic tokens with realistic harmonized values"
               >
-                <Dices size={14} className="text-primary" />
+                <Dices size={13} className="text-primary" />
                 <span className="hidden sm:inline">Randomize</span>
               </button>
 
@@ -1278,53 +1490,53 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                     setEditorMode('tokens');
                   }
                 }}
-                className={`min-h-[36px] px-2.5 py-1 rounded-xl text-xs font-medium border transition-colors ${
+                className={`min-h-[30px] sm:min-h-[34px] px-2 sm:px-2.5 py-1 rounded-xl text-xs font-medium border transition-colors ${
                   editorMode === 'raw'
                     ? 'bg-foreground text-background border-transparent'
                     : 'bg-card border-border text-muted-foreground hover:text-foreground'
                 }`}
                 title="Toggle raw text editing"
               >
-                {editorMode === 'raw' ? '✦ Tokens View' : '✎ Raw Text'}
+                {editorMode === 'raw' ? '✦ Tokens' : '✎ Raw'}
               </button>
 
               {/* Copy prompt */}
               <button
                 onClick={handleCopyPrompt}
-                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors active:scale-95"
+                className="min-w-[30px] sm:min-w-[40px] min-h-[30px] sm:min-h-[34px] flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors active:scale-95"
                 title="Copy prompt text"
               >
-                {copiedPrompt ? <Check size={14} className="text-primary" /> : <Copy size={14} />}
+                {copiedPrompt ? <Check size={13} className="text-primary" /> : <Copy size={13} />}
               </button>
             </div>
           </div>
 
           {/* Document Content Scroll Area */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <div className="flex-1 overflow-y-auto p-2 sm:p-6">
             {editorMode === 'raw' ? (
               <div className="h-full flex flex-col space-y-2">
                 <textarea
                   value={effectivePrompt}
                   onChange={(e) => setCustomRawPrompt(e.target.value)}
                   rows={20}
-                  className="w-full flex-1 text-xs font-mono whitespace-pre-wrap text-foreground leading-relaxed bg-muted/20 p-4 rounded-xl border border-border focus:outline-none focus:ring-1 focus:ring-primary resize-none shadow-inner"
+                  className="w-full flex-1 text-xs font-mono whitespace-pre-wrap text-foreground leading-relaxed bg-muted/20 p-3 sm:p-4 rounded-xl border border-border focus:outline-none focus:ring-1 focus:ring-primary resize-none shadow-inner"
                   placeholder="Raw prompt editor..."
                 />
                 <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>💡 Direct text edits are active and will be used for generation.</span>
+                  <span>💡 Direct text edits are active.</span>
                   {customRawPrompt !== null && (
                     <button
                       onClick={() => setCustomRawPrompt(null)}
                       className="text-amber-600 dark:text-amber-400 font-medium hover:underline flex items-center gap-1"
                     >
                       <RotateCcw size={11} />
-                      <span>Revert to Form Tokens</span>
+                      <span>Revert</span>
                     </button>
                   )}
                 </div>
               </div>
             ) : (
-              <div className="max-w-2xl mx-auto bg-card p-5 sm:p-7 rounded-2xl border border-border shadow-sm">
+              <div className="max-w-2xl mx-auto bg-card p-3.5 sm:p-7 rounded-xl sm:rounded-2xl border border-border/80 shadow-xs">
                 {currentStep === 'face' && renderFaceDocument()}
                 {currentStep === 'body' && renderBodyDocument()}
                 {currentStep === 'expression' && renderExpressionDocument()}
@@ -1730,7 +1942,7 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
       </div>
 
       {/* ── MOBILE STICKY ACTION FOOTER (< lg only) ── */}
-      <div className="lg:hidden p-3 border-t border-border bg-card/95 backdrop-blur-md shadow-lg shrink-0 z-30 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="lg:hidden px-3 py-2 border-t border-border bg-card/95 backdrop-blur-md shrink-0 z-30">
         {(() => {
           const activeResult =
             currentStep === 'face'
@@ -1741,9 +1953,9 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
 
           if (isGenerating) {
             return (
-              <div className="w-full min-h-[48px] h-12 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-xs text-primary-foreground bg-primary shadow-md">
-                <Loader2 size={16} className="animate-spin" />
-                <span>{generationProgress || 'Generating Card in ChatGPT…'}</span>
+              <div className="w-full min-h-[40px] h-10 flex items-center justify-center gap-2 px-3 py-2 rounded-xl font-semibold text-xs text-primary-foreground bg-primary shadow-xs">
+                <Loader2 size={15} className="animate-spin" />
+                <span className="truncate">{generationProgress || 'Generating Card in ChatGPT…'}</span>
               </div>
             );
           }
@@ -1753,40 +1965,40 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleGenerateCurrentStep}
-                  className="min-h-[48px] h-12 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 active:scale-95 shrink-0"
+                  className="min-h-[40px] h-10 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80 active:scale-95 shrink-0"
                   title="Regenerate this step's reference card"
                 >
                   <RotateCcw size={13} />
-                  <span>Regenerate</span>
+                  <span>Regen</span>
                 </button>
 
                 {currentStep === 'face' && (
                   <button
                     onClick={handleConfirmFace}
-                    className="flex-1 min-h-[48px] h-12 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-md active:scale-95"
+                    className="flex-1 min-h-[40px] h-10 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-xs active:scale-95"
                   >
-                    <span>✓ Pass & Proceed to Body Lock</span>
-                    <ArrowRight size={14} />
+                    <span>✓ Pass & Next to Body</span>
+                    <ArrowRight size={13} />
                   </button>
                 )}
 
                 {currentStep === 'body' && (
                   <button
                     onClick={handleConfirmBody}
-                    className="flex-1 min-h-[48px] h-12 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-md active:scale-95"
+                    className="flex-1 min-h-[40px] h-10 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-xs active:scale-95"
                   >
-                    <span>✓ Pass & Proceed to Expression Lock</span>
-                    <ArrowRight size={14} />
+                    <span>✓ Pass & Next to Expr</span>
+                    <ArrowRight size={13} />
                   </button>
                 )}
 
                 {currentStep === 'expression' && (
                   <button
                     onClick={handleConfirmExpression}
-                    className="flex-1 min-h-[48px] h-12 flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-md active:scale-95"
+                    className="flex-1 min-h-[40px] h-10 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-xs active:scale-95"
                   >
-                    <span>✓ Pass & Finalize Character</span>
-                    <Check size={14} strokeWidth={3} />
+                    <span>✓ Finalize Character</span>
+                    <Check size={13} strokeWidth={3} />
                   </button>
                 )}
               </div>
@@ -1797,9 +2009,9 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
           return (
             <button
               onClick={handleGenerateCurrentStep}
-              className="w-full min-h-[48px] h-12 flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm text-primary-foreground bg-primary hover:bg-primary/90 shadow-md active:scale-95"
+              className="w-full min-h-[40px] h-10 flex items-center justify-center gap-2 px-4 py-2 rounded-xl font-semibold text-xs text-primary-foreground bg-primary hover:bg-primary/90 shadow-xs active:scale-95"
             >
-              <Sparkles size={16} />
+              <Sparkles size={15} />
               <span>
                 Generate{' '}
                 {currentStep === 'face'
@@ -1855,7 +2067,6 @@ Purpose: **EXPRESSION LOCK — this image establishes ${charData.character_name}
                       handleUpdateToken(activePickerField, pickerSearch.trim());
                     }
                   }}
-                  autoFocus
                   placeholder={`Search or type custom ${String(activePickerField).replace(/_/g, ' ')}...`}
                   className="w-full min-h-[40px] pl-9 pr-4 py-2 text-xs rounded-xl bg-muted/40 border border-border focus:border-primary focus:bg-card text-foreground focus:outline-none transition-all"
                 />

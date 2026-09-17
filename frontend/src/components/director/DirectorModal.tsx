@@ -111,17 +111,17 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
     try {
       const plan = await api.planStoryboard({
         intent: intent.trim(),
-        character_id: selectedChar?.id,
+        character_id: selectedChar ? selectedChar.id : 'freeform',
         shot_count: shotCount,
         creative_guidance: creativeGuidance.trim() || undefined,
       });
       if (plan?.shots && plan.shots.length > 0) {
         setShots(plan.shots);
       } else {
-        setPlanError('No shots returned from Director AI. Please try again.');
+        setPlanError('AI Director returned an empty plan. Please try again or refine your prompt.');
       }
     } catch (err: any) {
-      setPlanError(err.message || 'Failed to generate storyboard plan');
+      setPlanError(err.message || 'Failed to generate plan');
     } finally {
       setIsPlanning(false);
     }
@@ -134,7 +134,7 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
     try {
       await api.executeStoryboard({
         shots,
-        character_id: selectedChar?.id,
+        character_id: selectedChar ? selectedChar.id : 'freeform',
         conversation_id: activeConvId || undefined,
       });
     } catch (err: any) {
