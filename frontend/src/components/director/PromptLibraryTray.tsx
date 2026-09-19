@@ -63,13 +63,13 @@ export function PromptLibraryTray({ onInsertModifier, isOpen, onClose }: PromptL
   };
 
   return (
-    <div className="border-b border-gray-200 dark:border-white/10 bg-gray-50/95 dark:bg-[#18181b]/95 backdrop-blur-md p-3 animate-in slide-in-from-top-2 duration-200">
+    <div className="border-b border-border bg-card/95 backdrop-blur-md p-3 animate-in slide-in-from-top-2 duration-200">
       <div className="max-w-4xl mx-auto space-y-2.5">
         {/* Header with Categories and Close */}
-        <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 scrollbar-none">
-          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            <span className="text-[11px] font-semibold tracking-wide uppercase text-zinc-500 dark:text-zinc-400 flex items-center gap-1 shrink-0 mr-1">
-              <Sparkles size={12} className="text-emerald-500" />
+        <div className="flex items-center justify-between gap-2 pb-1">
+          <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto no-scrollbar scrollbar-none py-0.5 pr-2">
+            <span className="text-[11px] font-semibold tracking-wide uppercase text-muted-foreground flex items-center gap-1 shrink-0 mr-1">
+              <Sparkles size={12} className="text-primary" />
               Library:
             </span>
             {Object.keys(categoryLabels).map((cat) => (
@@ -77,10 +77,10 @@ export function PromptLibraryTray({ onInsertModifier, isOpen, onClose }: PromptL
                 key={cat}
                 type="button"
                 onClick={() => setActiveCategory(cat)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 min-h-[30px] flex items-center ${
                   activeCategory === cat
-                    ? 'bg-zinc-900 text-white dark:bg-white dark:text-black shadow-sm'
-                    : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700'
+                    ? 'bg-foreground text-background shadow-xs font-semibold'
+                    : 'bg-muted/80 text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95'
                 }`}
               >
                 {categoryLabels[cat]}
@@ -91,22 +91,23 @@ export function PromptLibraryTray({ onInsertModifier, isOpen, onClose }: PromptL
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-800 shrink-0"
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted shrink-0 min-w-[32px] min-h-[32px] flex items-center justify-center transition-colors active:scale-95 ml-1"
             title="Close Library"
+            aria-label="Close Library"
           >
-            <X size={14} />
+            <X size={15} />
           </button>
         </div>
 
         {/* Chips List */}
-        <div className="flex flex-wrap items-center gap-1.5 max-h-28 overflow-y-auto pr-1">
+        <div className="flex flex-wrap items-center gap-1.5 max-h-32 overflow-y-auto pr-1">
           {activeCategory !== 'custom' &&
             data?.standard?.[activeCategory]?.map((modifier) => (
               <button
                 key={modifier}
                 type="button"
                 onClick={() => onInsertModifier(modifier)}
-                className="px-2.5 py-1 rounded-full text-xs font-mono bg-white dark:bg-zinc-800/90 border border-zinc-200 dark:border-zinc-700/80 text-zinc-800 dark:text-zinc-200 hover:border-emerald-500 dark:hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors shadow-xs active:scale-95"
+                className="px-3 py-1.5 rounded-full text-xs font-mono bg-muted/60 hover:bg-muted border border-border text-foreground hover:border-primary/50 hover:text-primary transition-colors shadow-2xs active:scale-95 min-h-[32px] flex items-center"
               >
                 + {modifier}
               </button>
@@ -118,51 +119,53 @@ export function PromptLibraryTray({ onInsertModifier, isOpen, onClose }: PromptL
                 <div
                   key={chip.id}
                   onClick={() => onInsertModifier(chip.text)}
-                  className="group flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono bg-white dark:bg-zinc-800/90 border border-zinc-200 dark:border-zinc-700/80 text-zinc-800 dark:text-zinc-200 hover:border-emerald-500 dark:hover:border-emerald-500 cursor-pointer shadow-xs transition-colors"
+                  className="group flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono bg-muted/60 hover:bg-muted border border-border text-foreground hover:border-primary/50 cursor-pointer shadow-2xs transition-colors min-h-[32px]"
                 >
                   <span>+ {chip.text}</span>
                   <button
                     type="button"
                     onClick={(e) => handleDeleteCustom(chip.id, e)}
-                    className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-rose-500 p-0.5 rounded transition-opacity"
+                    className="opacity-70 group-hover:opacity-100 text-muted-foreground hover:text-rose-500 p-0.5 rounded transition-opacity"
                     title="Delete preset"
+                    aria-label="Delete preset"
                   >
-                    <X size={10} />
+                    <X size={12} />
                   </button>
                 </div>
               ))}
 
               {isAdding ? (
-                <form onSubmit={handleAddCustom} className="flex items-center gap-1">
+                <form onSubmit={handleAddCustom} className="flex items-center gap-1.5">
                   <input
                     type="text"
                     value={newChipText}
                     onChange={(e) => setNewChipText(e.target.value)}
                     placeholder="E.g. anamorphic lens, 8k"
-                    className="px-2.5 py-0.5 rounded-full text-xs bg-white dark:bg-zinc-900 border border-emerald-500 outline-none w-44"
+                    className="px-3 py-1.5 rounded-full text-[16px] sm:text-xs bg-muted border border-primary text-foreground outline-none w-48 min-h-[32px]"
                     autoFocus
                   />
                   <button
                     type="submit"
-                    className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold bg-primary text-primary-foreground hover:bg-emerald-600 transition-colors min-h-[32px] active:scale-95"
                   >
                     Save
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsAdding(false)}
-                    className="text-zinc-400 hover:text-zinc-600 p-1"
+                    className="text-muted-foreground hover:text-foreground p-1 min-w-[28px] min-h-[28px] flex items-center justify-center"
+                    aria-label="Cancel"
                   >
-                    <X size={12} />
+                    <X size={14} />
                   </button>
                 </form>
               ) : (
                 <button
                   type="button"
                   onClick={() => setIsAdding(true)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-100 transition-colors"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium text-primary bg-primary/10 border border-primary/25 hover:bg-primary/20 transition-colors min-h-[32px] active:scale-95"
                 >
-                  <Plus size={12} /> Add Custom
+                  <Plus size={13} /> Add Custom
                 </button>
               )}
             </>

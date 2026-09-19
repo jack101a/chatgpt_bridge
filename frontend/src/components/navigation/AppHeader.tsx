@@ -73,7 +73,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             hapticImpact('light');
             onOpenSidebarMobile?.();
           }}
-          className="lg:hidden flex items-center justify-center min-w-[36px] min-h-[36px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
+          className="lg:hidden flex items-center justify-center min-w-[40px] min-h-[40px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
           title="Open threads sidebar"
           aria-label="Open threads sidebar"
         >
@@ -179,7 +179,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               hapticImpact('light');
               onOpenDirector();
             }}
-            className="flex items-center space-x-1.5 min-h-[34px] px-2.5 py-1 rounded-xl text-xs font-medium text-rose-500 hover:text-rose-400 bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/25 transition-all active:scale-95 shadow-2xs"
+            className="flex items-center space-x-1.5 min-h-[36px] sm:min-h-[34px] px-2.5 py-1 rounded-xl text-xs font-medium text-rose-500 hover:text-rose-400 bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/25 transition-all active:scale-95 shadow-2xs"
             title="Launch Director Storyboard generator"
           >
             <Clapperboard className="w-3.5 h-3.5" />
@@ -207,7 +207,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             hapticImpact('light');
             onOpenAccounts();
           }}
-          className="flex items-center space-x-1.5 min-h-[34px] px-2.5 py-1 rounded-xl text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-muted border border-border active:scale-95 transition-all"
+          className="flex items-center space-x-1.5 min-h-[36px] sm:min-h-[34px] px-2.5 py-1 rounded-xl text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-muted border border-border active:scale-95 transition-all"
           title="Account Status & Quotas"
         >
           <span

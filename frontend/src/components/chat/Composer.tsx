@@ -409,14 +409,14 @@ export const Composer: React.FC<ComposerProps> = ({
         )}
 
         {/* ── Top Bar: Character Pill, Delta Mode & Tools ── */}
-        <div className={`flex items-center justify-between px-3 pt-2.5 pb-1.5 gap-2 border-b border-border/50 bg-muted/20 ${!referenceImage ? 'rounded-t-2xl' : ''}`}>
+        <div className={`flex items-center justify-between px-2.5 sm:px-3 pt-2 pb-1.5 gap-1.5 sm:gap-2 border-b border-border/50 bg-muted/20 ${!referenceImage ? 'rounded-t-2xl' : ''}`}>
           {/* Left: Character Lock Pill & Selector */}
-          <div className="flex items-center gap-2" ref={menuRef}>
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0" ref={menuRef}>
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setIsCharacterMenuOpen(!isCharacterMenuOpen)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
+                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border min-h-[34px] ${
                   activeCharacter
                     ? 'bg-primary/15 text-primary border-primary/30 hover:bg-primary/20 shadow-xs'
                     : 'bg-muted text-muted-foreground border-border hover:bg-muted/80 hover:text-foreground'
@@ -425,19 +425,19 @@ export const Composer: React.FC<ComposerProps> = ({
               >
                 {activeCharacter ? (
                   <>
-                    <Lock size={12} className="text-primary" />
-                    <span className="truncate max-w-[120px]">{activeCharacter.name}</span>
-                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-primary text-primary-foreground font-mono">
+                    <Lock size={12} className="text-primary shrink-0" />
+                    <span className="truncate max-w-[75px] sm:max-w-[120px]">{activeCharacter.name}</span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-primary text-primary-foreground font-mono shrink-0 hidden xs:inline">
                       Locked
                     </span>
                   </>
                 ) : (
                   <>
-                    <User size={13} className="text-muted-foreground" />
-                    <span>Freeform Mode</span>
+                    <User size={13} className="text-muted-foreground shrink-0" />
+                    <span className="truncate max-w-[65px] sm:max-w-none">Freeform</span>
                   </>
                 )}
-                <ChevronDown size={11} className="opacity-60 ml-0.5" />
+                <ChevronDown size={11} className="opacity-60 ml-0.5 shrink-0" />
               </button>
 
               {isCharacterMenuOpen && (
@@ -541,11 +541,11 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
 
           {/* Right: Enhancer Model Picker, AI Director Button, Safety Shield & Prompt Library */}
-          <div className="flex items-center gap-1.5 ml-auto">
+          <div className="flex items-center gap-1 sm:gap-1.5 ml-auto shrink-0">
             {/* Real-time Safety Shield Indicator */}
             {promptText.trim() && (
               <div
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-mono border transition-all ${
+                className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-mono border transition-all shrink-0 ${
                   safety.level === 'safe'
                     ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
                     : safety.level === 'warning'
@@ -555,11 +555,11 @@ export const Composer: React.FC<ComposerProps> = ({
                 title={safety.reason}
               >
                 {safety.level === 'safe' ? (
-                  <ShieldCheck size={12} className="text-emerald-500" />
+                  <ShieldCheck size={12} className="text-emerald-500 shrink-0" />
                 ) : (
-                  <ShieldAlert size={12} className={safety.level === 'warning' ? 'text-amber-500' : 'text-red-500'} />
+                  <ShieldAlert size={12} className={safety.level === 'warning' ? 'text-amber-500 shrink-0' : 'text-red-500 shrink-0'} />
                 )}
-                <span className="hidden sm:inline font-medium capitalize">
+                <span className="hidden md:inline font-medium capitalize">
                   {safety.level === 'safe' ? 'Safe' : safety.level === 'warning' ? 'Notice' : 'Filter Risk'}
                 </span>
               </div>
@@ -573,22 +573,28 @@ export const Composer: React.FC<ComposerProps> = ({
                   hapticImpact('light');
                   setIsModelPickerOpen(!isModelPickerOpen);
                 }}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-muted/70 hover:bg-muted text-foreground text-xs font-mono border border-border transition-all active:scale-95 shadow-2xs min-h-[30px] max-w-[150px] sm:max-w-[220px]"
+                className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl bg-muted/70 hover:bg-muted text-foreground text-xs font-mono border border-border transition-all active:scale-95 shadow-2xs min-h-[34px] sm:min-h-[30px] max-w-[105px] sm:max-w-[220px]"
                 title={`Enhancer: ${aiProviders[enhancerProviderId]?.name || enhancerProviderId} → ${enhancerModel}. Click to switch provider or model.`}
               >
                 <Wand2 size={12} className="text-emerald-500 shrink-0" />
                 <span className="truncate text-[11px]">
-                  <span className="font-semibold text-muted-foreground mr-1">
+                  <span className="hidden sm:inline font-semibold text-muted-foreground mr-1">
                     {aiProviders[enhancerProviderId]?.name?.replace(/\(.*?\)/g, '').trim() || enhancerProviderId}:
                   </span>
-                  {enhancerModel.split('/').pop()}
+                  {enhancerModel.split('/').pop()?.replace(/^gemini-/, '')}
                 </span>
                 <ChevronDown size={11} className="text-muted-foreground shrink-0 opacity-60 ml-auto" />
               </button>
 
-              {/* Quick Multi-Provider Selector Popover */}
+              {/* Quick Multi-Provider Selector Popover (Responsive Mobile-Friendly) */}
               {isModelPickerOpen && (
-                <div className="absolute right-0 bottom-full mb-2 w-80 sm:w-96 rounded-2xl bg-card border border-border shadow-2xl p-3 z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <>
+                  {/* Backdrop for mobile */}
+                  <div
+                    className="sm:hidden fixed inset-0 bg-black/40 backdrop-blur-xs z-40"
+                    onClick={() => setIsModelPickerOpen(false)}
+                  />
+                  <div className="fixed inset-x-3 bottom-20 sm:absolute sm:inset-auto sm:right-0 sm:bottom-full sm:mb-2 w-auto sm:w-96 max-w-[calc(100vw-1.5rem)] rounded-2xl bg-card border border-border shadow-2xl p-3 z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
                   {/* Header */}
                   <div className="flex items-center justify-between pb-2 mb-2 border-b border-border/60">
                     <div>
@@ -835,6 +841,7 @@ export const Composer: React.FC<ComposerProps> = ({
                     );
                   })()}
                 </div>
+                </>
               )}
             </div>
 
@@ -844,7 +851,7 @@ export const Composer: React.FC<ComposerProps> = ({
                 hapticImpact('light');
                 setIsDirectorModalOpen(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 text-xs font-semibold border border-rose-500/25 transition-all active:scale-95 shadow-2xs min-h-[32px]"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 text-xs font-semibold border border-rose-500/25 transition-all active:scale-95 shadow-2xs min-h-[34px] sm:min-h-[32px]"
               title="AI Director: Cinematic Storyboard Generator"
             >
               <Clapperboard size={13} />
@@ -857,7 +864,7 @@ export const Composer: React.FC<ComposerProps> = ({
                 hapticImpact('light');
                 setShowLibrary(!showLibrary);
               }}
-              className={`p-2 rounded-xl transition-all min-h-[32px] min-w-[32px] flex items-center justify-center ${
+              className={`p-2 rounded-xl transition-all min-h-[34px] min-w-[34px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center ${
                 showLibrary
                   ? 'bg-primary/15 text-primary'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -870,8 +877,9 @@ export const Composer: React.FC<ComposerProps> = ({
         </div>
 
         {/* ── Main Textarea Row ── */}
+        {/* ── Main Textarea Row ── */}
         {!isDeltaMode ? (
-          <div className="flex items-end gap-2 px-3.5 py-2">
+          <div className="flex items-end gap-2 px-3 sm:px-3.5 py-2">
             <textarea
               ref={textareaRef}
               rows={1}
@@ -885,7 +893,7 @@ export const Composer: React.FC<ComposerProps> = ({
                   ? `Describe a scene for ${activeCharacter.name}…`
                   : 'Describe what you want to imagine…'
               }
-              className="flex-1 max-h-[180px] bg-transparent border-0 outline-none resize-none text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans py-1.5"
+              className="flex-1 max-h-[180px] bg-transparent border-0 outline-none resize-none text-[16px] sm:text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans py-2 sm:py-1.5"
             />
 
             {/* 1-Click Enhance / Make Safe Button */}
@@ -893,7 +901,7 @@ export const Composer: React.FC<ComposerProps> = ({
               type="button"
               onClick={handleEnhance}
               disabled={isGenerating || isEnhancing || !promptText.trim()}
-              className={`w-10 h-10 min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center shrink-0 transition-all border ${
+              className={`w-11 h-11 min-w-[44px] min-h-[44px] sm:w-10 sm:h-10 sm:min-w-[40px] sm:min-h-[40px] rounded-xl flex items-center justify-center shrink-0 transition-all border ${
                 safety.level === 'danger'
                   ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border-amber-500/30 active:scale-90 shadow-sm'
                   : promptText.trim()
@@ -908,9 +916,9 @@ export const Composer: React.FC<ComposerProps> = ({
               aria-label="Enhance prompt"
             >
               {isEnhancing ? (
-                <Loader2 size={16} className="animate-spin text-emerald-500" />
+                <Loader2 size={17} className="animate-spin text-emerald-500" />
               ) : (
-                <Wand2 size={16} className={safety.level === 'danger' ? 'text-amber-500' : 'text-primary'} />
+                <Wand2 size={17} className={safety.level === 'danger' ? 'text-amber-500' : 'text-primary'} />
               )}
             </button>
 
@@ -918,14 +926,14 @@ export const Composer: React.FC<ComposerProps> = ({
               type="button"
               onClick={handleSubmit}
               disabled={isGenerating || !promptText.trim()}
-              className={`w-10 h-10 min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center shrink-0 transition-all ${
+              className={`w-11 h-11 min-w-[44px] min-h-[44px] sm:w-10 sm:h-10 sm:min-w-[40px] sm:min-h-[40px] rounded-xl flex items-center justify-center shrink-0 transition-all ${
                 promptText.trim() && !isGenerating
                   ? 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-90 shadow-md shadow-emerald-500/25'
                   : 'bg-muted text-muted-foreground/50 cursor-not-allowed'
               }`}
               aria-label="Send prompt"
             >
-              <ArrowUp size={17} strokeWidth={2.5} />
+              <ArrowUp size={18} strokeWidth={2.5} />
             </button>
           </div>
         ) : (
@@ -936,52 +944,52 @@ export const Composer: React.FC<ComposerProps> = ({
                 value={deltaScene}
                 onChange={(e) => setDeltaScene(e.target.value)}
                 placeholder="[SCENE]: Location & action (required)"
-                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaOutfit}
                 onChange={(e) => setDeltaOutfit(e.target.value)}
                 placeholder="[OUTFIT]: Specific clothing"
-                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaPose}
                 onChange={(e) => setDeltaPose(e.target.value)}
                 placeholder="[POSE]: Posture or gesture"
-                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaExpression}
                 onChange={(e) => setDeltaExpression(e.target.value)}
                 placeholder="[EXPRESSION]: Facial expression and gaze"
-                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaCamera}
                 onChange={(e) => setDeltaCamera(e.target.value)}
                 placeholder="[CAMERA]: Lens & POV (e.g. 50mm candid)"
-                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaLighting}
                 onChange={(e) => setDeltaLighting(e.target.value)}
                 placeholder="[LIGHTING]: Atmosphere & light"
-                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaBackground}
                 onChange={(e) => setDeltaBackground(e.target.value)}
                 placeholder="[BACKGROUND]: Environment details"
-                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans sm:col-span-2"
+                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans sm:col-span-2"
               />
             </div>
-            <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
               <span className="text-[11px] text-muted-foreground font-mono">
                 Clean Delta preserves character DNA without token drift.
               </span>
@@ -989,7 +997,7 @@ export const Composer: React.FC<ComposerProps> = ({
                 type="button"
                 onClick={handleSubmit}
                 disabled={isGenerating || !deltaScene.trim()}
-                className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-4 py-2 sm:py-1.5 rounded-xl text-xs font-semibold transition-all min-h-[38px] sm:min-h-[32px] ${
                   deltaScene.trim() && !isGenerating
                     ? 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-95 shadow-md shadow-emerald-500/25'
                     : 'bg-muted text-muted-foreground/50 cursor-not-allowed'
@@ -1005,16 +1013,16 @@ export const Composer: React.FC<ComposerProps> = ({
 
       {/* ── Micro-Telemetry & Keyboard Hint Footer ── */}
       <div className="flex items-center justify-between px-2 text-[10.5px] font-mono text-muted-foreground">
-        <div className="flex items-center gap-2">
+        <div className="hidden sm:flex items-center gap-2">
           <span>↵ Send</span>
           <span>•</span>
           <span>⇧↵ Newline</span>
           <span>•</span>
           <span>⌘K Commands</span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span>DALL·E 3 Multi-Account</span>
+          <span>ChatGPT Bridge Studio</span>
         </div>
       </div>
 

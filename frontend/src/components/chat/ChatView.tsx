@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Menu, Sparkles, Settings2 } from 'lucide-react';
+import { Menu, Sparkles, Settings2, ArrowUpRight } from 'lucide-react';
 import { GalleryItem, Account, ChatMessage, ImageRequest, CharacterCard } from '../../types';
 import { MessageBubble } from './MessageBubble';
 import { Composer } from './Composer';
@@ -116,10 +116,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
       )}
 
       {/* ── Scrollable Chat Thread ── */}
-      <PullToRefresh ref={scrollRef} onRefresh={onRefresh} className="px-4 py-4 space-y-2 flex-1 w-full min-w-0 max-w-full overflow-y-auto overflow-x-hidden no-scrollbar">
+      <PullToRefresh ref={scrollRef} onRefresh={onRefresh} className="px-3 sm:px-4 py-3 sm:py-4 pb-8 sm:pb-6 space-y-3 sm:space-y-2 flex-1 w-full min-w-0 max-w-full overflow-y-auto overflow-x-hidden no-scrollbar">
         {/* Empty state suggestions */}
         {messages.length === 0 && !isGenerating && (
-          <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto py-12 px-2 animate-fade-in">
+          <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto py-10 px-2 animate-fade-in">
             <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center mb-4 shadow-sm">
               <Sparkles size={22} />
             </div>
@@ -130,14 +130,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
               Prompt directly in natural language or tap a suggestion below.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
               {SUGGESTIONS.map((sug, i) => (
                 <button
                   key={i}
                   onClick={() => onSend({ prompt: sug })}
-                  className="text-left p-3 rounded-xl bg-card hover:bg-muted border border-border text-xs text-foreground leading-snug transition-all active:scale-[0.98]"
+                  className="flex items-center justify-between text-left p-3.5 sm:p-3 rounded-2xl bg-card hover:bg-muted border border-border text-xs sm:text-[13px] text-foreground leading-snug transition-all active:scale-[0.98] group min-h-[48px] shadow-2xs hover:border-primary/40"
                 >
-                  &ldquo;{sug}&rdquo;
+                  <span className="line-clamp-2 pr-2">&ldquo;{sug}&rdquo;</span>
+                  <ArrowUpRight size={14} className="text-muted-foreground group-hover:text-primary shrink-0 transition-colors" />
                 </button>
               ))}
             </div>
@@ -189,7 +190,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </PullToRefresh>
 
       {/* ── Fixed Bottom Composer ── */}
-      <div className="shrink-0 bg-card border-t border-border w-full min-w-0 max-w-full">
+      <div className="shrink-0 bg-card/95 backdrop-blur-xl border-t border-border/80 w-full min-w-0 max-w-full shadow-lg sm:shadow-none">
         <Composer
           onSend={onSend}
           isGenerating={isGenerating}

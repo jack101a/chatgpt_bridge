@@ -114,10 +114,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               e.stopPropagation();
               onOpenViewer(asGalleryItem);
             }}
-            className="absolute bottom-2.5 right-2.5 p-2 rounded-xl bg-black/70 hover:bg-black/85 text-white backdrop-blur-md opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all shadow-lg active:scale-95"
+            className="absolute bottom-2.5 right-2.5 min-w-[38px] min-h-[38px] p-2 rounded-xl bg-black/75 hover:bg-black/90 text-white backdrop-blur-md opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all shadow-lg active:scale-95 flex items-center justify-center"
             title="Inspect & View Fullscreen"
+            aria-label="Inspect & View Fullscreen"
           >
-            <Maximize2 size={15} />
+            <Maximize2 size={16} />
           </button>
         </div>
 
@@ -136,8 +137,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           {onToggleFavorite && (
             <button
               onClick={() => onToggleFavorite(message.id)}
-              className="hover:text-rose-500 active:scale-90 transition-all p-1 shrink-0"
+              className="hover:text-rose-500 active:scale-90 transition-all p-1.5 min-w-[28px] min-h-[28px] flex items-center justify-center shrink-0 rounded-lg hover:bg-muted/60"
               title={message.fav ? 'Favorited' : 'Add to favorites'}
+              aria-label={message.fav ? 'Favorited' : 'Add to favorites'}
             >
               <Heart
                 size={14}
@@ -152,10 +154,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           <p className="truncate font-sans text-foreground text-[12px] min-w-0 flex-1">{message.content}</p>
           <button
             onClick={handleCopy}
-            className="shrink-0 p-1 hover:text-foreground text-muted-foreground transition-colors"
+            className="shrink-0 p-1.5 -m-0.5 rounded-lg hover:text-foreground text-muted-foreground transition-colors min-w-[28px] min-h-[28px] flex items-center justify-center active:scale-95"
             title="Copy prompt"
+            aria-label="Copy prompt"
           >
-            {copied ? <Check size={12} className="text-primary" /> : <Copy size={12} />}
+            {copied ? <Check size={13} className="text-primary" /> : <Copy size={13} />}
           </button>
         </div>
 
@@ -164,7 +167,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           {onPromptWithImage && (
             <button
               onClick={() => onPromptWithImage(asGalleryItem)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/15 hover:bg-primary/25 text-primary text-xs font-semibold transition-all active:scale-95 shadow-2xs"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-primary/15 hover:bg-primary/25 text-primary text-xs font-semibold transition-all active:scale-95 shadow-2xs min-h-[36px] sm:min-h-[32px]"
               title="Attach this image as reference and prompt for a remix"
             >
               <Sparkles size={13} />
@@ -175,7 +178,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           {message.conversation_id && (
             <button
               onClick={() => onContinueThread(message.conversation_id!, message.content)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-xs font-medium text-foreground transition-all active:scale-95 border border-border"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-xs font-medium text-foreground transition-all active:scale-95 border border-border min-h-[36px] sm:min-h-[32px]"
             >
               <MessageSquareShare size={13} />
               Continue thread
@@ -185,7 +188,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           <a
             href={message.imageUrl}
             download={`bridge-${message.id}.png`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-xs font-medium text-muted-foreground hover:text-foreground transition-all active:scale-95 border border-border"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-xs font-medium text-muted-foreground hover:text-foreground transition-all active:scale-95 border border-border min-h-[36px] sm:min-h-[32px]"
           >
             <Download size={13} />
             Download
