@@ -3053,6 +3053,34 @@ async def delete_custom_chip(chip_id: str):
     return {"status": "ok"}
 
 
+@app.get("/api/prompt-gallery")
+async def get_prompt_gallery(
+    category: str | None = None,
+    style: str | None = None,
+    scene: str | None = None,
+    source: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    per_page: int = 24,
+):
+    """Browse curated image prompt gallery with multi-tag filtering, search, and pagination."""
+    return _prompt_library.get_curated_prompts(
+        category=category,
+        style=style,
+        scene=scene,
+        source=source,
+        search=search,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@app.get("/api/prompt-gallery/taxonomy")
+async def get_prompt_gallery_taxonomy():
+    """Retrieve full style taxonomy including categories, styles, scenes, and templates."""
+    return _prompt_library.get_taxonomy()
+
+
 # ── WebSocket Real-time Events ──
 
 

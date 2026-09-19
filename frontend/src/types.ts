@@ -388,6 +388,59 @@ export interface PromptLibraryData {
   custom: Array<{ id: string; text: string }>;
 }
 
+export interface CuratedPrompt {
+  id: number;
+  title: string;
+  imageAlt?: string;
+  prompt: string;
+  promptPreview: string;
+  category: string;
+  styles: string[];
+  scenes: string[];
+  source: 'freestylefly' | 'evolinkai' | string;
+  sourceLabel?: string;
+  sourceUrl?: string;
+  thumbnail: string;
+  featured?: boolean;
+}
+
+export interface PromptGalleryResponse {
+  prompts: CuratedPrompt[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+}
+
+export interface TaxonomyCategory {
+  id: string;
+  value: string;
+  title: string;
+  title_zh?: string;
+  icon: string;
+  count: number;
+  description?: string;
+}
+
+export interface TaxonomyTag {
+  id: string;
+  value: string;
+  title: string;
+  title_zh?: string;
+  count: number;
+  keywords?: string[];
+}
+
+export interface PromptTaxonomy {
+  version: number;
+  total_prompts: number;
+  sources: Array<{ id: string; name: string; stars: number; count: number; url: string }>;
+  categories: TaxonomyCategory[];
+  styles: TaxonomyTag[];
+  scenes: TaxonomyTag[];
+  templates?: Array<{ id: string; name?: string; category?: string; tags?: string[] }>;
+}
+
 export interface DirectorState {
   is_running: boolean;
   cancel_requested: boolean;

@@ -22,6 +22,7 @@ import {
   GalleryItem,
   CharacterCard,
   AIProviderConfig,
+  CuratedPrompt,
 } from '../../types';
 import { PromptLibraryTray } from '../director/PromptLibraryTray';
 import { DirectorModal } from '../director/DirectorModal';
@@ -113,6 +114,45 @@ export const Composer: React.FC<ComposerProps> = ({
   const [isCustomMode, setIsCustomMode] = useState(false);
   const [customModelInput, setCustomModelInput] = useState('');
   const [isFetchingModels, setIsFetchingModels] = useState(false);
+
+  // Smart Prompt Suggestions from Curated Library
+  const [suggestions, setSuggestions] = useState<CuratedPrompt[]>([]);
+  const [isDismissedSuggestion, setIsDismissedSuggestion] = useState(false);
+  const suggestionDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const trimmed = promptText.trim();
+    if (!trimmed) {
+      setSuggestions([]);
+      setIsDismissedSuggestion(false);
+      return;
+    }
+
+    if (isDismissedSuggestion || showLibrary || isDeltaMode) {
+      setSuggestions([]);
+      return;
+    }
+
+    // Trigger when typing a meaningful concept (2+ words or 12+ chars)
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (words.length >= 2 || trimmed.length >= 12) {
+      if (suggestionDebounceRef.current) clearTimeout(suggestionDebounceRef.current);
+      suggestionDebounceRef.current = setTimeout(async () => {
+        try {
+          const res = await api.getPromptGallery({ search: trimmed, per_page: 3 });
+          setSuggestions(res.prompts || []);
+        } catch {
+          // non-blocking
+        }
+      }, 350);
+    } else {
+      setSuggestions([]);
+    }
+
+    return () => {
+      if (suggestionDebounceRef.current) clearTimeout(suggestionDebounceRef.current);
+    };
+  }, [promptText, isDismissedSuggestion, showLibrary, isDeltaMode]);
   const [fetchModelMsg, setFetchModelMsg] = useState<string | null>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
 
@@ -372,6 +412,12 @@ export const Composer: React.FC<ComposerProps> = ({
           onClose={() => setShowLibrary(false)}
           onInsertModifier={(text: string) => {
             setPromptText((prev) => (prev ? `${prev}, ${text}` : text));
+            setShowLibrary(false);
+            textareaRef.current?.focus();
+          }}
+          onUseCuratedPrompt={(text: string, enhance?: boolean) => {
+            const finalPrompt = enhance ? enhancePrompt(text) : text;
+            setPromptText(finalPrompt);
             setShowLibrary(false);
             textareaRef.current?.focus();
           }}
@@ -876,7 +922,53 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
         </div>
 
-        {/* ── Main Textarea Row ── */}
+        {/* ── Smart Prompt Suggestions Strip (1,003 Curated Library) ── */}
+        {suggestions.length > 0 && !showLibrary && !isDeltaMode && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/5 border-b border-primary/15 text-xs overflow-x-auto no-scrollbar scrollbar-none animate-in fade-in duration-150">
+            <span className="text-[11px] font-bold text-primary flex items-center gap-1 shrink-0">
+              <Sparkles size={12} />
+              <span className="hidden sm:inline">Curated Ideas:</span>
+            </span>
+            <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto no-scrollbar scrollbar-none">
+              {suggestions.map((sug) => (
+                <button
+                  key={`sug-${sug.source}-${sug.id}`}
+                  type="button"
+                  onClick={() => {
+                    hapticImpact('selection');
+                    setPromptText(sug.prompt);
+                    setSuggestions([]);
+                    setIsDismissedSuggestion(true);
+                    textareaRef.current?.focus();
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-card/90 hover:bg-card border border-border/80 hover:border-primary/50 text-foreground text-[11px] font-medium transition-all shrink-0 active:scale-95 shadow-2xs max-w-[240px]"
+                  title={sug.prompt}
+                >
+                  {sug.thumbnail && (
+                    <img
+                      src={sug.thumbnail}
+                      alt=""
+                      className="w-4 h-4 rounded object-cover shrink-0"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  )}
+                  <span className="truncate">{sug.title}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsDismissedSuggestion(true)}
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground shrink-0 min-w-[24px] min-h-[24px] flex items-center justify-center"
+              title="Dismiss suggestions"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
         {/* ── Main Textarea Row ── */}
         {!isDeltaMode ? (
           <div className="flex items-end gap-2 px-3 sm:px-3.5 py-2">

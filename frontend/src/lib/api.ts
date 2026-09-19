@@ -22,6 +22,8 @@ import {
   StoryboardPlan,
   DirectorState,
   PromptLibraryData,
+  PromptGalleryResponse,
+  PromptTaxonomy,
   FaceCardDictionaryResponse,
   BodyCardDictionaryResponse,
   CompilePromptResponse,
@@ -284,8 +286,32 @@ export const api = {
       body: locked !== undefined ? JSON.stringify({ locked }) : undefined,
     }),
 
-  // Prompt Library
+  // Prompt Library & Curated Gallery
   getPromptLibrary: (): Promise<PromptLibraryData> => fetchJson<PromptLibraryData>('/api/prompt-library'),
+
+  getPromptGallery: (params?: {
+    category?: string;
+    style?: string;
+    scene?: string;
+    source?: string;
+    search?: string;
+    page?: number;
+    per_page?: number;
+  }): Promise<PromptGalleryResponse> => {
+    const qs = new URLSearchParams();
+    if (params?.category) qs.set('category', params.category);
+    if (params?.style) qs.set('style', params.style);
+    if (params?.scene) qs.set('scene', params.scene);
+    if (params?.source) qs.set('source', params.source);
+    if (params?.search) qs.set('search', params.search);
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.per_page) qs.set('per_page', String(params.per_page));
+    const query = qs.toString();
+    return fetchJson<PromptGalleryResponse>(query ? `/api/prompt-gallery?${query}` : '/api/prompt-gallery');
+  },
+
+  getPromptTaxonomy: (): Promise<PromptTaxonomy> =>
+    fetchJson<PromptTaxonomy>('/api/prompt-gallery/taxonomy'),
 
   addCustomChip: (text: string): Promise<{ id: string }> =>
     fetchJson<{ id: string }>('/api/prompt-library/custom', {
