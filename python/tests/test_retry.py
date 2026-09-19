@@ -108,28 +108,34 @@ def test_standardize_image_prompt():
 
     assert (
         standardize_image_prompt("a cute kitten in a teacup")
-        == "(Generate Image -\na cute kitten in a teacup)"
+        == "a cute kitten in a teacup"
     )
     assert (
         standardize_image_prompt("generate image of a mountain sunset")
-        == "(Generate Image -\na mountain sunset)"
+        == "a mountain sunset"
     )
     assert (
         standardize_image_prompt("Generate an image of a red racecar")
-        == "(Generate Image -\na red racecar)"
+        == "a red racecar"
     )
     assert (
         standardize_image_prompt("Please generate image: cyberpunk cityscape")
-        == "(Generate Image -\ncyberpunk cityscape)"
+        == "cyberpunk cityscape"
     )
     assert (
         standardize_image_prompt("create image - vintage portrait")
-        == "(Generate Image -\nvintage portrait)"
+        == "vintage portrait"
     )
-    # Already standardized prompt should not be duplicated
+    # Annoying wrappers should be cleanly stripped to raw prompt
     assert (
         standardize_image_prompt("(Generate Image -\na blue ocean)")
-        == "(Generate Image -\na blue ocean)"
+        == "a blue ocean"
+    )
+    assert (
+        standardize_image_prompt(
+            "Please generate an image using the exact prompt below. Do not rewrite, expand, or alter this text; pass it verbatim to the dalle tool:\n\n\"A serene landscape\""
+        )
+        == "A serene landscape"
     )
 
 

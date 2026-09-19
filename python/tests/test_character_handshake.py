@@ -133,3 +133,47 @@ def test_character_handshake_endpoint(client):
         assert cdata["primed"] is True
         assert cdata["character_id"] == char.id
         assert cdata["character_name"] == "Nastya"
+
+
+def test_character_handshake_with_roleplay_and_plot(client):
+    test_cli, char, _ = client
+
+    # Verify build_contract_handshake_prompt directly
+    prompt_str = char.build_contract_handshake_prompt(
+        plot="She wakes up in a humble cottage and does chores",
+        roleplay_info="Maintain close up POV shots",
+        screenplay_handshake="Cinematic scene arc for Nastya",
+    )
+    prompt_json = json.loads(prompt_str)
+    assert "character_lock" in prompt_json
+    roleplay = prompt_json["character_lock"]["roleplay"]
+    assert roleplay["plot_and_scenario"] == "She wakes up in a humble cottage and does chores"
+    assert roleplay["roleplay_directives"] == "Maintain close up POV shots"
+    assert roleplay["screenplay_handshake"] == "Cinematic scene arc for Nastya"
+
+    # Verify endpoint integration
+    mock_core = AsyncMock()
+    mock_core.establish_character_contract.return_value = {
+        "ok": True,
+        "conversation_id": "conv-roleplay-789",
+        "character_id": char.id,
+        "character_name": char.name,
+        "card_count": 3,
+        "text": "Character and roleplay mode established.",
+    }
+
+    with patch.object(daemon, "_get_core", return_value=mock_core):
+        resp = test_cli.post(f"/api/characters/{char.id}/handshake", json={
+            "conversation_id": "conv-roleplay-789",
+            "plot": "She wakes up in a humble cottage and does chores",
+            "roleplay_info": "Maintain close up POV shots",
+            "screenplay_handshake": "Cinematic scene arc for Nastya",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        mock_core.establish_character_contract.assert_called_once()
+        _, kwargs = mock_core.establish_character_contract.call_args
+        assert kwargs["plot"] == "She wakes up in a humble cottage and does chores"
+        assert kwargs["roleplay_info"] == "Maintain close up POV shots"
+        assert kwargs["screenplay_handshake"] == "Cinematic scene arc for Nastya"
+

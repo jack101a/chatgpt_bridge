@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clapperboard,
   X,
@@ -15,10 +15,13 @@ import {
   User,
   Lock,
   ChevronDown,
+  Search,
+  RefreshCw,
 } from 'lucide-react';
-import { StoryboardShot, CharacterCard, DirectorState } from '../../types';
+import { StoryboardShot, CharacterCard, DirectorState, AIProviderConfig } from '../../types';
 import { api } from '../../lib/api';
 import { DotMatrixLoader } from '../common/DotMatrixLoader';
+import { getProviderModelList } from '../../lib/aiConfig';
 
 interface DirectorModalProps {
   isOpen: boolean;
@@ -28,17 +31,27 @@ interface DirectorModalProps {
   activeCharacter?: CharacterCard | null;
   activeConvId?: string | null;
   onSelectCharacter?: (char: CharacterCard | null) => void;
+  onThreadCreated?: (convId: string) => void;
 }
 
 const SHOT_COUNT_PRESETS = [3, 5, 8, 10];
 
+const AESTHETIC_OPTIONS = [
+  { id: 'auto', label: '⚡ Auto-Detect', desc: 'Infers aesthetic from scene' },
+  { id: 'iphone_selfie', label: '📱 iPhone Selfie', desc: '24mm front camera, unposed' },
+  { id: 'flash_in_the_dark', label: '📸 Flash in Dark', desc: 'Direct flash, dark room, sharp drop-shadow' },
+  { id: 'candid_intimate', label: '🕯️ Candid Teasing', desc: 'Warm bedroom POV, lamp glow' },
+  { id: 'vintage_polaroid', label: '🎞️ Polaroid Film', desc: 'Pastel instant print, soft flash' },
+  { id: 'cinematic', label: '🎬 Cinematic 35mm', desc: 'Movie still, directional lighting' },
+];
+
 const GUIDANCE_CHIPS = [
+  '7-Layer Directorial Structure (Camera first, radiant beauty, zero hallucinations)',
   'Wide establishing to intimate portrait progression',
-  'Candid authentic photography, realistic angles',
+  'Candid authentic photography, varied framing',
+  'Multi-turn Stability & Delta continuity',
   'Warm golden hour lighting with rich backlight',
   'Cinematic 35mm film aesthetic with natural grain',
-  'Over-the-shoulder POV & conversational angles',
-  'High-contrast moody lighting with deep shadows',
 ];
 
 export const DirectorModal: React.FC<DirectorModalProps> = ({
@@ -49,10 +62,12 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
   activeCharacter = null,
   activeConvId = null,
   onSelectCharacter,
+  onThreadCreated,
 }) => {
   // Setup inputs
   const [intent, setIntent] = useState('');
   const [shotCount, setShotCount] = useState<number>(5);
+  const [selectedAesthetic, setSelectedAesthetic] = useState<string>('auto');
   const [creativeGuidance, setCreativeGuidance] = useState('');
   const [selectedChar, setSelectedChar] = useState<CharacterCard | null>(activeCharacter);
 
@@ -63,21 +78,183 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
   const [isPlanning, setIsPlanning] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [shots, setShots] = useState<StoryboardShot[]>([]);
+  const [screenplayHandshake, setScreenplayHandshake] = useState<string | null>(null);
 
   // Execution state
   const [isExecuting, setIsExecuting] = useState(false);
   const [directorStatus, setDirectorStatus] = useState<DirectorState | null>(null);
   const [executingError, setExecutingError] = useState<string | null>(null);
 
-  // Sync initial prompt and character on modal open
+  // Director Model state (Multi-provider BYOK)
+  const [directorProviderId, setDirectorProviderId] = useState<string>('gemini');
+  const [directorModel, setDirectorModel] = useState<string>('gemini-2.5-pro');
+  const [aiProviders, setAiProviders] = useState<Record<string, AIProviderConfig>>({});
+  const [defaultProvidersList, setDefaultProvidersList] = useState<Array<{ id: string; default_models?: string[] }>>([]);
+  const [activeDirectorPickerProviderId, setActiveDirectorPickerProviderId] = useState<string>('gemini');
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
+  const [isCustomModelMode, setIsCustomModelMode] = useState(false);
+  const [customModelInput, setCustomModelInput] = useState('');
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [fetchModelMsg, setFetchModelMsg] = useState<string | null>(null);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
+
+  // Sync initial prompt, character, and AI models on modal open
+  const refreshDirectorAIConfig = useCallback(async () => {
+    try {
+      const cfg = await api.getAIConfig();
+      if (cfg && cfg.ok) {
+        if (cfg.providers) {
+          setAiProviders(cfg.providers);
+        }
+        if (cfg.assignments?.director) {
+          const pid = cfg.assignments.director.provider_id || 'gemini';
+          const mdl = cfg.assignments.director.model || 'gemini-2.5-pro';
+          setDirectorProviderId(pid);
+          setDirectorModel(mdl);
+          setActiveDirectorPickerProviderId(pid);
+        }
+        if (cfg.default_providers) {
+          setDefaultProvidersList(cfg.default_providers);
+        }
+      }
+    } catch {
+      try {
+        const c = await api.getLLMConfig();
+        if (c) {
+          setDirectorModel(c.director_model || c.model || 'gemini-2.5-pro');
+        }
+      } catch {}
+    }
+  }, []);
+
   useEffect(() => {
     if (isOpen) {
       if (initialPrompt && !intent) {
         setIntent(initialPrompt);
       }
       setSelectedChar(activeCharacter);
+      refreshDirectorAIConfig();
     }
-  }, [isOpen, initialPrompt, activeCharacter]);
+
+    const handleConfigUpdated = (e?: Event) => {
+      const customEvent = e as CustomEvent<{ assignments?: { director?: { provider_id: string; model: string } } }>;
+      if (customEvent?.detail?.assignments?.director) {
+        const pid = customEvent.detail.assignments.director.provider_id || 'gemini';
+        const mdl = customEvent.detail.assignments.director.model || 'gemini-2.5-pro';
+        setDirectorProviderId(pid);
+        setDirectorModel(mdl);
+        setActiveDirectorPickerProviderId(pid);
+      }
+      refreshDirectorAIConfig();
+    };
+
+    window.addEventListener('bridge:ai-config-updated', handleConfigUpdated);
+    window.addEventListener('focus', handleConfigUpdated);
+    return () => {
+      window.removeEventListener('bridge:ai-config-updated', handleConfigUpdated);
+      window.removeEventListener('focus', handleConfigUpdated);
+    };
+  }, [isOpen, initialPrompt, activeCharacter, refreshDirectorAIConfig]);
+
+  // Click outside to dismiss director model picker
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
+        setIsModelPickerOpen(false);
+      }
+    };
+    if (isModelPickerOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isModelPickerOpen]);
+
+  const handleSelectDirectorProviderAndModel = async (providerId: string, modelName: string) => {
+    const trimmed = modelName.trim();
+    if (!trimmed) return;
+    setDirectorProviderId(providerId);
+    setDirectorModel(trimmed);
+    setIsModelPickerOpen(false);
+    setIsCustomModelMode(false);
+    setModelSearchQuery('');
+
+    try {
+      await api.saveAIAssignments({
+        director: { provider_id: providerId, model: trimmed },
+      });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('bridge:ai-config-updated', {
+            detail: { assignments: { director: { provider_id: providerId, model: trimmed } } },
+          })
+        );
+      }
+    } catch {}
+  };
+
+  const handleAddCustomModelToProvider = async (providerId: string, modelName: string) => {
+    const trimmed = modelName.trim();
+    if (!trimmed) return;
+    try {
+      const res = await api.addAIProviderModel(providerId, trimmed);
+      if (res.ok) {
+        setAiProviders((prev) => ({
+          ...prev,
+          [providerId]: {
+            ...prev[providerId],
+            custom_models: res.custom_models,
+          },
+        }));
+        setCustomModelInput('');
+        setIsCustomModelMode(false);
+        await handleSelectDirectorProviderAndModel(providerId, trimmed);
+      }
+    } catch (err: any) {
+      alert(`Failed to add custom model: ${err.message}`);
+    }
+  };
+
+  const handleDeleteCustomModel = async (providerId: string, modelToDelete: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await api.deleteAIProviderModel(providerId, modelToDelete);
+      if (res.ok) {
+        setAiProviders((prev) => ({
+          ...prev,
+          [providerId]: {
+            ...prev[providerId],
+            custom_models: res.custom_models,
+          },
+        }));
+      }
+    } catch {}
+  };
+
+  const handleFetchEndpointModels = async (providerId: string) => {
+    setIsFetchingModels(true);
+    setFetchModelMsg(null);
+    try {
+      const res = await api.testAIProvider(providerId);
+      if (res.ok) {
+        setFetchModelMsg(`Discovered ${res.models?.length || 0} models!`);
+        setAiProviders((prev) => ({
+          ...prev,
+          [providerId]: {
+            ...prev[providerId],
+            discovered_models: res.models || [],
+          },
+        }));
+      } else {
+        setFetchModelMsg(res.message || 'Connection failed');
+      }
+    } catch (err: any) {
+      setFetchModelMsg(err.message || 'Failed to fetch models');
+    } finally {
+      setIsFetchingModels(false);
+      setTimeout(() => setFetchModelMsg(null), 3500);
+    }
+  };
 
   // Poll director execution status when active
   useEffect(() => {
@@ -87,20 +264,26 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
         try {
           const st = await api.getDirectorStatus();
           setDirectorStatus(st);
+          if (st.conversation_id) {
+            onThreadCreated?.(st.conversation_id);
+          }
           if (!st.is_running) {
             setIsExecuting(false);
+            if (st.conversation_id) {
+              onThreadCreated?.(st.conversation_id);
+            }
           }
         } catch {
-          // ignore transient poll error
+          // ignore poll errors
         }
       };
+      timer = setInterval(checkStatus, 2000);
       checkStatus();
-      timer = setInterval(checkStatus, 2500);
     }
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isExecuting]);
+  }, [isExecuting, onThreadCreated]);
 
   if (!isOpen) return null;
 
@@ -114,9 +297,13 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
         character_id: selectedChar ? selectedChar.id : 'freeform',
         shot_count: shotCount,
         creative_guidance: creativeGuidance.trim() || undefined,
+        style_override: selectedAesthetic === 'auto' ? undefined : selectedAesthetic,
+        model: directorModel || undefined,
+        provider_id: directorProviderId || undefined,
       });
       if (plan?.shots && plan.shots.length > 0) {
         setShots(plan.shots);
+        setScreenplayHandshake(plan.screenplay_handshake || null);
       } else {
         setPlanError('AI Director returned an empty plan. Please try again or refine your prompt.');
       }
@@ -136,6 +323,7 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
         shots,
         character_id: selectedChar ? selectedChar.id : 'freeform',
         conversation_id: activeConvId || undefined,
+        screenplay_handshake: screenplayHandshake || undefined,
       });
     } catch (err: any) {
       setExecutingError(err.message || 'Failed to dispatch automated sequence');
@@ -222,93 +410,378 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
 
         {/* ── Scrollable Body ── */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {/* Character Lock Selector for Director */}
-          <div className="p-3.5 rounded-xl bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div>
-              <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-emerald-500" />
-                Character Identity Binding
-              </span>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                {selectedChar
-                  ? `Automated sequence will preserve ${selectedChar.name}'s locked face and body identity.`
-                  : 'No character locked. Storyboard will focus on general scenes & environments.'}
-              </p>
-            </div>
+          {/* Top Bar: Character Binding & AI Director Model Selector Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Character Lock Selector for Director */}
+            <div className="p-3.5 rounded-xl bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-white/10 flex flex-col justify-between gap-2.5">
+              <div>
+                <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-emerald-500" />
+                  Character Identity Binding
+                </span>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  {selectedChar
+                    ? `Sequence will preserve ${selectedChar.name}'s identity.`
+                    : 'No character locked. Focuses on general scenes.'}
+                </p>
+              </div>
 
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsCharDropdownOpen(!isCharDropdownOpen)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-                  selectedChar
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
-                    : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300'
-                }`}
-              >
-                {selectedChar?.avatar_image_id ? (
-                  <img
-                    src={`/images/${selectedChar.avatar_image_id}`}
-                    alt={selectedChar.name}
-                    className="w-5 h-5 rounded-full object-cover border border-emerald-500/40"
-                  />
-                ) : (
-                  <User className="w-4 h-4 text-emerald-600" />
-                )}
-                <span>{selectedChar ? selectedChar.name : '✦ No Character'}</span>
-                <ChevronDown className="w-3 h-3 opacity-60 ml-0.5" />
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsCharDropdownOpen(!isCharDropdownOpen)}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                    selectedChar
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                      : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    {selectedChar?.avatar_image_id ? (
+                      <img
+                        src={`/images/${selectedChar.avatar_image_id}`}
+                        alt={selectedChar.name}
+                        className="w-5 h-5 rounded-full object-cover border border-emerald-500/40 shrink-0"
+                      />
+                    ) : (
+                      <User className="w-4 h-4 text-emerald-600 shrink-0" />
+                    )}
+                    <span className="truncate">{selectedChar ? selectedChar.name : '✦ No Character'}</span>
+                  </div>
+                  <ChevronDown className="w-3 h-3 opacity-60 ml-0.5 shrink-0" />
+                </button>
 
-              {isCharDropdownOpen && (
-                <div className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedChar(null);
-                      onSelectCharacter?.(null);
-                      setIsCharDropdownOpen(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 ${
-                      !selectedChar ? 'font-semibold text-emerald-600 dark:text-emerald-400' : 'text-zinc-700 dark:text-zinc-300'
-                    }`}
-                  >
-                    <span>✦ No Character (General Story)</span>
-                    {!selectedChar && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
-                  </button>
-                  {characters.map((c) => (
+                {isCharDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1.5 w-full rounded-xl bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 max-h-56 overflow-y-auto">
                     <button
-                      key={c.id}
                       type="button"
                       onClick={() => {
-                        setSelectedChar(c);
-                        onSelectCharacter?.(c);
+                        setSelectedChar(null);
+                        onSelectCharacter?.(null);
                         setIsCharDropdownOpen(false);
                       }}
                       className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 ${
-                        selectedChar?.id === c.id
-                          ? 'font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/20'
-                          : 'text-zinc-700 dark:text-zinc-300'
+                        !selectedChar ? 'font-semibold text-emerald-600 dark:text-emerald-400' : 'text-zinc-700 dark:text-zinc-300'
                       }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0 pr-2">
-                        {c.avatar_image_id ? (
-                          <img
-                            src={`/images/${c.avatar_image_id}`}
-                            alt={c.name}
-                            className="w-5 h-5 rounded-full object-cover border"
-                          />
-                        ) : (
-                          <div className="w-5 h-5 rounded-full bg-emerald-500/10 text-emerald-700 text-[9px] font-bold flex items-center justify-center">
-                            {c.name.slice(0, 2).toUpperCase()}
-                          </div>
-                        )}
-                        <span className="truncate">{c.name}</span>
-                      </div>
-                      {selectedChar?.id === c.id && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                      <span>✦ No Character (General Story)</span>
+                      {!selectedChar && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
                     </button>
-                  ))}
-                </div>
-              )}
+                    {characters?.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedChar(c);
+                          onSelectCharacter?.(c);
+                          setIsCharDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 ${
+                          selectedChar?.id === c.id
+                            ? 'font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/20'
+                            : 'text-zinc-700 dark:text-zinc-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 pr-2">
+                          {c.avatar_image_id ? (
+                            <img
+                              src={`/images/${c.avatar_image_id}`}
+                              alt={c.name}
+                              className="w-5 h-5 rounded-full object-cover border"
+                            />
+                          ) : (
+                            <div className="w-5 h-5 rounded-full bg-emerald-500/10 text-emerald-700 text-[9px] font-bold flex items-center justify-center">
+                              {c.name.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <span className="truncate">{c.name}</span>
+                        </div>
+                        {selectedChar?.id === c.id && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* AI Director Model & Provider Selector (Multi-Provider BYOK) */}
+            <div className="p-3.5 rounded-xl bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-white/10 flex flex-col justify-between gap-2.5">
+              <div>
+                <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white flex items-center gap-1.5">
+                  <Clapperboard className="w-3.5 h-3.5 text-rose-500" />
+                  AI Director Intelligence
+                </span>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  Active: <span className="font-semibold text-rose-600 dark:text-rose-400 font-mono">{aiProviders[directorProviderId]?.name?.replace(/\(.*?\)/g, '').trim() || directorProviderId}</span> / <span className="font-mono text-foreground">{directorModel}</span>
+                </p>
+              </div>
+
+              <div className="relative" ref={modelPickerRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsModelPickerOpen(!isModelPickerOpen)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl text-xs font-mono font-medium border bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 transition-all hover:bg-zinc-50 dark:hover:bg-zinc-750"
+                  title={`Active Director: ${aiProviders[directorProviderId]?.name || directorProviderId} → ${directorModel}. Click to switch.`}
+                >
+                  <span className="truncate">
+                    <span className="font-semibold text-muted-foreground mr-1">
+                      {aiProviders[directorProviderId]?.name?.replace(/\(.*?\)/g, '').trim() || directorProviderId}:
+                    </span>
+                    {directorModel}
+                  </span>
+                  <ChevronDown className="w-3 h-3 opacity-60 shrink-0 ml-auto" />
+                </button>
+
+                {isModelPickerOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1.5 w-full rounded-2xl bg-card border border-border shadow-2xl p-3 z-50 animate-in fade-in zoom-in-95 duration-150">
+                    {/* Header */}
+                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-border/60">
+                      <div>
+                        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                          <Clapperboard size={13} className="text-rose-500" />
+                          Director Model Assignment
+                        </span>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Select any model under any provider with its own API key.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsModelPickerOpen(false)}
+                        className="p-1 rounded-md text-muted-foreground hover:text-foreground"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+
+                    {/* Provider Tabs (Horizontal Scroll) */}
+                    <div className="mb-2.5">
+                      <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-1.5 tracking-wider flex items-center justify-between">
+                        <span>Select Provider</span>
+                        <span className="text-[9px] text-emerald-600 dark:text-emerald-400">● has API key</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+                        {Object.entries(aiProviders).map(([pid, p]) => (
+                          <button
+                            key={`dir-prov-tab-${pid}`}
+                            type="button"
+                            onClick={() => {
+                              setActiveDirectorPickerProviderId(pid);
+                              setModelSearchQuery('');
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium shrink-0 flex items-center gap-1.5 transition-all ${
+                              activeDirectorPickerProviderId === pid
+                                ? 'bg-rose-600 text-white shadow-xs font-semibold'
+                                : 'bg-muted/70 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/40'
+                            }`}
+                          >
+                            <span>{p.name.replace(/\(.*?\)/g, '').trim()}</span>
+                            {p.has_key && (
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  activeDirectorPickerProviderId === pid ? 'bg-white' : 'bg-emerald-500'
+                                }`}
+                              />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Active Provider Info & Fetch Action */}
+                    {aiProviders[activeDirectorPickerProviderId] && (
+                      <div className="p-2 rounded-xl bg-muted/40 border border-border/50 mb-2 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[10px] text-muted-foreground font-mono truncate">
+                            {aiProviders[activeDirectorPickerProviderId].base_url}
+                          </div>
+                          {fetchModelMsg && (
+                            <div className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold mt-0.5">
+                              {fetchModelMsg}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleFetchEndpointModels(activeDirectorPickerProviderId)}
+                          disabled={isFetchingModels}
+                          className="px-2 py-1 rounded-lg bg-background hover:bg-muted border border-border text-[11px] font-medium text-foreground flex items-center gap-1 shrink-0 transition-all active:scale-95 shadow-2xs"
+                          title="Fetch all available models from this endpoint"
+                        >
+                          <RefreshCw size={11} className={isFetchingModels ? 'animate-spin text-rose-500' : ''} />
+                          <span>{isFetchingModels ? 'Fetching…' : 'Fetch All'}</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Search & Custom Model Toggle */}
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <div className="relative flex-1">
+                        <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          type="text"
+                          value={modelSearchQuery}
+                          onChange={(e) => setModelSearchQuery(e.target.value)}
+                          placeholder="Search models..."
+                          className="w-full pl-7 pr-2.5 py-1 rounded-lg bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-rose-500 font-mono"
+                        />
+                        {modelSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setModelSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            <X size={10} />
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsCustomModelMode(!isCustomModelMode)}
+                        className={`px-2 py-1 rounded-lg text-xs font-medium border flex items-center gap-1 transition-all ${
+                          isCustomModelMode
+                            ? 'bg-rose-500/10 border-rose-500/40 text-rose-600 dark:text-rose-400'
+                            : 'bg-background hover:bg-muted border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                        title="Add a custom model identifier"
+                      >
+                        <Plus size={11} />
+                        <span>Custom</span>
+                      </button>
+                    </div>
+
+                    {/* Inline Add Custom Model Input */}
+                    {isCustomModelMode && (
+                      <div className="flex items-center gap-1.5 mb-2 p-1.5 rounded-xl bg-rose-500/5 border border-rose-500/20">
+                        <input
+                          type="text"
+                          value={customModelInput}
+                          onChange={(e) => setCustomModelInput(e.target.value)}
+                          placeholder={`Custom model for ${aiProviders[activeDirectorPickerProviderId]?.name || activeDirectorPickerProviderId}...`}
+                          className="flex-1 px-2.5 py-1 rounded-lg bg-background border border-border text-xs font-mono text-foreground outline-none focus:border-rose-500"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && customModelInput.trim()) {
+                              handleAddCustomModelToProvider(activeDirectorPickerProviderId, customModelInput.trim());
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          disabled={!customModelInput.trim()}
+                          onClick={() => handleAddCustomModelToProvider(activeDirectorPickerProviderId, customModelInput.trim())}
+                          className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium disabled:opacity-50"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Model List */}
+                    {(() => {
+                      const providerModels = getProviderModelList(activeDirectorPickerProviderId, aiProviders, defaultProvidersList);
+                      const filtered = modelSearchQuery.trim()
+                        ? providerModels.filter((m) => m.id.toLowerCase().includes(modelSearchQuery.toLowerCase()))
+                        : providerModels;
+
+                      const customList = filtered.filter((m) => m.group === 'custom');
+                      const discoveredList = filtered.filter((m) => m.group === 'discovered');
+                      const defaultList = filtered.filter((m) => m.group === 'default');
+
+                      return (
+                        <div className="max-h-56 overflow-y-auto space-y-0.5 text-xs font-mono pr-1 scrollbar-thin">
+                          {/* Custom Models */}
+                          {customList.length > 0 && (
+                            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 font-semibold font-sans">
+                              ✦ Custom Models ({customList.length})
+                            </div>
+                          )}
+                          {customList.map((m) => (
+                            <div
+                              key={`cust-${activeDirectorPickerProviderId}-${m.id}`}
+                              onClick={() => handleSelectDirectorProviderAndModel(activeDirectorPickerProviderId, m.id)}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors cursor-pointer ${
+                                directorProviderId === activeDirectorPickerProviderId && directorModel === m.id
+                                  ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 font-semibold'
+                                  : 'text-foreground hover:bg-muted'
+                              }`}
+                            >
+                              <span className="truncate pr-2">{m.id}</span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {directorProviderId === activeDirectorPickerProviderId && directorModel === m.id && (
+                                  <CheckCircle2 size={13} className="text-rose-500" />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDeleteCustomModel(activeDirectorPickerProviderId, m.id, e)}
+                                  className="text-muted-foreground hover:text-red-500 p-0.5 rounded transition-colors"
+                                  title={`Delete ${m.id}`}
+                                >
+                                  <X size={11} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Discovered Models */}
+                          {discoveredList.length > 0 && (
+                            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold font-sans pt-1">
+                              🌐 Endpoint Models ({discoveredList.length})
+                            </div>
+                          )}
+                          {discoveredList.map((m) => (
+                            <button
+                              key={`disc-${activeDirectorPickerProviderId}-${m.id}`}
+                              type="button"
+                              onClick={() => handleSelectDirectorProviderAndModel(activeDirectorPickerProviderId, m.id)}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors ${
+                                directorProviderId === activeDirectorPickerProviderId && directorModel === m.id
+                                  ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 font-semibold'
+                                  : 'text-foreground hover:bg-muted'
+                              }`}
+                            >
+                              <span className="truncate pr-2">{m.id}</span>
+                              {directorProviderId === activeDirectorPickerProviderId && directorModel === m.id && (
+                                <CheckCircle2 size={13} className="text-rose-500 shrink-0" />
+                              )}
+                            </button>
+                          ))}
+
+                          {/* Preset / Default Models */}
+                          {defaultList.length > 0 && (
+                            <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold font-sans pt-1">
+                              Preset Defaults ({defaultList.length})
+                            </div>
+                          )}
+                          {defaultList.map((m) => (
+                            <button
+                              key={`def-${activeDirectorPickerProviderId}-${m.id}`}
+                              type="button"
+                              onClick={() => handleSelectDirectorProviderAndModel(activeDirectorPickerProviderId, m.id)}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors ${
+                                directorProviderId === activeDirectorPickerProviderId && directorModel === m.id
+                                  ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 font-semibold'
+                                  : 'text-foreground hover:bg-muted'
+                              }`}
+                            >
+                              <span className="truncate pr-2">{m.id}</span>
+                              {directorProviderId === activeDirectorPickerProviderId && directorModel === m.id && (
+                                <CheckCircle2 size={13} className="text-rose-500 shrink-0" />
+                              )}
+                            </button>
+                          ))}
+
+                          {filtered.length === 0 && (
+                            <div className="px-3 py-4 text-center text-xs text-muted-foreground font-sans">
+                              No models matched &quot;{modelSearchQuery}&quot;. Click &quot;Custom&quot; above to add it.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -364,6 +837,39 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
                     className="w-14 px-2 py-1 text-xs text-center rounded-lg bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 font-bold"
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Photographic Aesthetic & Medium Selector */}
+            <div>
+              <label className="block text-xs font-bold text-[#0d0d0d] dark:text-white mb-1.5 flex items-center justify-between">
+                <span>Photographic Medium & Aesthetic</span>
+                <span className="text-[10px] text-gray-400 font-normal">Beyond movie tropes</span>
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {AESTHETIC_OPTIONS.map((opt) => {
+                  const isSel = selectedAesthetic === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setSelectedAesthetic(opt.id)}
+                      className={`text-left p-2.5 rounded-xl border transition-all ${
+                        isSel
+                          ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-500 text-emerald-800 dark:text-emerald-200 shadow-xs'
+                          : 'bg-gray-50/60 dark:bg-white/[0.02] border-gray-200/80 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20 text-[#0d0d0d] dark:text-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold">{opt.label}</span>
+                        {isSel && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
+                      </div>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">
+                        {opt.desc}
+                      </p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -481,11 +987,16 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
                     </p>
 
                     <div className="pt-1">
-                      <label className="block text-[10px] font-mono text-gray-400 uppercase tracking-wider mb-0.5">
-                        Compiled Generation Prompt:
-                      </label>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <label className="text-[10px] font-mono text-gray-400 uppercase tracking-wider">
+                          Compiled Generation Prompt:
+                        </label>
+                        <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-medium">
+                          {shot.prompt.trim() ? shot.prompt.trim().split(/\s+/).length : 0} words · ChatGPT 2.5
+                        </span>
+                      </div>
                       <textarea
-                        rows={2}
+                        rows={3}
                         value={shot.prompt}
                         onChange={(e) => handleUpdateShotPrompt(idx, e.target.value)}
                         className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#202024] border border-gray-200/80 dark:border-white/10 text-[11px] font-mono text-gray-700 dark:text-gray-300 outline-none focus:border-emerald-500 resize-none leading-relaxed"

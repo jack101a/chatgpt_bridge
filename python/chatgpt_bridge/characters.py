@@ -88,6 +88,7 @@ class CharacterCard(BaseModel):
     body_lock_image_id: str | None = Field(default=None, description="Image ID of the Body Reference Card (Image 2)")
     expression_lock_image_id: str | None = Field(default=None, description="Image ID of the Expression Reference Card (Image 3)")
     character_lock: dict[str, Any] | None = Field(default=None, description="Full structured character lock JSON")
+    roleplay_instructions: str | None = Field(default=None, description="Optional roleplay and consistency directives")
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
 
@@ -297,9 +298,32 @@ class CharacterCard(BaseModel):
             }
         }
 
-    def build_contract_handshake_prompt(self) -> str:
-        """Format the Turn 0 Identity Lock prompt: pure compact JSON with the 3 reference images."""
+    def build_contract_handshake_prompt(
+        self,
+        plot: str | None = None,
+        roleplay_info: str | None = None,
+        screenplay_handshake: str | None = None,
+    ) -> str:
+        """Format the Turn 0 Identity Lock prompt: pure compact JSON with the 3 reference images,
+        along with plot, roleplay info, and screenplay directives when in roleplay/director mode.
+        """
         lock_dict = self.build_character_lock_dict()
+        roleplay_payload: dict[str, Any] = {}
+        if self.roleplay_instructions:
+            roleplay_payload["roleplay_instructions"] = self.roleplay_instructions
+        if roleplay_info:
+            roleplay_payload["roleplay_directives"] = roleplay_info
+        if plot:
+            roleplay_payload["plot_and_scenario"] = plot
+        if screenplay_handshake:
+            roleplay_payload["screenplay_handshake"] = screenplay_handshake
+
+        if roleplay_payload:
+            if "character_lock" in lock_dict and isinstance(lock_dict["character_lock"], dict):
+                lock_dict["character_lock"]["roleplay"] = roleplay_payload
+            else:
+                lock_dict["roleplay"] = roleplay_payload
+
         return json.dumps(lock_dict, indent=2, ensure_ascii=False)
 
     def compile_delta_prompt(

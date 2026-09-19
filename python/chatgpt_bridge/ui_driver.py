@@ -647,27 +647,15 @@ class UIDriver:
                 log.warning("Fast rate limit dialog detected: %s", dialog_err[:120])
                 return {"kind": "rate_limit", "text": dialog_err}
 
-            # 1. Generation in progress?
-            loading = await self._is_loading(page)
-            if loading:
-                if not saw_loading:
-                    saw_loading = True
-                    log.info("Active generation indicator detected (stop button/tool call). Waiting for DALL-E...")
-                elif time.monotonic() - last_log_time >= 5.0:
-                    last_log_time = time.monotonic()
-                    log.info("DALL-E generation still in progress... (%.1fs elapsed)", elapsed)
-                stable_polls = 0
-                last_text = ""
-                await asyncio.sleep(0.5)
-                continue
-
-            # 2. Settled assistant text? Check for refusal / content policy denial
+            # 1. Early Denial / Refusal Check: If assistant text has settled on a policy refusal or error,
+            # bail immediately even if a stop button or loading indicator is still lingering.
             text = await self._read_last_assistant(page)
             if text and text == last_text:
                 stable_polls += 1
                 kind = classify_response(text)
                 if kind in ("denial", "rate_limit", "deterministic", "generic_fail"):
-                    if stable_polls >= 3:
+                    if stable_polls >= 2:
+                        log.warning("Terminal assistant response detected (kind=%s): %s", kind, text[:120])
                         if auto_retry and kind == "denial" and not clicked_switch_model:
                             clicked_switch_model = True
                             if await self._switch_model_fallback(page):
@@ -677,16 +665,26 @@ class UIDriver:
                                 await asyncio.sleep(1.5)
                                 continue
                         return {"kind": kind, "text": text}
-                else:
-                    # kind == "no_image": Do NOT declare failure prematurely after only 1.5s!
-                    # Image generation takes 15-30s. Only declare "no_image" if at least 25s
-                    # have passed without loading or image, and text is settled.
-                    min_wait = min(25.0, timeout_s * 0.8)
-                    if elapsed >= min_wait and stable_polls >= 8:
-                        return {"kind": "no_image", "text": text}
             elif text:
                 last_text = text
                 stable_polls = 0
+
+            # 2. Generation in progress?
+            loading = await self._is_loading(page)
+            if loading:
+                if not saw_loading:
+                    saw_loading = True
+                    log.info("Active generation indicator detected (stop button/tool call). Waiting for DALL-E...")
+                elif time.monotonic() - last_log_time >= 5.0:
+                    last_log_time = time.monotonic()
+                    log.info("DALL-E generation still in progress... (%.1fs elapsed)", elapsed)
+                await asyncio.sleep(0.5)
+                continue
+
+            # 3. If no loading and text is settled without image, check timeout
+            min_wait = min(25.0, timeout_s * 0.8)
+            if text and elapsed >= min_wait and stable_polls >= 8:
+                return {"kind": "no_image", "text": text}
 
             # 3. Check for a new image
             src = await self._find_new_image_src(

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   ArrowUp,
   Sparkles,
@@ -9,16 +9,27 @@ import {
   ChevronDown,
   CheckCircle2,
   Layers,
+  Wand2,
+  ShieldCheck,
+  ShieldAlert,
+  Loader2,
+  Search,
+  RefreshCw,
+  Plus,
 } from 'lucide-react';
 import {
   ImageRequest,
   GalleryItem,
   CharacterCard,
+  AIProviderConfig,
 } from '../../types';
 import { PromptLibraryTray } from '../director/PromptLibraryTray';
 import { DirectorModal } from '../director/DirectorModal';
 import { compileRecurringCharacterPrompt } from '../../lib/characterLock';
 import { hapticImpact } from '../../lib/haptics';
+import { analyzePromptSafety, enhancePrompt } from '../../lib/promptEnhancer';
+import { api } from '../../lib/api';
+import { getProviderModelList } from '../../lib/aiConfig';
 
 interface ComposerProps {
   onSend: (req: ImageRequest) => void;
@@ -43,6 +54,7 @@ export const Composer: React.FC<ComposerProps> = ({
   characters = [],
   activeCharacter = null,
   onSelectCharacter,
+  onThreadCreated,
 }) => {
   const [promptText, setPromptText] = useState('');
   const [showLibrary, setShowLibrary] = useState(false);
@@ -85,6 +97,211 @@ export const Composer: React.FC<ComposerProps> = ({
       textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
     }
   }, [promptText]);
+
+  // Real-time prompt safety analysis
+  const safety = useMemo(() => analyzePromptSafety(promptText), [promptText]);
+
+  // AI Prompt Enhancer state (Multi-provider BYOK architecture)
+  const [enhancerProviderId, setEnhancerProviderId] = useState<string>('gemini');
+  const [enhancerModel, setEnhancerModel] = useState<string>('gemini-2.5-flash');
+  const [aiProviders, setAiProviders] = useState<Record<string, AIProviderConfig>>({});
+  const [defaultProvidersList, setDefaultProvidersList] = useState<Array<{ id: string; default_models?: string[] }>>([]);
+  const [activePickerProviderId, setActivePickerProviderId] = useState<string>('gemini');
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
+  const [isCustomMode, setIsCustomMode] = useState(false);
+  const [customModelInput, setCustomModelInput] = useState('');
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [fetchModelMsg, setFetchModelMsg] = useState<string | null>(null);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
+
+  // Load AI configuration & assignments on mount
+  const refreshAIConfig = useCallback(async () => {
+    try {
+      const cfg = await api.getAIConfig();
+      if (cfg && cfg.ok) {
+        if (cfg.providers) {
+          setAiProviders(cfg.providers);
+        }
+        if (cfg.assignments?.enhancer) {
+          const pid = cfg.assignments.enhancer.provider_id || 'gemini';
+          const mdl = cfg.assignments.enhancer.model || 'gemini-2.5-flash';
+          setEnhancerProviderId(pid);
+          setEnhancerModel(mdl);
+          setActivePickerProviderId(pid);
+        }
+        if (cfg.default_providers) {
+          setDefaultProvidersList(cfg.default_providers);
+        }
+      }
+    } catch {
+      try {
+        const c = await api.getLLMConfig();
+        if (c) {
+          setEnhancerModel(c.enhancer_model || c.director_model || c.model || 'gemini-2.5-flash');
+        }
+      } catch {}
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshAIConfig();
+
+    const handleConfigUpdated = (e?: Event) => {
+      const customEvent = e as CustomEvent<{ assignments?: { enhancer?: { provider_id: string; model: string } } }>;
+      if (customEvent?.detail?.assignments?.enhancer) {
+        const pid = customEvent.detail.assignments.enhancer.provider_id || 'gemini';
+        const mdl = customEvent.detail.assignments.enhancer.model || 'gemini-2.5-flash';
+        setEnhancerProviderId(pid);
+        setEnhancerModel(mdl);
+        setActivePickerProviderId(pid);
+      }
+      refreshAIConfig();
+    };
+
+    window.addEventListener('bridge:ai-config-updated', handleConfigUpdated);
+    window.addEventListener('focus', handleConfigUpdated);
+    return () => {
+      window.removeEventListener('bridge:ai-config-updated', handleConfigUpdated);
+      window.removeEventListener('focus', handleConfigUpdated);
+    };
+  }, [refreshAIConfig]);
+
+  // Click outside to dismiss model picker
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
+        setIsModelPickerOpen(false);
+      }
+    };
+    if (isModelPickerOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isModelPickerOpen]);
+
+  const handleSelectProviderAndModel = async (providerId: string, modelName: string) => {
+    const trimmed = modelName.trim();
+    if (!trimmed) return;
+    setEnhancerProviderId(providerId);
+    setEnhancerModel(trimmed);
+    setIsModelPickerOpen(false);
+    setIsCustomMode(false);
+    setModelSearchQuery('');
+
+    try {
+      await api.saveAIAssignments({
+        enhancer: { provider_id: providerId, model: trimmed },
+      });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('bridge:ai-config-updated', {
+            detail: { assignments: { enhancer: { provider_id: providerId, model: trimmed } } },
+          })
+        );
+      }
+    } catch {
+      // non-blocking
+    }
+  };
+
+  const handleAddCustomModelToProvider = async (providerId: string, modelName: string) => {
+    const trimmed = modelName.trim();
+    if (!trimmed) return;
+    try {
+      const res = await api.addAIProviderModel(providerId, trimmed);
+      if (res.ok) {
+        setAiProviders((prev) => ({
+          ...prev,
+          [providerId]: {
+            ...prev[providerId],
+            custom_models: res.custom_models,
+          },
+        }));
+        setCustomModelInput('');
+        setIsCustomMode(false);
+        await handleSelectProviderAndModel(providerId, trimmed);
+      }
+    } catch (err: any) {
+      alert(`Failed to add custom model: ${err.message}`);
+    }
+  };
+
+  const handleDeleteCustomModel = async (providerId: string, modelToDelete: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await api.deleteAIProviderModel(providerId, modelToDelete);
+      if (res.ok) {
+        setAiProviders((prev) => ({
+          ...prev,
+          [providerId]: {
+            ...prev[providerId],
+            custom_models: res.custom_models,
+          },
+        }));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('bridge:ai-config-updated'));
+        }
+      }
+    } catch {}
+  };
+
+  const handleFetchEndpointModels = async (providerId: string) => {
+    setIsFetchingModels(true);
+    setFetchModelMsg(null);
+    try {
+      const res = await api.testAIProvider(providerId);
+      if (res.ok) {
+        setFetchModelMsg(`Discovered ${res.models?.length || 0} models!`);
+        setAiProviders((prev) => ({
+          ...prev,
+          [providerId]: {
+            ...prev[providerId],
+            discovered_models: res.models || [],
+          },
+        }));
+      } else {
+        setFetchModelMsg(res.message || 'Connection failed');
+      }
+    } catch (err: any) {
+      setFetchModelMsg(err.message || 'Failed to fetch models');
+    } finally {
+      setIsFetchingModels(false);
+      setTimeout(() => setFetchModelMsg(null), 3500);
+    }
+  };
+
+  // 1-Click "Enhance / Make Safe" transformation
+  const handleEnhance = async () => {
+    if (!promptText.trim() || isGenerating || isEnhancing) return;
+    hapticImpact('selection');
+    setIsEnhancing(true);
+
+    try {
+      const res = await api.enhancePrompt({
+        prompt: promptText.trim(),
+        provider_id: enhancerProviderId,
+        model: enhancerModel,
+      });
+      if (res.ok && res.enhanced_prompt) {
+        setPromptText(res.enhanced_prompt);
+      } else {
+        // Fall back gracefully to local rule-based ChatGPT 2.5 prompt enhancer
+        const fallback = enhancePrompt(promptText);
+        setPromptText(fallback);
+      }
+    } catch {
+      // Fall back gracefully to local rule-based ChatGPT 2.5 prompt enhancer
+      const fallback = enhancePrompt(promptText);
+      setPromptText(fallback);
+    } finally {
+      setIsEnhancing(false);
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
+    }
+  };
 
   const handleSubmit = () => {
     if (isGenerating) return;
@@ -323,8 +540,304 @@ export const Composer: React.FC<ComposerProps> = ({
             )}
           </div>
 
-          {/* Right: AI Director Button & Prompt Library */}
+          {/* Right: Enhancer Model Picker, AI Director Button, Safety Shield & Prompt Library */}
           <div className="flex items-center gap-1.5 ml-auto">
+            {/* Real-time Safety Shield Indicator */}
+            {promptText.trim() && (
+              <div
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-mono border transition-all ${
+                  safety.level === 'safe'
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                    : safety.level === 'warning'
+                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25'
+                    : 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/25 animate-pulse'
+                }`}
+                title={safety.reason}
+              >
+                {safety.level === 'safe' ? (
+                  <ShieldCheck size={12} className="text-emerald-500" />
+                ) : (
+                  <ShieldAlert size={12} className={safety.level === 'warning' ? 'text-amber-500' : 'text-red-500'} />
+                )}
+                <span className="hidden sm:inline font-medium capitalize">
+                  {safety.level === 'safe' ? 'Safe' : safety.level === 'warning' ? 'Notice' : 'Filter Risk'}
+                </span>
+              </div>
+            )}
+
+            {/* Enhancer Model Quick Switcher */}
+            <div className="relative" ref={modelPickerRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  hapticImpact('light');
+                  setIsModelPickerOpen(!isModelPickerOpen);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-muted/70 hover:bg-muted text-foreground text-xs font-mono border border-border transition-all active:scale-95 shadow-2xs min-h-[30px] max-w-[150px] sm:max-w-[220px]"
+                title={`Enhancer: ${aiProviders[enhancerProviderId]?.name || enhancerProviderId} → ${enhancerModel}. Click to switch provider or model.`}
+              >
+                <Wand2 size={12} className="text-emerald-500 shrink-0" />
+                <span className="truncate text-[11px]">
+                  <span className="font-semibold text-muted-foreground mr-1">
+                    {aiProviders[enhancerProviderId]?.name?.replace(/\(.*?\)/g, '').trim() || enhancerProviderId}:
+                  </span>
+                  {enhancerModel.split('/').pop()}
+                </span>
+                <ChevronDown size={11} className="text-muted-foreground shrink-0 opacity-60 ml-auto" />
+              </button>
+
+              {/* Quick Multi-Provider Selector Popover */}
+              {isModelPickerOpen && (
+                <div className="absolute right-0 bottom-full mb-2 w-80 sm:w-96 rounded-2xl bg-card border border-border shadow-2xl p-3 z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                  {/* Header */}
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-border/60">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <Wand2 size={13} className="text-emerald-500" />
+                        <span className="text-xs font-bold text-foreground">Chatbox Enhancer Assignment</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Active: <span className="text-emerald-600 dark:text-emerald-400 font-mono font-semibold">{aiProviders[enhancerProviderId]?.name?.replace(/\(.*?\)/g, '').trim() || enhancerProviderId}</span> / <span className="font-mono text-foreground">{enhancerModel}</span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsModelPickerOpen(false)}
+                      className="p-1 rounded-md text-muted-foreground hover:text-foreground"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+
+                  {/* Provider Tabs (Horizontal Scroll) */}
+                  <div className="mb-2.5">
+                    <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-1.5 tracking-wider flex items-center justify-between">
+                      <span>Select Provider</span>
+                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400">● has API key</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+                      {Object.entries(aiProviders).map(([pid, p]) => (
+                        <button
+                          key={`prov-tab-${pid}`}
+                          type="button"
+                          onClick={() => {
+                            setActivePickerProviderId(pid);
+                            setModelSearchQuery('');
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium shrink-0 flex items-center gap-1.5 transition-all ${
+                            activePickerProviderId === pid
+                              ? 'bg-emerald-600 text-white shadow-xs font-semibold'
+                              : 'bg-muted/70 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/40'
+                          }`}
+                        >
+                          <span>{p.name.replace(/\(.*?\)/g, '').trim()}</span>
+                          {p.has_key && (
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                activePickerProviderId === pid ? 'bg-white' : 'bg-emerald-500'
+                              }`}
+                            />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Active Provider Info & Fetch Action */}
+                  {aiProviders[activePickerProviderId] && (
+                    <div className="p-2 rounded-xl bg-muted/40 border border-border/50 mb-2 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-[10px] text-muted-foreground font-mono truncate">
+                          {aiProviders[activePickerProviderId].base_url}
+                        </div>
+                        {fetchModelMsg && (
+                          <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-0.5">
+                            {fetchModelMsg}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleFetchEndpointModels(activePickerProviderId)}
+                        disabled={isFetchingModels}
+                        className="px-2 py-1 rounded-lg bg-background hover:bg-muted border border-border text-[11px] font-medium text-foreground flex items-center gap-1 shrink-0 transition-all active:scale-95 shadow-2xs"
+                        title="Fetch all available models from this endpoint"
+                      >
+                        <RefreshCw size={11} className={isFetchingModels ? 'animate-spin text-emerald-500' : ''} />
+                        <span>{isFetchingModels ? 'Fetching…' : 'Fetch All'}</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Search & Custom Model Toggle */}
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <div className="relative flex-1">
+                      <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        value={modelSearchQuery}
+                        onChange={(e) => setModelSearchQuery(e.target.value)}
+                        placeholder="Search models..."
+                        className="w-full pl-7 pr-2.5 py-1 rounded-lg bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-emerald-500 font-mono"
+                      />
+                      {modelSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setModelSearchQuery('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        >
+                          <X size={10} />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomMode(!isCustomMode)}
+                      className={`px-2 py-1 rounded-lg text-xs font-medium border flex items-center gap-1 transition-all ${
+                        isCustomMode
+                          ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-background hover:bg-muted border-border text-muted-foreground hover:text-foreground'
+                      }`}
+                      title="Add a custom model identifier"
+                    >
+                      <Plus size={11} />
+                      <span>Custom</span>
+                    </button>
+                  </div>
+
+                  {/* Inline Add Custom Model Input */}
+                  {isCustomMode && (
+                    <div className="flex items-center gap-1.5 mb-2 p-1.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                      <input
+                        type="text"
+                        value={customModelInput}
+                        onChange={(e) => setCustomModelInput(e.target.value)}
+                        placeholder={`Custom model for ${aiProviders[activePickerProviderId]?.name || activePickerProviderId}...`}
+                        className="flex-1 px-2.5 py-1 rounded-lg bg-background border border-border text-xs font-mono text-foreground outline-none focus:border-emerald-500"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && customModelInput.trim()) {
+                            handleAddCustomModelToProvider(activePickerProviderId, customModelInput.trim());
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={!customModelInput.trim()}
+                        onClick={() => handleAddCustomModelToProvider(activePickerProviderId, customModelInput.trim())}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium disabled:opacity-50"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Model List */}
+                  {(() => {
+                    const providerModels = getProviderModelList(activePickerProviderId, aiProviders, defaultProvidersList);
+                    const filtered = modelSearchQuery.trim()
+                      ? providerModels.filter((m) => m.id.toLowerCase().includes(modelSearchQuery.toLowerCase()))
+                      : providerModels;
+
+                    const customList = filtered.filter((m) => m.group === 'custom');
+                    const discoveredList = filtered.filter((m) => m.group === 'discovered');
+                    const defaultList = filtered.filter((m) => m.group === 'default');
+
+                    return (
+                      <div className="max-h-60 overflow-y-auto space-y-0.5 text-xs font-mono pr-1 scrollbar-thin">
+                        {/* Custom Models */}
+                        {customList.length > 0 && (
+                          <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-semibold font-sans">
+                            ✦ Custom Models ({customList.length})
+                          </div>
+                        )}
+                        {customList.map((m) => (
+                          <div
+                            key={`cust-${activePickerProviderId}-${m.id}`}
+                            onClick={() => handleSelectProviderAndModel(activePickerProviderId, m.id)}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors cursor-pointer ${
+                              enhancerProviderId === activePickerProviderId && enhancerModel === m.id
+                                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold'
+                                : 'text-foreground hover:bg-muted'
+                            }`}
+                          >
+                            <span className="truncate pr-2">{m.id}</span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {enhancerProviderId === activePickerProviderId && enhancerModel === m.id && (
+                                <CheckCircle2 size={13} className="text-emerald-500" />
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteCustomModel(activePickerProviderId, m.id, e)}
+                                className="text-muted-foreground hover:text-red-500 p-0.5 rounded transition-colors"
+                                title={`Delete ${m.id}`}
+                              >
+                                <X size={11} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Discovered Models */}
+                        {discoveredList.length > 0 && (
+                          <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold font-sans pt-1">
+                            🌐 Endpoint Models ({discoveredList.length})
+                          </div>
+                        )}
+                        {discoveredList.map((m) => (
+                          <button
+                            key={`disc-${activePickerProviderId}-${m.id}`}
+                            type="button"
+                            onClick={() => handleSelectProviderAndModel(activePickerProviderId, m.id)}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors ${
+                              enhancerProviderId === activePickerProviderId && enhancerModel === m.id
+                                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold'
+                                : 'text-foreground hover:bg-muted'
+                            }`}
+                          >
+                            <span className="truncate pr-2">{m.id}</span>
+                            {enhancerProviderId === activePickerProviderId && enhancerModel === m.id && (
+                              <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                            )}
+                          </button>
+                        ))}
+
+                        {/* Preset / Default Models */}
+                        {defaultList.length > 0 && (
+                          <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold font-sans pt-1">
+                            Preset Defaults ({defaultList.length})
+                          </div>
+                        )}
+                        {defaultList.map((m) => (
+                          <button
+                            key={`def-${activePickerProviderId}-${m.id}`}
+                            type="button"
+                            onClick={() => handleSelectProviderAndModel(activePickerProviderId, m.id)}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors ${
+                              enhancerProviderId === activePickerProviderId && enhancerModel === m.id
+                                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold'
+                                : 'text-foreground hover:bg-muted'
+                            }`}
+                          >
+                            <span className="truncate pr-2">{m.id}</span>
+                            {enhancerProviderId === activePickerProviderId && enhancerModel === m.id && (
+                              <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                            )}
+                          </button>
+                        ))}
+
+                        {filtered.length === 0 && (
+                          <div className="px-3 py-4 text-center text-xs text-muted-foreground font-sans">
+                            No models matched &quot;{modelSearchQuery}&quot;. Click &quot;Custom&quot; above to add it.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
             <button
               type="button"
               onClick={() => {
@@ -374,6 +887,32 @@ export const Composer: React.FC<ComposerProps> = ({
               }
               className="flex-1 max-h-[180px] bg-transparent border-0 outline-none resize-none text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans py-1.5"
             />
+
+            {/* 1-Click Enhance / Make Safe Button */}
+            <button
+              type="button"
+              onClick={handleEnhance}
+              disabled={isGenerating || isEnhancing || !promptText.trim()}
+              className={`w-10 h-10 min-w-[40px] min-h-[40px] rounded-xl flex items-center justify-center shrink-0 transition-all border ${
+                safety.level === 'danger'
+                  ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border-amber-500/30 active:scale-90 shadow-sm'
+                  : promptText.trim()
+                  ? 'bg-muted hover:bg-muted/80 text-foreground border-border active:scale-90 shadow-2xs'
+                  : 'bg-muted text-muted-foreground/40 border-border/50 cursor-not-allowed'
+              }`}
+              title={
+                safety.level === 'danger'
+                  ? `🛡️ Make Safe: Swap filter triggers with safe-spicy euphemisms (${enhancerModel})`
+                  : `✨ Enhance: Polish into ChatGPT 2.5 photo prompt using ${enhancerModel}`
+              }
+              aria-label="Enhance prompt"
+            >
+              {isEnhancing ? (
+                <Loader2 size={16} className="animate-spin text-emerald-500" />
+              ) : (
+                <Wand2 size={16} className={safety.level === 'danger' ? 'text-amber-500' : 'text-primary'} />
+              )}
+            </button>
 
             <button
               type="button"
@@ -488,6 +1027,7 @@ export const Composer: React.FC<ComposerProps> = ({
         activeCharacter={activeCharacter}
         activeConvId={activeConvId}
         onSelectCharacter={onSelectCharacter}
+        onThreadCreated={onThreadCreated}
       />
     </div>
   );

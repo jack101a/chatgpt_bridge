@@ -126,18 +126,47 @@ _LEADING_GEN_IMAGE_RE = re.compile(
 
 
 def standardize_image_prompt(prompt: str) -> str:
-    """Format prompt with standard '(Generate Image -\\n...)' prefix.
+    """Clean and standardize image prompt by stripping robotic prefixes and wrappers.
 
-    If the user has written 'Generate image', 'generate an image of', etc. first,
-    strips those leading words first so it does not duplicate the instruction.
+    Strips:
+    - Leading '(Generate Image -\\n...)' wrappers and matching trailing ')'
+    - 'Please generate an image using the exact prompt below...' directives
+    - Leading 'Generate image:', 'Create an image of:', etc.
+    Returns the pure, clean scene prompt string without robotic clutter.
     """
     t = prompt.strip()
-    if t.lower().startswith("(generate image -\n") or t.lower().startswith("(genrate image -\n"):
-        return t
+
+    # 1. Strip '(Generate Image -\n...)' or '(Genrate Image -\n...)'
+    if t.startswith("(") and (
+        t.lower().startswith("(generate image -\n")
+        or t.lower().startswith("(genrate image -\n")
+        or t.lower().startswith("(generate image -")
+    ):
+        inner = t[1:]
+        if inner.endswith(")"):
+            inner = inner[:-1]
+        parts = re.split(r"^(?:generate|genrate)\s+image\s*-\s*\n?", inner.strip(), flags=re.IGNORECASE)
+        t = parts[-1].strip()
+
+    # 2. Strip verbatim / exact prompt directives
+    prefix_verbatim = "Please generate an image using the exact prompt below. Do not rewrite, expand, or alter this text; pass it verbatim to the dalle tool:"
+    if t.startswith(prefix_verbatim):
+        t = t[len(prefix_verbatim):].strip().strip('"')
+    elif "using the exact prompt below" in t.lower() and "pass it verbatim" in t.lower():
+        parts = re.split(r"pass it verbatim to the dalle tool:\s*", t, flags=re.IGNORECASE)
+        if len(parts) > 1:
+            t = parts[-1].strip().strip('"')
+
+    # 3. Strip leading command prefixes like "generate image:", "please make an image of"
     cleaned = _LEADING_GEN_IMAGE_RE.sub("", t).strip()
-    if not cleaned:
-        cleaned = t
-    return f"(Generate Image -\n{cleaned})"
+    if cleaned:
+        t = cleaned
+
+    # Strip any dangling wrapping quotes
+    if (t.startswith('"') and t.endswith('"')) or (t.startswith("'") and t.endswith("'")):
+        t = t[1:-1].strip()
+
+    return t
 
 
 def auto_tweak_prompt(prompt: str, level: int = 1) -> str:

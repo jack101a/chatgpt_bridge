@@ -21,6 +21,10 @@ import {
   DownloadCloud,
   Layers,
   Sparkles,
+  Plus,
+  Trash2,
+  Sliders,
+  Globe,
 } from 'lucide-react';
 import {
   Account,
@@ -29,10 +33,137 @@ import {
   StorageSyncProgress,
   TelegramTestResult,
   VaultBackupsResponse,
-  LLMConfig,
   LLMTestResult,
+  AIProviderConfig,
+  AIAssignments,
 } from '../../types';
 import { api } from '../../lib/api';
+
+interface LLMProviderPreset {
+  id: string;
+  name: string;
+  badge?: string;
+  isPopular?: boolean;
+  base_url: string;
+  defaultModel: string;
+  defaultEnhancerModel?: string;
+  models: { id: string; label: string }[];
+  keyPlaceholder?: string;
+  hint?: string;
+}
+
+const LLM_PROVIDER_PRESETS: LLMProviderPreset[] = [
+  {
+    id: 'gemini',
+    name: '✦ Google Gemini (Free API)',
+    isPopular: true,
+    base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    defaultModel: 'gemini-2.5-flash',
+    defaultEnhancerModel: 'gemini-2.5-flash',
+    models: [
+      { id: 'gemini-2.5-flash', label: 'gemini-2.5-flash (Fast & Smart - Recommended)' },
+      { id: 'gemini-2.5-pro', label: 'gemini-2.5-pro (Deep Directorial Reasoning)' },
+      { id: 'gemini-2.0-flash', label: 'gemini-2.0-flash' },
+      { id: 'gemini-2.0-flash-lite', label: 'gemini-2.0-flash-lite (Ultra Fast Enhancer)' },
+      { id: 'gemini-1.5-flash', label: 'gemini-1.5-flash' },
+      { id: 'gemini-1.5-pro', label: 'gemini-1.5-pro' },
+      { id: 'gemini-1.0-pro', label: 'gemini-1.0-pro' },
+    ],
+    keyPlaceholder: 'AIzaSy... (Free key from aistudio.google.com)',
+    hint: 'Google AI Studio provides free API keys with generous free-tier limits. All Gemini models supported.',
+  },
+  {
+    id: 'nim',
+    name: '✦ NVIDIA NIM (120B)',
+    isPopular: true,
+    base_url: 'http://nim.ajaxhs.home/v1',
+    defaultModel: 'nvidia/nemotron-3-super-120b-a12b',
+    defaultEnhancerModel: 'meta/llama-3.1-70b-instruct',
+    models: [
+      { id: 'nvidia/nemotron-3-super-120b-a12b', label: 'nvidia/nemotron-3-super-120b-a12b' },
+      { id: 'meta/llama-3.1-70b-instruct', label: 'meta/llama-3.1-70b-instruct' },
+      { id: 'mistralai/mixtral-8x22b-instruct-v0.1', label: 'mistralai/mixtral-8x22b-instruct-v0.1' },
+    ],
+    keyPlaceholder: 'nim-... (or leave blank if on LAN)',
+    hint: 'Local / LAN high-throughput Nemotron-3 120B cluster.',
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    base_url: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o',
+    defaultEnhancerModel: 'gpt-4o-mini',
+    models: [
+      { id: 'gpt-4o', label: 'gpt-4o (Omni Flagship)' },
+      { id: 'gpt-4o-mini', label: 'gpt-4o-mini (Fast & Efficient)' },
+      { id: 'o3-mini', label: 'o3-mini (High-Speed Reasoning)' },
+      { id: 'o1', label: 'o1 (Deep Reasoning)' },
+      { id: 'o1-mini', label: 'o1-mini' },
+      { id: 'gpt-4-turbo', label: 'gpt-4-turbo' },
+      { id: 'gpt-3.5-turbo', label: 'gpt-3.5-turbo' },
+    ],
+    keyPlaceholder: 'sk-...',
+  },
+  {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    base_url: 'https://openrouter.ai/api/v1',
+    defaultModel: 'anthropic/claude-3-5-sonnet',
+    defaultEnhancerModel: 'google/gemini-2.5-flash',
+    models: [
+      { id: 'anthropic/claude-3-5-sonnet', label: 'anthropic/claude-3-5-sonnet' },
+      { id: 'anthropic/claude-3-5-haiku', label: 'anthropic/claude-3-5-haiku' },
+      { id: 'google/gemini-2.5-flash', label: 'google/gemini-2.5-flash' },
+      { id: 'google/gemini-2.5-pro', label: 'google/gemini-2.5-pro' },
+      { id: 'meta-llama/llama-3.3-70b-instruct', label: 'meta-llama/llama-3.3-70b-instruct' },
+      { id: 'deepseek/deepseek-chat', label: 'deepseek/deepseek-chat' },
+      { id: 'openai/gpt-4o', label: 'openai/gpt-4o' },
+      { id: 'openai/gpt-4o-mini', label: 'openai/gpt-4o-mini' },
+    ],
+    keyPlaceholder: 'sk-or-...',
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    base_url: 'https://api.deepseek.com/v1',
+    defaultModel: 'deepseek-chat',
+    defaultEnhancerModel: 'deepseek-chat',
+    models: [
+      { id: 'deepseek-chat', label: 'deepseek-chat (V3)' },
+      { id: 'deepseek-reasoner', label: 'deepseek-reasoner (R1)' },
+    ],
+    keyPlaceholder: 'sk-...',
+  },
+  {
+    id: 'groq',
+    name: 'Groq',
+    base_url: 'https://api.groq.com/openai/v1',
+    defaultModel: 'llama-3.3-70b-versatile',
+    defaultEnhancerModel: 'llama3-8b-8192',
+    models: [
+      { id: 'llama-3.3-70b-versatile', label: 'llama-3.3-70b-versatile' },
+      { id: 'llama3-70b-8192', label: 'llama3-70b-8192' },
+      { id: 'llama3-8b-8192', label: 'llama3-8b-8192 (Ultra Fast)' },
+      { id: 'mixtral-8x7b-32768', label: 'mixtral-8x7b-32768' },
+    ],
+    keyPlaceholder: 'gsk_...',
+  },
+  {
+    id: 'ollama',
+    name: 'Ollama (Local)',
+    base_url: 'http://localhost:11434/v1',
+    defaultModel: 'llama3',
+    defaultEnhancerModel: 'llama3.2',
+    models: [
+      { id: 'llama3', label: 'llama3' },
+      { id: 'llama3.2', label: 'llama3.2' },
+      { id: 'mistral', label: 'mistral' },
+      { id: 'qwen2.5', label: 'qwen2.5' },
+      { id: 'phi3', label: 'phi3' },
+    ],
+    keyPlaceholder: 'ollama (optional)',
+  },
+];
 
 interface AccountsDrawerProps {
   isOpen: boolean;
@@ -82,12 +213,31 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
   const [isRegeneratingThumbs, setIsRegeneratingThumbs] = useState(false);
   const [thumbMsg, setThumbMsg] = useState<string | null>(null);
 
-  // AI Director States
-  const [llmConfig, setLlmConfig] = useState<LLMConfig>({ base_url: '', api_key: '', model: '' });
-  const [showLlmKey, setShowLlmKey] = useState(false);
-  const [isTestingLlm, setIsTestingLlm] = useState(false);
-  const [llmTestResult, setLlmTestResult] = useState<LLMTestResult | null>(null);
-  const [llmSaveMsg, setLlmSaveMsg] = useState<string | null>(null);
+  // AI Multi-Provider & Role Assignments States
+  const [aiProviders, setAiProviders] = useState<Record<string, AIProviderConfig>>({});
+  const [aiAssignments, setAiAssignments] = useState<AIAssignments>({
+    director: { provider_id: 'gemini', model: 'gemini-2.5-pro' },
+    enhancer: { provider_id: 'gemini', model: 'gemini-2.5-flash' },
+  });
+  const [defaultProvidersList, setDefaultProvidersList] = useState<any[]>([]);
+  const [activeProviderId, setActiveProviderId] = useState<string>('gemini');
+  const [showActiveProviderKey, setShowActiveProviderKey] = useState(false);
+  const [isSavingAssignments, setIsSavingAssignments] = useState(false);
+  const [assignmentSaveMsg, setAssignmentSaveMsg] = useState<string | null>(null);
+  const [providerSaveMsg, setProviderSaveMsg] = useState<string | null>(null);
+  const [isTestingProvider, setIsTestingProvider] = useState(false);
+  const [providerTestResult, setProviderTestResult] = useState<LLMTestResult | null>(null);
+  const [isAddingProviderModel, setIsAddingProviderModel] = useState(false);
+  const [newProviderModelInput, setNewProviderModelInput] = useState('');
+  const [isCustomDirectorModel, setIsCustomDirectorModel] = useState(false);
+  const [isCustomEnhancerModel, setIsCustomEnhancerModel] = useState(false);
+  const [customDirectorInput, setCustomDirectorInput] = useState('');
+  const [customEnhancerInput, setCustomEnhancerInput] = useState('');
+  const [showAddCustomProvider, setShowAddCustomProvider] = useState(false);
+  const [customProviderIdInput, setCustomProviderIdInput] = useState('');
+  const [customProviderNameInput, setCustomProviderNameInput] = useState('');
+  const [customProviderBaseUrlInput, setCustomProviderBaseUrlInput] = useState('');
+  const [customProviderApiKeyInput, setCustomProviderApiKeyInput] = useState('');
 
   // Swipe-down-to-close gesture states
   const [drawerDragY, setDrawerDragY] = useState(0);
@@ -103,6 +253,17 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
     optimisticMaxChats !== null
       ? optimisticMaxChats
       : telemetry?.settings?.max_chats ?? 25;
+
+  const notifyAIConfigUpdated = useCallback((assignments?: AIAssignments) => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bridge:ai-config-updated', { detail: { assignments } }));
+    }
+  }, []);
+
+  const handleClose = useCallback(() => {
+    notifyAIConfigUpdated();
+    onClose();
+  }, [notifyAIConfigUpdated, onClose]);
 
   const handleTouchStart = (e: React.TouchEvent | React.PointerEvent) => {
     const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.PointerEvent).clientY;
@@ -139,7 +300,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
     const dt = Math.max(1, Date.now() - drawerTouchStartRef.current.time);
     const velocity = dy / dt;
     if (dy > 50 || (velocity > 0.25 && dy > 15)) {
-      onClose();
+      handleClose();
     }
     setDrawerDragY(0);
   };
@@ -224,7 +385,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
     }
   }, []);
 
-  // Fetch settings & storage status when drawer opens
+  // Fetch settings, storage status, and AI multi-provider config when drawer opens
   useEffect(() => {
     if (!isOpen) return;
     fetchStorage();
@@ -234,8 +395,24 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
       if (s.telegram_channel_id) setTgChannel(s.telegram_channel_id);
     }).catch(() => {});
     
-    api.getLLMConfig().then((c) => {
-      if (c) setLlmConfig(c);
+    api.getAIConfig().then((cfg) => {
+      if (cfg && cfg.ok) {
+        if (cfg.providers) {
+          setAiProviders(cfg.providers);
+          const pids = Object.keys(cfg.providers);
+          if (pids.length > 0) {
+            setActiveProviderId((prev) => (pids.includes(prev) ? prev : pids[0]));
+          }
+        }
+        if (cfg.assignments) {
+          setAiAssignments(cfg.assignments);
+          setCustomDirectorInput(cfg.assignments.director?.model || '');
+          setCustomEnhancerInput(cfg.assignments.enhancer?.model || '');
+        }
+        if (cfg.default_providers) {
+          setDefaultProvidersList(cfg.default_providers);
+        }
+      }
     }).catch(() => {});
   }, [isOpen, fetchStorage, fetchBackups]);
 
@@ -263,12 +440,12 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        handleClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, handleClose]);
 
   const currentQuota =
     optimisticQuota !== null
@@ -402,32 +579,228 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
     }
   };
 
-  const handleTestLLMConnection = async () => {
-    setIsTestingLlm(true);
-    setLlmTestResult(null);
+  const getProviderModelList = useCallback(
+    (providerId: string) => {
+      const p = aiProviders[providerId];
+      if (!p) return [];
+      const discovered = p.discovered_models || [];
+      const custom = p.custom_models || [];
+      const defaults = p.default_models || [];
+      const preset = LLM_PROVIDER_PRESETS.find((pr) => pr.id === providerId);
+      const presetModels = preset?.models.map((m) => m.id) || [];
+
+      const seen = new Set<string>();
+      const models: { id: string; label: string; group: 'custom' | 'discovered' | 'default' }[] = [];
+
+      const defEntry = defaultProvidersList.find((dp) => dp.id === providerId);
+      const defModels = defEntry?.default_models || [];
+
+      for (const m of custom) {
+        if (!seen.has(m)) {
+          seen.add(m);
+          models.push({ id: m, label: `${m} (Custom)`, group: 'custom' });
+        }
+      }
+      for (const m of discovered) {
+        if (!seen.has(m)) {
+          seen.add(m);
+          models.push({ id: m, label: m, group: 'discovered' });
+        }
+      }
+      for (const m of [...defaults, ...defModels, ...presetModels]) {
+        if (!seen.has(m)) {
+          seen.add(m);
+          models.push({ id: m, label: m, group: 'default' });
+        }
+      }
+      return models;
+    },
+    [aiProviders, defaultProvidersList]
+  );
+
+  const handleUpdateAssignment = async (
+    role: 'director' | 'enhancer',
+    providerId: string,
+    model: string
+  ) => {
+    const next: AIAssignments = {
+      ...aiAssignments,
+      [role]: { provider_id: providerId, model: model.trim() },
+    };
+    setAiAssignments(next);
     try {
-      const res = await api.testLLMConnection(llmConfig);
-      setLlmTestResult(res);
+      setAssignmentSaveMsg(null);
+      await api.saveAIAssignments(next);
+      notifyAIConfigUpdated(next);
+      setAssignmentSaveMsg(`Updated ${role === 'director' ? 'Director Mode' : 'Enhancer'} to ${model}!`);
+      setTimeout(() => setAssignmentSaveMsg(null), 3000);
     } catch (err: any) {
-      setLlmTestResult({ ok: false, message: err.message });
+      alert(`Failed to save assignment: ${err.message}`);
+    }
+  };
+
+  const handleSaveAllAssignments = async () => {
+    setIsSavingAssignments(true);
+    try {
+      setAssignmentSaveMsg(null);
+      await api.saveAIAssignments(aiAssignments);
+      notifyAIConfigUpdated(aiAssignments);
+      setAssignmentSaveMsg('AI work assignments saved successfully!');
+      setTimeout(() => setAssignmentSaveMsg(null), 3000);
+    } catch (err: any) {
+      alert(`Failed to save assignments: ${err.message}`);
     } finally {
-      setIsTestingLlm(false);
+      setIsSavingAssignments(false);
     }
   };
 
-  const handleSaveLLMConfig = async () => {
+  const handleTestProvider = async (providerId: string) => {
+    setIsTestingProvider(true);
+    setProviderTestResult(null);
     try {
-      setLlmSaveMsg(null);
-      await api.saveLLMConfig(llmConfig);
-      setLlmSaveMsg('Saved AI Director settings!');
-      setTimeout(() => setLlmSaveMsg(null), 3000);
+      const p = aiProviders[providerId];
+      const res = await api.testAIProvider(providerId, {
+        base_url: p?.base_url,
+        api_key: p?.api_key,
+      });
+      setProviderTestResult(res);
+      if (res.ok && res.models && res.models.length > 0) {
+        setAiProviders((prev) => ({
+          ...prev,
+          [providerId]: {
+            ...prev[providerId],
+            discovered_models: res.models,
+          },
+        }));
+        notifyAIConfigUpdated();
+      }
     } catch (err: any) {
-      alert(`Failed to save LLM Config: ${err.message}`);
+      setProviderTestResult({ ok: false, message: err.message });
+    } finally {
+      setIsTestingProvider(false);
     }
   };
 
-  const applyLlmPreset = (preset: Partial<LLMConfig>) => {
-    setLlmConfig(prev => ({ ...prev, ...preset }));
+  const handleSaveProviderConfig = async (providerId: string) => {
+    const p = aiProviders[providerId];
+    if (!p) return;
+    try {
+      setProviderSaveMsg(null);
+      const res = await api.saveAIProvider(providerId, {
+        name: p.name,
+        base_url: p.base_url,
+        api_key: p.api_key,
+        enabled: p.enabled ?? true,
+        custom_models: p.custom_models || [],
+      });
+      if (res.ok) {
+        setAiProviders((prev) => ({
+          ...prev,
+          [providerId]: res.provider,
+        }));
+        notifyAIConfigUpdated();
+        setProviderSaveMsg(`Saved ${p.name} settings!`);
+        setTimeout(() => setProviderSaveMsg(null), 3000);
+      }
+    } catch (err: any) {
+      alert(`Failed to save provider: ${err.message}`);
+    }
+  };
+
+  const handleAddCustomModelToProvider = async (providerId: string) => {
+    const target = newProviderModelInput.trim();
+    if (!target) return;
+    setIsAddingProviderModel(true);
+    try {
+      const res = await api.addAIProviderModel(providerId, target);
+      if (res.ok) {
+        setAiProviders((prev) => ({
+          ...prev,
+          [providerId]: {
+            ...prev[providerId],
+            custom_models: res.custom_models,
+          },
+        }));
+        notifyAIConfigUpdated();
+        setNewProviderModelInput('');
+      }
+    } catch (err: any) {
+      alert(`Failed to add custom model: ${err.message}`);
+    } finally {
+      setIsAddingProviderModel(false);
+    }
+  };
+
+  const handleDeleteCustomModelFromProvider = async (providerId: string, model: string) => {
+    try {
+      const res = await api.deleteAIProviderModel(providerId, model);
+      if (res.ok) {
+        setAiProviders((prev) => ({
+          ...prev,
+          [providerId]: {
+            ...prev[providerId],
+            custom_models: res.custom_models,
+          },
+        }));
+        notifyAIConfigUpdated();
+      }
+    } catch (err: any) {
+      alert(`Failed to delete custom model: ${err.message}`);
+    }
+  };
+
+  const handleAddCustomProvider = async () => {
+    const name = customProviderNameInput.trim();
+    const baseUrl = customProviderBaseUrlInput.trim();
+    if (!name || !baseUrl) {
+      alert('Please enter provider name and base URL');
+      return;
+    }
+    const pid =
+      customProviderIdInput.trim() ||
+      name.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    try {
+      const res = await api.saveAIProvider(pid, {
+        name,
+        base_url: baseUrl,
+        api_key: customProviderApiKeyInput.trim(),
+        enabled: true,
+        custom_models: [],
+        discovered_models: [],
+      });
+      if (res.ok) {
+        setAiProviders((prev) => ({
+          ...prev,
+          [pid]: res.provider,
+        }));
+        notifyAIConfigUpdated();
+        setActiveProviderId(pid);
+        setShowAddCustomProvider(false);
+        setCustomProviderNameInput('');
+        setCustomProviderBaseUrlInput('');
+        setCustomProviderApiKeyInput('');
+        setCustomProviderIdInput('');
+      }
+    } catch (err: any) {
+      alert(`Failed to add provider: ${err.message}`);
+    }
+  };
+
+  const handleDeleteCustomProvider = async (providerId: string) => {
+    if (!confirm(`Are you sure you want to remove ${aiProviders[providerId]?.name || providerId}?`)) return;
+    try {
+      const res = await api.deleteAIProvider(providerId);
+      if (res.ok) {
+        setAiProviders((prev) => {
+          const next = { ...prev };
+          delete next[providerId];
+          return next;
+        });
+        setActiveProviderId('gemini');
+      }
+    } catch (err: any) {
+      alert(`Failed to delete provider: ${err.message}`);
+    }
   };
 
   if (!isOpen) return null;
@@ -437,7 +810,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
+        onClick={handleClose}
       />
 
       {/* Slide-up Bottom Sheet (Mobile) / Center Card (Desktop) */}
@@ -480,7 +853,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
             </p>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-all active:scale-95"
             aria-label="Close"
           >
@@ -1065,63 +1438,562 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
             </div>
           </div>
 
-          {/* ── Section: AI Director Settings ── */}
-          <div className="space-y-3 pt-2 border-t border-border">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              AI Director Settings
-            </h3>
-            
-            <div className="p-3 rounded-2xl bg-muted/40 border border-border space-y-3">
-              <div>
-                <p className="text-xs font-medium text-foreground">Provider Presets</p>
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <button onClick={() => applyLlmPreset({ base_url: 'http://nim.ajaxhs.home/v1', model: 'nvidia/nemotron-3-super-120b-a12b' })} className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 active:scale-95 transition-all">✦ NVIDIA NIM (120B)</button>
-                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.openai.com/v1', model: 'gpt-4o' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all">OpenAI</button>
-                  <button onClick={() => applyLlmPreset({ base_url: 'https://openrouter.ai/api/v1', model: 'anthropic/claude-3-5-sonnet' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all">OpenRouter</button>
-                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all">DeepSeek</button>
-                  <button onClick={() => applyLlmPreset({ base_url: 'https://api.groq.com/openai/v1', model: 'llama3-8b-8192' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all">Groq</button>
-                  <button onClick={() => applyLlmPreset({ base_url: 'http://localhost:11434/v1', model: 'llama3' })} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all">Ollama</button>
+          {/* ── Section: AI Model Assignments & Providers ── */}
+          <div className="space-y-4 pt-2 border-t border-border">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Sparkles size={14} className="text-emerald-500" />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  AI Model Assignments & Providers
+                </h3>
+              </div>
+              <div className="flex items-center gap-1 text-[10px]">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium border border-emerald-500/20 truncate max-w-[120px]" title={`Director: ${aiAssignments.director?.model || 'gpt-4o'}`}>
+                  🎬 {(aiAssignments.director?.model || 'gpt-4o').split('/').pop()}
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium border border-emerald-500/20 truncate max-w-[120px]" title={`Enhancer: ${aiAssignments.enhancer?.model || 'gemini-2.5-flash'}`}>
+                  ✨ {(aiAssignments.enhancer?.model || 'gemini-2.5-flash').split('/').pop()}
+                </span>
+              </div>
+            </div>
+
+            {/* 🎯 Card 1: Work Assignment (Director Mode & Chatbox Enhancer) */}
+            <div className="p-3.5 rounded-2xl bg-muted/40 border border-border space-y-3.5 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Sliders size={13} className="text-emerald-500" />
+                    <span>🎯 Active Work Assignments</span>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Assign any model under any provider independently to Director Mode or Chatbox Enhancer.
+                  </p>
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-foreground">Base URL</label>
-                <input type="text" value={llmConfig.base_url} onChange={(e) => setLlmConfig({...llmConfig, base_url: e.target.value})} placeholder="https://api.openai.com/v1" className="w-full px-3 py-2 rounded-xl bg-card border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500 transition-colors" />
+              {/* Grid of Assignments */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* 🎬 Director Mode Assignment */}
+                <div className="p-3 rounded-xl bg-card border border-border space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-foreground flex items-center gap-1">
+                      <span>🎬 Director Mode</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomDirectorModel(!isCustomDirectorModel)}
+                      className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline"
+                    >
+                      {isCustomDirectorModel ? 'Select list' : 'Custom'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Drives storyboards, shot pacing, and Turn 0/1 contracts.
+                  </p>
+
+                  {/* Provider Dropdown */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-medium text-muted-foreground">Provider</label>
+                    <select
+                      value={aiAssignments.director?.provider_id || 'gemini'}
+                      onChange={(e) => {
+                        const newPid = e.target.value;
+                        const models = getProviderModelList(newPid);
+                        const fallbackModel = models[0]?.id || 'gemini-2.5-pro';
+                        handleUpdateAssignment('director', newPid, fallbackModel);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border text-xs text-foreground outline-none focus:border-emerald-500 transition-colors"
+                    >
+                      {Object.entries(aiProviders).map(([pid, p]) => (
+                        <option key={`dir-prov-${pid}`} value={pid}>
+                          {p.name} {p.has_key ? '●' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Model Selector */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-medium text-muted-foreground">Assigned Model</label>
+                    {isCustomDirectorModel ? (
+                      <div className="flex gap-1">
+                        <input
+                          type="text"
+                          value={customDirectorInput}
+                          onChange={(e) => setCustomDirectorInput(e.target.value)}
+                          onBlur={() => {
+                            if (customDirectorInput.trim()) {
+                              handleUpdateAssignment('director', aiAssignments.director?.provider_id || 'gemini', customDirectorInput.trim());
+                            }
+                          }}
+                          placeholder="e.g. gemini-2.5-pro or gpt-4o"
+                          className="flex-1 px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    ) : (
+                      <select
+                        value={aiAssignments.director?.model || ''}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            setIsCustomDirectorModel(true);
+                          } else {
+                            handleUpdateAssignment('director', aiAssignments.director?.provider_id || 'gemini', e.target.value);
+                          }
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500 cursor-pointer"
+                      >
+                        {getProviderModelList(aiAssignments.director?.provider_id || 'gemini').map((m) => (
+                          <option key={`dir-m-${m.id}`} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                        {getProviderModelList(aiAssignments.director?.provider_id || 'gemini').length === 0 && (
+                          <option value={aiAssignments.director?.model}>{aiAssignments.director?.model}</option>
+                        )}
+                        <option value="__custom__">✏️ Custom / Type manually...</option>
+                      </select>
+                    )}
+                  </div>
+                </div>
+
+                {/* ✨ Chatbox Enhancer Assignment */}
+                <div className="p-3 rounded-xl bg-card border border-border space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-foreground flex items-center gap-1">
+                      <span>✨ Chatbox Enhancer</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomEnhancerModel(!isCustomEnhancerModel)}
+                      className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline"
+                    >
+                      {isCustomEnhancerModel ? 'Select list' : 'Custom'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    1-Click prompt polish, spicy euphemisms & visual DNA.
+                  </p>
+
+                  {/* Provider Dropdown */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-medium text-muted-foreground">Provider</label>
+                    <select
+                      value={aiAssignments.enhancer?.provider_id || 'gemini'}
+                      onChange={(e) => {
+                        const newPid = e.target.value;
+                        const models = getProviderModelList(newPid);
+                        const fallbackModel = models[0]?.id || 'gemini-2.5-flash';
+                        handleUpdateAssignment('enhancer', newPid, fallbackModel);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border text-xs text-foreground outline-none focus:border-emerald-500 transition-colors"
+                    >
+                      {Object.entries(aiProviders).map(([pid, p]) => (
+                        <option key={`enh-prov-${pid}`} value={pid}>
+                          {p.name} {p.has_key ? '●' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Model Selector */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-medium text-muted-foreground">Assigned Model</label>
+                    {isCustomEnhancerModel ? (
+                      <div className="flex gap-1">
+                        <input
+                          type="text"
+                          value={customEnhancerInput}
+                          onChange={(e) => setCustomEnhancerInput(e.target.value)}
+                          onBlur={() => {
+                            if (customEnhancerInput.trim()) {
+                              handleUpdateAssignment('enhancer', aiAssignments.enhancer?.provider_id || 'gemini', customEnhancerInput.trim());
+                            }
+                          }}
+                          placeholder="e.g. gemini-2.5-flash or llama3-8b"
+                          className="flex-1 px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    ) : (
+                      <select
+                        value={aiAssignments.enhancer?.model || ''}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            setIsCustomEnhancerModel(true);
+                          } else {
+                            handleUpdateAssignment('enhancer', aiAssignments.enhancer?.provider_id || 'gemini', e.target.value);
+                          }
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500 cursor-pointer"
+                      >
+                        {getProviderModelList(aiAssignments.enhancer?.provider_id || 'gemini').map((m) => (
+                          <option key={`enh-m-${m.id}`} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                        {getProviderModelList(aiAssignments.enhancer?.provider_id || 'gemini').length === 0 && (
+                          <option value={aiAssignments.enhancer?.model}>{aiAssignments.enhancer?.model}</option>
+                        )}
+                        <option value="__custom__">✏️ Custom / Type manually...</option>
+                      </select>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-foreground flex items-center justify-between">
-                  <span>API Key</span>
-                  <button type="button" onClick={() => setShowLlmKey(!showLlmKey)} className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1">
-                    {showLlmKey ? <EyeOff size={11} /> : <Eye size={11} />}
-                    <span>{showLlmKey ? 'Hide' : 'Show'}</span>
-                  </button>
-                </label>
-                <input type={showLlmKey ? 'text' : 'password'} value={llmConfig.api_key} onChange={(e) => setLlmConfig({...llmConfig, api_key: e.target.value})} placeholder="sk-..." className="w-full px-3 py-2 rounded-xl bg-card border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500 transition-colors" />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-foreground">Model</label>
-                <input type="text" value={llmConfig.model} onChange={(e) => setLlmConfig({...llmConfig, model: e.target.value})} placeholder="gpt-4o" className="w-full px-3 py-2 rounded-xl bg-card border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500 transition-colors" />
-              </div>
-
-              <div className="flex items-center gap-2 pt-1">
-                <button type="button" onClick={handleTestLLMConnection} disabled={isTestingLlm || !llmConfig.base_url} className="flex-1 py-2 px-3 rounded-xl bg-card hover:bg-muted border border-border text-xs font-medium text-foreground flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50">
-                  {isTestingLlm ? <><Loader2 size={13} className="animate-spin text-emerald-500" /><span>Testing...</span></> : <><CheckCircle2 size={13} className="text-emerald-500" /><span>Test Connection</span></>}
+              {/* Assignment Feedback */}
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={handleSaveAllAssignments}
+                  disabled={isSavingAssignments}
+                  className="py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-xs disabled:opacity-50"
+                >
+                  <Check size={12} />
+                  <span>{isSavingAssignments ? 'Saving...' : 'Save Role Assignments'}</span>
                 </button>
-                <button type="button" onClick={handleSaveLLMConfig} className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs">
-                  <Check size={13} />
-                  <span>Save Config</span>
+                {assignmentSaveMsg && (
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                    {assignmentSaveMsg}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 🔌 Card 2: Multi-Provider BYOK & Model Management */}
+            <div className="p-3.5 rounded-2xl bg-muted/40 border border-border space-y-3.5 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Globe size={13} className="text-emerald-500" />
+                    <span>🔌 Configured Providers (BYOK)</span>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Configure independent credentials, test endpoints, and add models per provider.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddCustomProvider(!showAddCustomProvider)}
+                  className="px-2.5 py-1 rounded-lg bg-card hover:bg-muted border border-border text-[11px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1 transition-all active:scale-95"
+                >
+                  <Plus size={11} />
+                  <span>Custom Provider</span>
                 </button>
               </div>
 
-              {llmTestResult && (
-                <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${llmTestResult.ok ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30'}`}>
-                  {llmTestResult.ok ? <><CheckCircle2 size={15} className="flex-shrink-0 text-emerald-500" /><span className="truncate">{llmTestResult.message || 'Connected successfully!'}</span></> : <><AlertCircle size={15} className="flex-shrink-0 text-rose-500" /><span className="truncate">{llmTestResult.message || 'Connection failed'}</span></>}
+              {/* Add Custom Provider Dialog */}
+              {showAddCustomProvider && (
+                <div className="p-3 rounded-xl bg-card border border-emerald-500/30 space-y-2.5 animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">Add Custom Endpoint</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCustomProvider(false)}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={customProviderNameInput}
+                      onChange={(e) => setCustomProviderNameInput(e.target.value)}
+                      placeholder="Provider Name (e.g. Local LM Studio)"
+                      className="px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border text-xs text-foreground outline-none focus:border-emerald-500"
+                    />
+                    <input
+                      type="text"
+                      value={customProviderBaseUrlInput}
+                      onChange={(e) => setCustomProviderBaseUrlInput(e.target.value)}
+                      placeholder="Base URL (e.g. http://localhost:1234/v1)"
+                      className="px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="password"
+                      value={customProviderApiKeyInput}
+                      onChange={(e) => setCustomProviderApiKeyInput(e.target.value)}
+                      placeholder="API Key (optional if local)"
+                      className="flex-1 px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddCustomProvider}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold active:scale-95 transition-all"
+                    >
+                      Save Provider
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {llmSaveMsg && <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">{llmSaveMsg}</p>}
+              {/* Provider Selection Tabs */}
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(aiProviders).map(([pid, p]) => {
+                  const isSelected = activeProviderId === pid;
+                  return (
+                    <button
+                      key={`tab-prov-${pid}`}
+                      type="button"
+                      onClick={() => {
+                        setActiveProviderId(pid);
+                        setProviderTestResult(null);
+                        setProviderSaveMsg(null);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-all active:scale-95 ${
+                        isSelected
+                          ? 'bg-emerald-600 text-white font-semibold shadow-xs ring-2 ring-emerald-500/30'
+                          : 'bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted font-medium'
+                      }`}
+                    >
+                      <span>{p.name}</span>
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          p.has_key ? (isSelected ? 'bg-emerald-200' : 'bg-emerald-500') : 'bg-muted-foreground/40'
+                        }`}
+                        title={p.has_key ? 'API Key configured' : 'No API Key set'}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Active Provider Details Card */}
+              {aiProviders[activeProviderId] && (() => {
+                const currentProv = aiProviders[activeProviderId];
+                const isCustom = !['gemini', 'openai', 'groq', 'openrouter', 'deepseek', 'ollama'].includes(activeProviderId);
+                const models = getProviderModelList(activeProviderId);
+                const customModels = currentProv.custom_models || [];
+                const discovered = currentProv.discovered_models || [];
+
+                return (
+                  <div className="p-3 rounded-xl bg-card border border-border space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-foreground">{currentProv.name}</span>
+                        {currentProv.has_key && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium border border-emerald-500/20">
+                            ● Key Saved
+                          </span>
+                        )}
+                      </div>
+                      {isCustom && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCustomProvider(activeProviderId)}
+                          className="text-[10px] text-red-500 hover:underline flex items-center gap-1"
+                        >
+                          <Trash2 size={11} />
+                          <span>Remove</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Base URL */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-medium text-muted-foreground">Endpoint Base URL</label>
+                      <input
+                        type="text"
+                        value={currentProv.base_url}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setAiProviders((prev) => ({
+                            ...prev,
+                            [activeProviderId]: { ...prev[activeProviderId], base_url: val },
+                          }));
+                        }}
+                        placeholder="https://..."
+                        className="w-full px-3 py-1.5 rounded-lg bg-muted/50 border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500 transition-colors"
+                      />
+                    </div>
+
+                    {/* API Key */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-medium text-muted-foreground flex items-center justify-between">
+                        <span>API Key</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowActiveProviderKey(!showActiveProviderKey)}
+                          className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
+                        >
+                          {showActiveProviderKey ? <EyeOff size={11} /> : <Eye size={11} />}
+                          <span>{showActiveProviderKey ? 'Hide' : 'Show'}</span>
+                        </button>
+                      </label>
+                      <input
+                        type={showActiveProviderKey ? 'text' : 'password'}
+                        value={currentProv.api_key || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setAiProviders((prev) => ({
+                            ...prev,
+                            [activeProviderId]: { ...prev[activeProviderId], api_key: val },
+                          }));
+                        }}
+                        placeholder={currentProv.api_key_placeholder || 'Enter API Key...'}
+                        className="w-full px-3 py-1.5 rounded-lg bg-muted/50 border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500 transition-colors"
+                      />
+                    </div>
+
+                    {/* Provider Hint */}
+                    {currentProv.hint && (
+                      <p className="text-[10.5px] text-muted-foreground leading-normal">
+                        {currentProv.hint}
+                      </p>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleTestProvider(activeProviderId)}
+                        disabled={isTestingProvider || !currentProv.base_url}
+                        className="flex-1 py-1.5 px-3 rounded-lg bg-muted hover:bg-muted/80 border border-border text-xs font-medium text-foreground flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        {isTestingProvider ? (
+                          <>
+                            <Loader2 size={12} className="animate-spin text-emerald-500" />
+                            <span>Testing & Fetching...</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw size={12} className="text-emerald-500" />
+                            <span>Fetch All Endpoint Models</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveProviderConfig(activeProviderId)}
+                        className="py-1.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-xs"
+                      >
+                        <Check size={12} />
+                        <span>Save Provider</span>
+                      </button>
+                    </div>
+
+                    {/* Test Banner */}
+                    {providerTestResult && (
+                      <div
+                        className={`p-2.5 rounded-lg text-xs flex flex-col gap-1 ${
+                          providerTestResult.ok
+                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                            : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/30'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {providerTestResult.ok ? (
+                            <CheckCircle2 size={14} className="flex-shrink-0 text-emerald-500" />
+                          ) : (
+                            <AlertCircle size={14} className="flex-shrink-0 text-rose-500" />
+                          )}
+                          <span className="truncate">
+                            {providerTestResult.message || (providerTestResult.ok ? 'Connected successfully!' : 'Connection failed')}
+                          </span>
+                        </div>
+                        {providerTestResult.ok && (providerTestResult.models?.length || 0) > 0 && (
+                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400 pl-5">
+                            ✦ {providerTestResult.models?.length} live models discovered on endpoint!
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {providerSaveMsg && (
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                        {providerSaveMsg}
+                      </p>
+                    )}
+
+                    {/* Models Area for this Provider */}
+                    <div className="pt-2 border-t border-border/60 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-foreground">
+                          Models for {currentProv.name} ({models.length})
+                        </span>
+                        {discovered.length > 0 && (
+                          <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
+                            {discovered.length} live from endpoint
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Add Custom Model to this provider */}
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={newProviderModelInput}
+                          onChange={(e) => setNewProviderModelInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddCustomModelToProvider(activeProviderId);
+                            }
+                          }}
+                          placeholder={`Add specific model ID to ${currentProv.name}...`}
+                          className="flex-1 px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddCustomModelToProvider(activeProviderId)}
+                          disabled={!newProviderModelInput.trim() || isAddingProviderModel}
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1 transition-all active:scale-95 shrink-0"
+                        >
+                          <Plus size={12} />
+                          <span>Add</span>
+                        </button>
+                      </div>
+
+                      {/* Custom Models Chips */}
+                      {customModels.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground font-medium">Custom User Models:</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {customModels.map((m) => (
+                              <div
+                                key={`chip-${activeProviderId}-${m}`}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted text-foreground text-[11px] font-mono border border-border"
+                              >
+                                <span className="truncate max-w-[160px]">{m}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCustomModelFromProvider(activeProviderId, m)}
+                                  className="text-muted-foreground hover:text-red-500 transition-colors"
+                                  title={`Remove ${m}`}
+                                >
+                                  <X size={10} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Discovered Models Snippet */}
+                      {discovered.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground font-medium">
+                            Discovered Models ({discovered.length}):
+                          </p>
+                          <div className="max-h-24 overflow-y-auto p-1.5 rounded-lg bg-muted/30 border border-border/50 flex flex-wrap gap-1">
+                            {discovered.map((m) => (
+                              <span
+                                key={`disc-${m}`}
+                                className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-card border border-border text-foreground truncate max-w-[180px]"
+                                title={m}
+                              >
+                                {m}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 

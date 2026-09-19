@@ -10,6 +10,7 @@ import {
   Radio,
   Keyboard,
   PanelLeftOpen,
+  PanelLeftClose,
 } from 'lucide-react';
 import { CharacterCard } from '../../types';
 import { hapticImpact } from '../../lib/haptics';
@@ -30,6 +31,7 @@ export interface AppHeaderProps {
   onOpenDirector?: () => void;
   activeAccountName?: string;
   onNavigateTab?: (tab: 'chat' | 'gallery' | 'generator' | 'settings') => void;
+  onNewChat?: () => void;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -45,6 +47,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   isConnected,
   onOpenDirector,
   activeAccountName,
+  onNewChat,
 }) => {
   const getTabLabel = () => {
     switch (currentTab) {
@@ -62,20 +65,33 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   };
 
   return (
-    <header className="h-[calc(3.5rem+env(safe-area-inset-top,0px))] pt-[env(safe-area-inset-top,0px)] w-full border-b border-border/80 bg-card/85 backdrop-blur-xl saturate-150 px-3 sm:px-4 flex items-center justify-between z-30 select-none shrink-0 transition-colors">
-      {/* Left: Desktop expand + Mobile hamburger + App Title */}
+    <header className="h-14 border-b border-border bg-card/90 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between z-30 shrink-0 select-none">
+      {/* Left: Mobile Drawer Trigger / Brand */}
       <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
-        {/* Mobile hamburger */}
-        {onOpenSidebarMobile && (
+        <button
+          onClick={() => {
+            hapticImpact('light');
+            onOpenSidebarMobile?.();
+          }}
+          className="lg:hidden flex items-center justify-center min-w-[36px] min-h-[36px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
+          title="Open threads sidebar"
+          aria-label="Open threads sidebar"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+
+        {/* Desktop collapse sidebar toggle */}
+        {!isDesktopSidebarCollapsed && onToggleDesktopSidebar && (
           <button
             onClick={() => {
               hapticImpact('light');
-              onOpenSidebarMobile();
+              onToggleDesktopSidebar();
             }}
-            className="lg:hidden min-w-[40px] min-h-[40px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all flex items-center justify-center"
-            aria-label="Open sidebar"
+            className="hidden lg:flex items-center justify-center min-w-[36px] min-h-[36px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
+            title="Collapse sidebar (⌘\)"
+            aria-label="Collapse sidebar"
           >
-            <Menu className="w-5 h-5" />
+            <PanelLeftClose className="w-5 h-5" />
           </button>
         )}
 
@@ -94,13 +110,23 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </button>
         )}
 
-        <div className="flex items-center space-x-2 min-w-0">
-          <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shrink-0 shadow-2xs">
+        {/* ChatGPT Bridge Brand Title - Clicking starts a new chat from anywhere */}
+        <button
+          type="button"
+          onClick={() => {
+            hapticImpact('light');
+            onNewChat?.();
+          }}
+          className="flex items-center space-x-2 min-w-0 text-left rounded-xl p-1 -m-1 hover:bg-muted/60 active:scale-[0.98] transition-all group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary cursor-pointer"
+          title="Start new chat"
+          aria-label="ChatGPT Bridge - Start New Chat"
+        >
+          <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shrink-0 shadow-2xs group-hover:bg-primary/20 group-hover:border-primary/40 transition-colors">
             <Sparkles className="w-4 h-4" />
           </div>
           <div className="flex flex-col min-w-0">
             <div className="flex items-center space-x-2">
-              <span className="font-semibold text-sm tracking-tight text-foreground truncate">
+              <span className="font-semibold text-sm tracking-tight text-foreground truncate group-hover:text-primary transition-colors">
                 ChatGPT Bridge
               </span>
               <span className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-muted text-muted-foreground border border-border">
@@ -111,7 +137,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               {getTabLabel()}
             </span>
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Center: Command Palette Trigger Button (sv-agentation style) */}

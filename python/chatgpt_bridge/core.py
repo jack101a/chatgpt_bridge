@@ -393,14 +393,22 @@ class ChatGPT:
         character_card: CharacterCard,
         images_dir: Path | str | None = None,
         conversation_id: str | None = None,
+        plot: str | None = None,
+        roleplay_info: str | None = None,
+        screenplay_handshake: str | None = None,
     ) -> dict:
         """Establish Turn 0 Character Identity Contract Handshake.
 
         Attaches all 3 reference cards simultaneously and submits the physical
         contract prompt to prime the conversation thread without generating an image.
+        In roleplay/director mode, incorporates plot and roleplay info into the JSON.
         """
         paths = character_card.get_reference_card_paths(images_dir=images_dir)
-        prompt = character_card.build_contract_handshake_prompt()
+        prompt = character_card.build_contract_handshake_prompt(
+            plot=plot,
+            roleplay_info=roleplay_info,
+            screenplay_handshake=screenplay_handshake,
+        )
         res = await self.ask(
             prompt,
             conversation_id=conversation_id,

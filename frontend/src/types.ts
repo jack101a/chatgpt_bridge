@@ -196,11 +196,66 @@ export interface LLMConfig {
   base_url: string;
   api_key: string;
   model: string;
+  director_model?: string;
+  enhancer_model?: string;
+  custom_models?: string[];
+  has_key?: boolean;
+  llm_base_url?: string;
+  llm_api_key?: string;
+  llm_model?: string;
+  llm_director_model?: string;
+  llm_enhancer_model?: string;
 }
 
 export interface LLMTestResult {
   ok: boolean;
   message?: string;
+  models?: string[];
+  custom_models?: string[];
+  error?: string;
+  provider_id?: string;
+  base_url?: string;
+}
+
+export interface AIProviderConfig {
+  id?: string;
+  name: string;
+  base_url: string;
+  api_key?: string;
+  enabled?: boolean;
+  has_key?: boolean;
+  custom_models?: string[];
+  discovered_models?: string[];
+  default_models?: string[];
+  hint?: string;
+  is_popular?: boolean;
+  api_key_placeholder?: string;
+}
+
+export interface AIAssignmentItem {
+  provider_id: string;
+  model: string;
+}
+
+export interface AIAssignments {
+  director?: AIAssignmentItem;
+  enhancer?: AIAssignmentItem;
+}
+
+export interface AIConfigResponse {
+  ok: boolean;
+  providers: Record<string, AIProviderConfig>;
+  assignments: AIAssignments;
+  default_providers: Array<{
+    id: string;
+    name: string;
+    base_url: string;
+    api_key_placeholder: string;
+    default_model: string;
+    is_popular: boolean;
+    hint: string;
+    default_models: string[];
+  }>;
 }
 
 
@@ -324,6 +379,7 @@ export interface StoryboardShot {
 }
 
 export interface StoryboardPlan {
+  screenplay_handshake?: string;
   shots: StoryboardShot[];
 }
 

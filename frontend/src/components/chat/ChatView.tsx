@@ -116,7 +116,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       )}
 
       {/* ── Scrollable Chat Thread ── */}
-      <PullToRefresh ref={scrollRef} onRefresh={onRefresh} className="px-4 py-4 space-y-2 flex-1 overflow-y-auto no-scrollbar">
+      <PullToRefresh ref={scrollRef} onRefresh={onRefresh} className="px-4 py-4 space-y-2 flex-1 w-full min-w-0 max-w-full overflow-y-auto overflow-x-hidden no-scrollbar">
         {/* Empty state suggestions */}
         {messages.length === 0 && !isGenerating && (
           <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto py-12 px-2 animate-fade-in">
@@ -158,12 +158,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
         {/* ── High-Tech Matrix Generating Indicator (sv-matrix style) ── */}
         {isGenerating && (
-          <div className="flex items-start gap-3 mb-6 animate-fade-in">
+          <div className="flex items-start gap-3 mb-6 animate-fade-in w-full min-w-0 max-w-full">
             <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shrink-0 mt-0.5 shadow-xs">
               <Sparkles className="w-4 h-4 text-primary animate-pulse" />
             </div>
-            <div className="flex-1 max-w-md">
-              <div className="p-4 rounded-2xl bg-card border border-border space-y-3 shadow-lg">
+            <div className="flex-1 min-w-0 max-w-full sm:max-w-md">
+              <div className="p-4 rounded-2xl bg-card border border-border space-y-3 shadow-lg min-w-0">
                 <div className="flex items-center gap-3">
                   <DotMatrixLoader size="sm" variant="hex" speed={1.2} />
                   <div className="min-w-0 flex-1">
@@ -189,7 +189,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </PullToRefresh>
 
       {/* ── Fixed Bottom Composer ── */}
-      <div className="shrink-0 bg-card border-t border-border">
+      <div className="shrink-0 bg-card border-t border-border w-full min-w-0 max-w-full">
         <Composer
           onSend={onSend}
           isGenerating={isGenerating}

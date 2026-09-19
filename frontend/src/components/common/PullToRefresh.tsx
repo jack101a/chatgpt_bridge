@@ -111,7 +111,7 @@ export const PullToRefresh = React.forwardRef<HTMLDivElement, PullToRefreshProps
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onScroll={onScroll}
-        className={`relative flex-1 overflow-y-auto overscroll-y-contain ${className}`}
+        className={`relative flex-1 w-full min-w-0 max-w-full overflow-y-auto overflow-x-hidden overscroll-y-contain ${className}`}
         style={{
           WebkitOverflowScrolling: 'touch',
         }}
@@ -150,6 +150,7 @@ export const PullToRefresh = React.forwardRef<HTMLDivElement, PullToRefreshProps
 
         {/* Content wrapper with slight rubber-band pushdown */}
         <div
+          className="w-full min-w-0 max-w-full"
           style={{
             transform: pullDistance > 0 ? `translate3d(0, ${pullDistance * 0.4}px, 0)` : undefined,
             transition: isPullingRef.current ? 'none' : 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)',

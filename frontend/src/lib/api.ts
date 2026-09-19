@@ -14,6 +14,9 @@ import {
   VaultRestoreResult,
   LLMConfig,
   LLMTestResult,
+  AIProviderConfig,
+  AIAssignments,
+  AIConfigResponse,
   CharacterCard,
   StoryboardShot,
   StoryboardPlan,
@@ -162,10 +165,86 @@ export const api = {
       body: JSON.stringify(config),
     }),
 
+  getLLMModels: (params?: { base_url?: string; api_key?: string }): Promise<{ ok: boolean; models: string[]; custom_models?: string[]; message?: string }> => {
+    const q = new URLSearchParams();
+    if (params?.base_url) q.set('base_url', params.base_url);
+    if (params?.api_key) q.set('api_key', params.api_key);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return fetchJson<{ ok: boolean; models: string[]; custom_models?: string[]; message?: string }>(`/api/llm/models${qs}`);
+  },
+
+  addCustomModel: (model: string): Promise<{ ok: boolean; custom_models: string[]; added: string }> =>
+    fetchJson('/api/llm/custom-models', {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    }),
+
+  deleteCustomModel: (model: string): Promise<{ ok: boolean; custom_models: string[]; removed: string }> =>
+    fetchJson(`/api/llm/custom-models/${encodeURIComponent(model)}`, {
+      method: 'DELETE',
+    }),
+
   testLLMConnection: (config?: LLMConfig): Promise<LLMTestResult> =>
     fetchJson<LLMTestResult>('/api/llm/test', {
       method: 'POST',
       body: JSON.stringify(config || {}),
+    }),
+
+  enhancePrompt: (payload: { prompt: string; model?: string; provider_id?: string }): Promise<{ ok: boolean; enhanced_prompt?: string; model_used?: string; provider_used?: string; error?: string }> =>
+    fetchJson('/api/prompt/enhance', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // AI Multi-Provider & Role Assignments
+  getAIConfig: (): Promise<AIConfigResponse> => fetchJson<AIConfigResponse>('/api/ai/config'),
+
+  saveAIProvider: (
+    providerId: string,
+    payload: Partial<AIProviderConfig>
+  ): Promise<{ ok: boolean; provider: AIProviderConfig; providers: Record<string, AIProviderConfig> }> =>
+    fetchJson(`/api/ai/providers/${encodeURIComponent(providerId)}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteAIProvider: (providerId: string): Promise<{ ok: boolean; removed: string }> =>
+    fetchJson(`/api/ai/providers/${encodeURIComponent(providerId)}`, {
+      method: 'DELETE',
+    }),
+
+  testAIProvider: (
+    providerId: string,
+    payload?: Partial<AIProviderConfig>
+  ): Promise<LLMTestResult & { models?: string[]; provider_id?: string }> =>
+    fetchJson(`/api/ai/providers/${encodeURIComponent(providerId)}/test`, {
+      method: 'POST',
+      body: payload ? JSON.stringify(payload) : undefined,
+    }),
+
+  addAIProviderModel: (
+    providerId: string,
+    model: string
+  ): Promise<{ ok: boolean; provider_id: string; custom_models: string[]; added: string }> =>
+    fetchJson(`/api/ai/providers/${encodeURIComponent(providerId)}/models`, {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    }),
+
+  deleteAIProviderModel: (
+    providerId: string,
+    model: string
+  ): Promise<{ ok: boolean; provider_id: string; custom_models: string[]; removed: string }> =>
+    fetchJson(`/api/ai/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(model)}`, {
+      method: 'DELETE',
+    }),
+
+  saveAIAssignments: (
+    assignments: AIAssignments
+  ): Promise<{ ok: boolean; assignments: AIAssignments }> =>
+    fetchJson('/api/ai/assignments', {
+      method: 'POST',
+      body: JSON.stringify(assignments),
     }),
 
   // Characters
@@ -226,6 +305,8 @@ export const api = {
     shot_count: number;
     creative_guidance?: string;
     style_override?: string;
+    model?: string;
+    provider_id?: string;
   }): Promise<StoryboardPlan> =>
     fetchJson<StoryboardPlan>('/api/director/plan', {
       method: 'POST',
@@ -238,6 +319,7 @@ export const api = {
           shots: StoryboardShot[];
           character_id?: string;
           conversation_id?: string;
+          screenplay_handshake?: string;
         }
       | StoryboardShot[]
   ): Promise<{ ok: boolean; message: string }> => {

@@ -12,6 +12,7 @@ from chatgpt_bridge.llm_client import (
     OpenAICompatibleClient,
     extract_json,
     mask_api_key,
+    normalize_base_url,
 )
 import chatgpt_bridge.daemon as daemon
 
@@ -239,6 +240,40 @@ def test_mask_api_key():
     assert mask_api_key("gsk_1234567890abcdef") == "gsk_...****"
 
 
+def test_normalize_base_url():
+    # OpenAI standard
+    assert normalize_base_url("https://api.openai.com/v1/") == "https://api.openai.com/v1"
+    # Google Gemini variants
+    assert normalize_base_url("https://generativelanguage.googleapis.com/v1beta/openai/") == "https://generativelanguage.googleapis.com/v1beta/openai"
+    assert normalize_base_url("https://generativelanguage.googleapis.com/v1beta") == "https://generativelanguage.googleapis.com/v1beta/openai"
+    assert normalize_base_url("https://generativelanguage.googleapis.com") == "https://generativelanguage.googleapis.com/v1beta/openai"
+
+
+@pytest.mark.anyio
+async def test_gemini_models_prefix_removal():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1beta/openai/models"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "models/gemini-2.5-flash"},
+                    {"id": "gemini-2.0-flash"},
+                ]
+            },
+        )
+
+    client = OpenAICompatibleClient(transport=httpx.MockTransport(handler))
+    ok, msg, models = await client.test_connection(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        api_key="AIzaSyTestKey",
+    )
+    assert ok is True
+    assert "gemini-2.5-flash" in models
+    assert "gemini-2.0-flash" in models
+    assert not any(m.startswith("models/") for m in models)
+
+
 # ── Daemon Endpoints Tests ──
 
 
@@ -369,3 +404,166 @@ def test_daemon_llm_test_endpoint_using_stored_credentials(test_client, monkeypa
     assert data["ok"] is True
     assert called["base_url"] == "https://api.deepseek.com/v1"
     assert called["api_key"] == "sk-deepseek-secret"
+
+
+def test_daemon_dual_model_config_and_enhance(test_client, monkeypatch):
+    # Save dual models
+    resp = test_client.post(
+        "/api/llm/config",
+        json={
+            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "api_key": "AIzaSySecretKey",
+            "director_model": "gemini-2.5-pro",
+            "enhancer_model": "gemini-2.5-flash",
+        },
+    )
+    assert resp.status_code == 200
+    cfg = resp.json()
+    assert cfg["director_model"] == "gemini-2.5-pro"
+    assert cfg["enhancer_model"] == "gemini-2.5-flash"
+    assert cfg["model"] == "gemini-2.5-pro"
+
+    # Verify get config
+    get_resp = test_client.get("/api/llm/config")
+    assert get_resp.status_code == 200
+    get_data = get_resp.json()
+    assert get_data["director_model"] == "gemini-2.5-pro"
+    assert get_data["enhancer_model"] == "gemini-2.5-flash"
+
+    # Verify get models endpoint
+    async def mock_test_conn(self, base_url, api_key):
+        return True, "Connected", ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"]
+
+    monkeypatch.setattr(OpenAICompatibleClient, "test_connection", mock_test_conn)
+
+    models_resp = test_client.get("/api/llm/models")
+    assert models_resp.status_code == 200
+    assert "gemini-2.5-flash" in models_resp.json()["models"]
+
+    # Verify prompt enhance endpoint
+    async def mock_chat_completion(self, base_url, api_key, model, messages, **kwargs):
+        assert model == "gemini-2.5-flash"
+        return "A cinematic 35mm eye-level portrait of a young woman bathed in soft golden morning sidelight, with authentic skin texture and gentle highlight rolloff."
+
+    monkeypatch.setattr(OpenAICompatibleClient, "chat_completion", mock_chat_completion)
+
+    enhance_resp = test_client.post(
+        "/api/prompt/enhance",
+        json={"prompt": "girl in sunlight"},
+    )
+    assert enhance_resp.status_code == 200
+    enhance_data = enhance_resp.json()
+    assert enhance_data["ok"] is True
+    assert "cinematic 35mm" in enhance_data["enhanced_prompt"]
+    assert enhance_data["model_used"] == "gemini-2.5-flash"
+
+
+def test_daemon_custom_models_management(test_client):
+    # Add custom model
+    resp = test_client.post("/api/llm/custom-models", json={"model": "gemini-2.5-pro-preview"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert "gemini-2.5-pro-preview" in data["custom_models"]
+
+    # Add second custom model
+    resp2 = test_client.post("/api/llm/custom-models", json={"model": "claude-3-7-sonnet"})
+    assert resp2.status_code == 200
+    assert "claude-3-7-sonnet" in resp2.json()["custom_models"]
+
+    # Config returns custom models
+    cfg = test_client.get("/api/llm/config").json()
+    assert "gemini-2.5-pro-preview" in cfg["custom_models"]
+    assert "claude-3-7-sonnet" in cfg["custom_models"]
+
+    # Delete custom model
+    del_resp = test_client.delete("/api/llm/custom-models/gemini-2.5-pro-preview")
+    assert del_resp.status_code == 200
+    del_data = del_resp.json()
+    assert "gemini-2.5-pro-preview" not in del_data["custom_models"]
+    assert "claude-3-7-sonnet" in del_data["custom_models"]
+
+
+def test_daemon_ai_multi_provider_architecture(test_client, monkeypatch):
+    # 1. Fetch AI config
+    resp = test_client.get("/api/ai/config")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert "providers" in data
+    assert "assignments" in data
+    assert "gemini" in data["providers"]
+    assert "openai" in data["providers"]
+    assert "groq" in data["providers"]
+
+    # 2. Update a provider configuration (e.g. Groq with API key)
+    update_resp = test_client.post(
+        "/api/ai/providers/groq",
+        json={"api_key": "gsk_test1234567890", "enabled": True},
+    )
+    assert update_resp.status_code == 200
+    update_data = update_resp.json()
+    assert update_data["ok"] is True
+    assert update_data["provider"]["has_key"] is True
+    assert "gsk_...****" in update_data["provider"]["api_key"]
+
+    # 3. Add a custom model to Groq
+    add_model_resp = test_client.post(
+        "/api/ai/providers/groq/models",
+        json={"model": "llama-3.3-70b-versatile"},
+    )
+    assert add_model_resp.status_code == 200
+    assert "llama-3.3-70b-versatile" in add_model_resp.json()["custom_models"]
+
+    # 4. Set assignments: Director on Groq with llama-3.3, Enhancer on Gemini with gemini-2.5-flash
+    assign_resp = test_client.post(
+        "/api/ai/assignments",
+        json={
+            "director": {"provider_id": "groq", "model": "llama-3.3-70b-versatile"},
+            "enhancer": {"provider_id": "gemini", "model": "gemini-2.5-flash"},
+        },
+    )
+    assert assign_resp.status_code == 200
+    assign_data = assign_resp.json()
+    assert assign_data["assignments"]["director"]["provider_id"] == "groq"
+    assert assign_data["assignments"]["director"]["model"] == "llama-3.3-70b-versatile"
+    assert assign_data["assignments"]["enhancer"]["provider_id"] == "gemini"
+    assert assign_data["assignments"]["enhancer"]["model"] == "gemini-2.5-flash"
+
+    # 5. Verify prompt enhancement resolves correctly to assigned provider
+    async def mock_chat_completion(self, base_url, api_key, model, messages, **kwargs):
+        assert "generativelanguage.googleapis.com" in base_url
+        assert model == "gemini-2.5-flash"
+        return "Crisp cinematic street shot with authentic lighting"
+
+    monkeypatch.setattr(OpenAICompatibleClient, "chat_completion", mock_chat_completion)
+
+    enh_resp = test_client.post("/api/prompt/enhance", json={"prompt": "street in rain"})
+    assert enh_resp.status_code == 200
+    enh_json = enh_resp.json()
+    assert enh_json["ok"] is True
+    assert enh_json["model_used"] == "gemini-2.5-flash"
+    assert enh_json["provider_used"] == "gemini"
+
+    # 6. Delete custom model from Groq
+    del_m_resp = test_client.delete("/api/ai/providers/groq/models/llama-3.3-70b-versatile")
+    assert del_m_resp.status_code == 200
+    assert "llama-3.3-70b-versatile" not in del_m_resp.json()["custom_models"]
+
+    # 7. Add and delete model with slash in model name (e.g. OpenRouter/HuggingFace org/model)
+    add_slash_resp = test_client.post(
+        "/api/ai/providers/openrouter/models",
+        json={"model": "anthropic/claude-3-5-sonnet"},
+    )
+    assert add_slash_resp.status_code == 200
+    assert "anthropic/claude-3-5-sonnet" in add_slash_resp.json()["custom_models"]
+
+    del_slash_resp = test_client.delete("/api/ai/providers/openrouter/models/anthropic/claude-3-5-sonnet")
+    assert del_slash_resp.status_code == 200
+    assert "anthropic/claude-3-5-sonnet" not in del_slash_resp.json()["custom_models"]
+
+    # 8. Verify NIM exists in default providers
+    assert "nim" in data["providers"]
+    assert data["providers"]["nim"]["name"] == "NVIDIA NIM"
+
+

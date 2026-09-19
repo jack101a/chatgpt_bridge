@@ -74,6 +74,17 @@ export function useBridge() {
           if (msg.type === 'generation_progress') {
             setProgressStatus(msg.status || 'Generating…');
             if (msg.retry) setRetryCount(msg.retry);
+          } else if (msg.type === 'director_sequence_progress') {
+            setProgressStatus(msg.status || 'Directing sequence…');
+            if (msg.conversation_id && !activeConvId) {
+              setActiveConvId(msg.conversation_id);
+            }
+            if (msg.status === 'Complete') {
+              refreshThreads();
+              if (msg.conversation_id) {
+                selectThread(msg.conversation_id);
+              }
+            }
           } else if (msg.type === 'account_switched') {
             refreshAccounts();
             refreshTelemetry();

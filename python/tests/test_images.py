@@ -132,8 +132,8 @@ def test_chatgpt_generate_image_conversation_continuity():
     res2 = asyncio.run(gpt.generate_image("prompt 2"))
     assert res2["conversation_id"] == "c-999"
     assert gpt.ui.calls == [
-        ("(Generate Image -\nprompt 1)", None),
-        ("(Generate Image -\nprompt 2)", "c-999"),
+        ("prompt 1", None),
+        ("prompt 2", "c-999"),
     ]
 
 

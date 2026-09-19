@@ -341,12 +341,22 @@ export function App() {
     fetchCharacters();
   };
 
+  // Start a fresh new chat from anywhere (Header logo, sidebar button, shortcuts)
+  const handleStartNewChat = useCallback(() => {
+    bridge.selectThread(null);
+    api.resetConversation().catch(() => {});
+    setIsDirectorOpen(false);
+    setIsCharacterStudioOpen(false);
+    setIsAccountsOpen(false);
+    setViewerItem(null);
+    handleSelectTab('chat');
+    setIsSidebarOpenMobile(false);
+  }, [bridge, handleSelectTab]);
+
   // Command palette triggered actions
   const handleTriggerAction = (actionId: string) => {
     if (actionId === 'new-chat') {
-      bridge.selectThread(null);
-      api.resetConversation().catch(() => {});
-      handleSelectTab('chat');
+      handleStartNewChat();
     } else if (actionId === 'open-director') {
       setIsDirectorOpen(true);
     } else if (actionId === 'refresh-accounts') {
@@ -376,12 +386,7 @@ export function App() {
           handleSelectTab('chat');
           setIsSidebarOpenMobile(false);
         }}
-        onNewChat={() => {
-          bridge.selectThread(null);
-          api.resetConversation().catch(() => {});
-          handleSelectTab('chat');
-          setIsSidebarOpenMobile(false);
-        }}
+        onNewChat={handleStartNewChat}
         onDeleteThread={handleDeleteThread}
         activeAccount={activeAccount}
         onOpenAccounts={handleOpenAccounts}
@@ -422,6 +427,7 @@ export function App() {
             onOpenDirector={() => setIsDirectorOpen(true)}
             activeAccountName={activeAccount?.alias}
             onNavigateTab={handleSelectTab}
+            onNewChat={handleStartNewChat}
           />
         </div>
 
@@ -587,6 +593,11 @@ export function App() {
         activeCharacter={activeCharacter}
         activeConvId={bridge.activeConvId}
         onSelectCharacter={handleSelectCharacter}
+        onThreadCreated={(convId) => {
+          if (convId && bridge.activeConvId !== convId) {
+            bridge.selectThread(convId);
+          }
+        }}
       />
     </div>
   );

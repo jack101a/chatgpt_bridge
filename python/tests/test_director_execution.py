@@ -14,7 +14,7 @@ class _FakeCore:
         # Return mocked generation response
         return {"path": "/tmp/test.png", "prompt": prompt}
 
-    async def establish_character_contract(self, char, images_dir=None, conversation_id=None):
+    async def establish_character_contract(self, char, images_dir=None, conversation_id=None, **kwargs):
         return {"ok": True, "conversation_id": conversation_id or "conv-123", "card_count": 3}
 
 @pytest.fixture
@@ -94,3 +94,68 @@ async def test_director_status_and_cancel(client):
     cancel_resp = client.post("/api/director/cancel")
     assert cancel_resp.status_code == 200
     assert cancel_resp.json()["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_director_2_stage_handshake_with_character(client, monkeypatch):
+    from chatgpt_bridge.characters import CharacterCard
+
+    mock_char = CharacterCard(
+        id="c-test-char",
+        name="Nastya",
+        visual_dna="Ash-blonde hair, icy blue eyes",
+        roleplay_instructions="Speaks softly with rustic warmth",
+    )
+    mock_mgr = MagicMock()
+    mock_mgr.get.return_value = mock_char
+    monkeypatch.setattr(daemon, "_get_character_manager", lambda: mock_mgr)
+
+    mock_ws_broadcast = AsyncMock()
+    monkeypatch.setattr(daemon, "ws_broadcast", mock_ws_broadcast)
+
+    fake_core = _FakeCore()
+    fake_core.establish_character_contract = AsyncMock(
+        return_value={"ok": True, "conversation_id": "conv-nastya-99", "card_count": 3}
+    )
+    ask_calls = []
+    async def fake_ask(prompt, **kwargs):
+        ask_calls.append((prompt, kwargs))
+        return {"text": "Acknowledged and locked.", "conversation_id": kwargs.get("conversation_id") or "conv-nastya-99"}
+
+    fake_core.ask = fake_ask
+    mock_generate = AsyncMock(return_value={"path": "/tmp/shot.png", "conversation_id": "conv-nastya-99"})
+    fake_core.generate_image = mock_generate
+    monkeypatch.setattr(daemon, "_get_core", lambda: fake_core)
+
+    req_data = {
+        "character_id": "c-test-char",
+        "shots": [
+            {"description": "morning waking", "camera_pov": "close-up", "prompt": "Nastya waking up"}
+        ],
+        "plot": "Morning chores in rustic cottage",
+    }
+
+    mock_contracts = {}
+    monkeypatch.setattr(daemon, "_load_conversation_contracts", lambda: mock_contracts)
+    def fake_save_contract(cid, info):
+        mock_contracts.setdefault(cid, {}).update(info)
+    monkeypatch.setattr(daemon, "_save_conversation_contract", fake_save_contract)
+
+    resp = client.post("/api/director/execute", json=req_data)
+    assert resp.status_code == 200
+
+    # Verify Turn 1 Roleplay Handshake was called via core.ask
+    assert len(ask_calls) >= 1
+    roleplay_prompt = ask_calls[-1][0]
+    assert "[DIRECTOR'S PRODUCTION CONTRACT: CREATIVE FICTIONAL ROLEPLAY & SCENARIO]" in roleplay_prompt
+    assert "Nastya" in roleplay_prompt
+    assert "Morning chores in rustic cottage" in roleplay_prompt
+    assert "fictional storytelling roleplay" in roleplay_prompt
+
+    # Verify Shot was generated in the same thread
+    assert mock_generate.call_count == 1
+    gen_call = mock_generate.call_args_list[0]
+    assert gen_call[1].get("conversation_id") == "conv-nastya-99"
+
+    # Verify core conversation id stayed pinned to conv-nastya-99
+    assert fake_core._current_conversation_id == "conv-nastya-99"
