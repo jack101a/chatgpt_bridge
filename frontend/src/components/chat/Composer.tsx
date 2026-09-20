@@ -16,6 +16,11 @@ import {
   Search,
   RefreshCw,
   Plus,
+  Maximize2,
+  Minimize2,
+  Copy,
+  Check,
+  Terminal,
 } from 'lucide-react';
 import {
   ImageRequest,
@@ -23,14 +28,17 @@ import {
   CharacterCard,
   AIProviderConfig,
   CuratedPrompt,
+  SlashCommand,
 } from '../../types';
 import { PromptLibraryTray } from '../director/PromptLibraryTray';
 import { DirectorModal } from '../director/DirectorModal';
+import { SlashCommandPopover } from './SlashCommandPopover';
 import { compileRecurringCharacterPrompt } from '../../lib/characterLock';
 import { hapticImpact } from '../../lib/haptics';
 import { analyzePromptSafety, enhancePrompt } from '../../lib/promptEnhancer';
-import { api } from '../../lib/api';
+import { api, copyToClipboard } from '../../lib/api';
 import { getProviderModelList } from '../../lib/aiConfig';
+import { parseSlashInput, fusePrompt, extractEditableTokens } from '../../lib/promptFusion';
 
 interface ComposerProps {
   onSend: (req: ImageRequest) => void;
@@ -90,14 +98,44 @@ export const Composer: React.FC<ComposerProps> = ({
     }
   }, [isCharacterMenuOpen]);
 
+  // Studio Mode & Slash Command states
+  const [isStudioMode, setIsStudioMode] = useState(false);
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
+  const [isSlashOpen, setIsSlashOpen] = useState(false);
+  const [slashQuery, setSlashQuery] = useState('');
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+  const [slashConcept, setSlashConcept] = useState('');
+  const [copiedStudio, setCopiedStudio] = useState(false);
+
+  // Load curated slash commands on mount
+  useEffect(() => {
+    api.getPromptSlashCommands()
+      .then((cmds) => setSlashCommands(cmds || []))
+      .catch((err) => console.error('Failed to load slash commands:', err));
+  }, []);
+
+  // Live prompt metrics & token analyzer
+  const promptStats = useMemo(() => {
+    const chars = promptText.length;
+    const words = promptText.trim() ? promptText.trim().split(/\s+/).length : 0;
+    return { chars, words };
+  }, [promptText]);
+
+  const activeTokens = useMemo(() => extractEditableTokens(promptText), [promptText]);
+
   // Dynamic textarea height calculation
   useEffect(() => {
     const textarea = textareaRef.current;
     if (textarea) {
-      textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+      if (isStudioMode) {
+        textarea.style.height = 'auto';
+        textarea.style.height = `${Math.max(Math.min(textarea.scrollHeight, 460), 280)}px`;
+      } else {
+        textarea.style.height = 'auto';
+        textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+      }
     }
-  }, [promptText]);
+  }, [promptText, isStudioMode]);
 
   // Real-time prompt safety analysis
   const safety = useMemo(() => analyzePromptSafety(promptText), [promptText]);
@@ -396,7 +434,67 @@ export const Composer: React.FC<ComposerProps> = ({
     }
   };
 
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setPromptText(val);
+
+    const parsed = parseSlashInput(val);
+    if (parsed.hasSlash) {
+      setIsSlashOpen(true);
+      setSlashQuery(parsed.slashQuery);
+      setSlashConcept(parsed.userConcept);
+      setSlashSelectedIndex(0);
+    } else {
+      setIsSlashOpen(false);
+    }
+  };
+
+  const handleSelectSlashCommand = (cmd: SlashCommand) => {
+    hapticImpact('selection');
+    const fused = fusePrompt(cmd.sample_prompt, slashConcept || undefined);
+    setPromptText(fused);
+    setIsSlashOpen(false);
+    if (fused.length > 180) {
+      setIsStudioMode(true);
+    }
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 50);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isSlashOpen) {
+      const q = slashQuery.toLowerCase();
+      const filtered = slashCommands.filter(
+        (c) =>
+          c.command.toLowerCase().includes(q) ||
+          c.title.toLowerCase().includes(q) ||
+          c.category.toLowerCase().includes(q)
+      );
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashSelectedIndex((prev) => (filtered.length ? (prev + 1) % filtered.length : 0));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashSelectedIndex((prev) => (filtered.length ? (prev - 1 + filtered.length) % filtered.length : 0));
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        if (filtered[slashSelectedIndex]) {
+          handleSelectSlashCommand(filtered[slashSelectedIndex]);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setIsSlashOpen(false);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -409,16 +507,29 @@ export const Composer: React.FC<ComposerProps> = ({
       {showLibrary && (
         <PromptLibraryTray
           isOpen={showLibrary}
+          initialTab="gallery"
           onClose={() => setShowLibrary(false)}
+          userConcept={promptText}
           onInsertModifier={(text: string) => {
             setPromptText((prev) => (prev ? `${prev}, ${text}` : text));
             setShowLibrary(false);
             textareaRef.current?.focus();
           }}
-          onUseCuratedPrompt={(text: string, enhance?: boolean) => {
-            const finalPrompt = enhance ? enhancePrompt(text) : text;
+          onUseCuratedPrompt={(selected: CuratedPrompt | string, enhance?: boolean, fuse?: boolean) => {
+            const rawText = typeof selected === 'string' ? selected : selected.prompt;
+            const variables = typeof selected === 'object' ? selected.variables : undefined;
+            let finalPrompt = rawText;
+            if (fuse && promptText.trim()) {
+              finalPrompt = fusePrompt(rawText, promptText.trim(), variables);
+            }
+            if (enhance) {
+              finalPrompt = enhancePrompt(finalPrompt);
+            }
             setPromptText(finalPrompt);
             setShowLibrary(false);
+            if (finalPrompt.length > 180) {
+              setIsStudioMode(true);
+            }
             textareaRef.current?.focus();
           }}
         />
@@ -936,9 +1047,14 @@ export const Composer: React.FC<ComposerProps> = ({
                   type="button"
                   onClick={() => {
                     hapticImpact('selection');
-                    setPromptText(sug.prompt);
+                    const userIdea = promptText.trim();
+                    const fused = fusePrompt(sug.prompt, userIdea || undefined, sug.variables);
+                    setPromptText(fused);
                     setSuggestions([]);
                     setIsDismissedSuggestion(true);
+                    if (fused.length > 180) {
+                      setIsStudioMode(true);
+                    }
                     textareaRef.current?.focus();
                   }}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-card/90 hover:bg-card border border-border/80 hover:border-primary/50 text-foreground text-[11px] font-medium transition-all shrink-0 active:scale-95 shadow-2xs max-w-[240px]"
@@ -969,6 +1085,114 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
         )}
 
+        {/* ── Slash Command Autocomplete Popover ── */}
+        <SlashCommandPopover
+          isOpen={isSlashOpen}
+          query={slashQuery}
+          commands={slashCommands}
+          selectedIndex={slashSelectedIndex}
+          userConcept={slashConcept}
+          onSelect={handleSelectSlashCommand}
+          onClose={() => setIsSlashOpen(false)}
+        />
+
+        {/* ── Studio Mode Header & Variable Chips ── */}
+        {isStudioMode && !isDeltaMode && (
+          <div className="px-3 pt-2.5 pb-2 border-b border-border/60 bg-muted/30 flex flex-col gap-2 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold text-[11.5px] border border-emerald-500/25 shadow-2xs">
+                  <Sparkles size={12} />
+                  <span>Studio Composer</span>
+                </div>
+                <span className="text-[11px] font-mono text-muted-foreground">
+                  {promptStats.words} words • {promptStats.chars} chars
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSlashOpen(true);
+                    setSlashQuery('');
+                    setSlashConcept(promptText.trim());
+                    setSlashSelectedIndex(0);
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-muted/80 hover:bg-muted text-foreground text-[11px] font-mono border border-border/60 transition-colors"
+                  title="Open Slash Commands (/) menu"
+                >
+                  <Terminal size={11} className="text-emerald-500" />
+                  <span>Slash (/)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    copyToClipboard(promptText);
+                    setCopiedStudio(true);
+                    setTimeout(() => setCopiedStudio(false), 1800);
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-muted/80 hover:bg-muted text-foreground text-[11px] border border-border/60 transition-colors"
+                  title="Copy entire prompt"
+                >
+                  {copiedStudio ? (
+                    <>
+                      <Check size={11} className="text-emerald-500" />
+                      <span className="text-emerald-500 font-medium">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={11} />
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPromptText('');
+                    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground text-[11px] border border-border/60 transition-colors"
+                  title="Clear prompt"
+                >
+                  Clear
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsStudioMode(false)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-medium transition-colors"
+                  title="Collapse to compact chatbox"
+                >
+                  <Minimize2 size={11} />
+                  <span>Compact</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Interactive Variable Chips */}
+            {activeTokens.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                <span className="text-[10px] uppercase font-mono text-muted-foreground font-semibold">
+                  Detected Style Elements:
+                </span>
+                {activeTokens.map((t) => (
+                  <span
+                    key={`tok-${t.key}-${t.value}`}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-background/90 border border-border text-[11px] font-mono text-foreground shadow-2xs"
+                  >
+                    <span className="text-muted-foreground">{t.label}:</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">{t.value}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Main Textarea Row ── */}
         {!isDeltaMode ? (
           <div className="flex items-end gap-2 px-3 sm:px-3.5 py-2">
@@ -976,17 +1200,37 @@ export const Composer: React.FC<ComposerProps> = ({
               ref={textareaRef}
               rows={1}
               value={promptText}
-              onChange={(e) => setPromptText(e.target.value)}
+              onChange={handleTextChange}
               onKeyDown={handleKeyDown}
               placeholder={
                 referenceImage
                   ? 'Describe modifications using this reference…'
                   : activeCharacter
                   ? `Describe a scene for ${activeCharacter.name}…`
-                  : 'Describe what you want to imagine…'
+                  : 'Describe what you want to imagine (or type / for curated styles)…'
               }
-              className="flex-1 max-h-[180px] bg-transparent border-0 outline-none resize-none text-[16px] sm:text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans py-2 sm:py-1.5"
+              className={`flex-1 bg-transparent border-0 outline-none resize-none text-[16px] sm:text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans py-2 sm:py-1.5 ${
+                isStudioMode ? 'min-h-[260px] h-[340px] sm:h-[380px] max-h-[500px]' : 'max-h-[180px]'
+              }`}
             />
+
+            {/* Studio Expand / Collapse Toggle Button */}
+            <button
+              type="button"
+              onClick={() => {
+                hapticImpact('light');
+                setIsStudioMode(!isStudioMode);
+              }}
+              className={`w-11 h-11 min-w-[44px] min-h-[44px] sm:w-10 sm:h-10 sm:min-w-[40px] sm:min-h-[40px] rounded-xl flex items-center justify-center shrink-0 transition-all border ${
+                isStudioMode
+                  ? 'bg-primary/15 text-primary border-primary/30 shadow-xs'
+                  : 'bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border-border shadow-2xs'
+              }`}
+              title={isStudioMode ? 'Collapse Studio Mode (⛶)' : 'Expand Studio Mode (⛶) for full prompt editing'}
+              aria-label="Toggle Studio Mode"
+            >
+              {isStudioMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
 
             {/* 1-Click Enhance / Make Safe Button */}
             <button

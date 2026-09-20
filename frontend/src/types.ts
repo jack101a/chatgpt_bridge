@@ -388,6 +388,12 @@ export interface PromptLibraryData {
   custom: Array<{ id: string; text: string }>;
 }
 
+export interface PromptVariable {
+  key: string;
+  label: string;
+  default: string;
+}
+
 export interface CuratedPrompt {
   id: number;
   title: string;
@@ -403,6 +409,17 @@ export interface CuratedPrompt {
   thumbnail: string;
   full_image?: string;
   featured?: boolean;
+  variables?: PromptVariable[];
+}
+
+export interface SlashCommand {
+  command: string;
+  title: string;
+  description: string;
+  icon: string;
+  category: string;
+  default_subject: string;
+  sample_prompt: string;
 }
 
 export interface PromptGalleryResponse {

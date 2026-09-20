@@ -98,6 +98,17 @@ class PromptLibrary:
         """Return the hierarchical style taxonomy with categories, styles, scenes and templates."""
         return self._load_taxonomy()
 
+    def get_slash_commands(self) -> list[dict]:
+        """Return curated slash commands for instant chatbox prompt fusion."""
+        data_file = Path(__file__).parent / "data" / "curated_prompts.json"
+        if data_file.exists():
+            try:
+                with open(data_file, "r", encoding="utf-8") as f:
+                    return json.load(f).get("slash_commands", [])
+            except Exception:
+                return []
+        return []
+
     def get_curated_prompts(
         self,
         category: str | None = None,

@@ -22,10 +22,11 @@ import { PromptCard } from './PromptCard';
 
 interface PromptLibraryTrayProps {
   onInsertModifier: (text: string) => void;
-  onUseCuratedPrompt?: (text: string, enhance?: boolean) => void;
+  onUseCuratedPrompt?: (prompt: CuratedPrompt | string, enhance?: boolean, fuse?: boolean) => void;
   isOpen: boolean;
   onClose: () => void;
   initialTab?: 'chips' | 'gallery';
+  userConcept?: string;
 }
 
 export function PromptLibraryTray({
@@ -34,6 +35,7 @@ export function PromptLibraryTray({
   isOpen,
   onClose,
   initialTab = 'chips',
+  userConcept = '',
 }: PromptLibraryTrayProps) {
   // ── Mode Switch ──
   const [activeTab, setActiveTab] = useState<'chips' | 'gallery'>(initialTab);
@@ -144,9 +146,9 @@ export function PromptLibraryTray({
   };
 
   // ── Prompt Insertion Handler ──
-  const handleUsePrompt = (prompt: CuratedPrompt, enhance: boolean = false) => {
+  const handleUsePrompt = (prompt: CuratedPrompt, enhance: boolean = false, fuse: boolean = false) => {
     if (onUseCuratedPrompt) {
-      onUseCuratedPrompt(prompt.prompt, enhance);
+      onUseCuratedPrompt(prompt, enhance, fuse);
     } else {
       onInsertModifier(prompt.prompt);
     }
@@ -455,22 +457,58 @@ export function PromptLibraryTray({
                       ))}
                     </div>
 
+                    {/* Interactive Template Variables */}
+                    {inspectPrompt.variables && inspectPrompt.variables.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                        <span className="text-[10.5px] uppercase font-mono text-muted-foreground font-semibold">
+                          Variables:
+                        </span>
+                        {inspectPrompt.variables.map((v) => (
+                          <span
+                            key={`var-${v.key}`}
+                            className="px-2 py-0.5 rounded-lg text-[11px] font-mono bg-muted/80 border border-border text-foreground"
+                          >
+                            <span className="text-muted-foreground">{v.label}:</span>{' '}
+                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{v.default}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
                     {/* Action Buttons Bar */}
                     <div className="flex items-center gap-2 pt-1 flex-wrap">
+                      {userConcept && userConcept.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => handleUsePrompt(inspectPrompt, false, true)}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition-all active:scale-95 min-h-[36px]"
+                          title={`Fuse this style with your idea: "${userConcept}"`}
+                        >
+                          <Sparkles size={14} />
+                          <span>
+                            Fuse with &quot;{userConcept.slice(0, 22)}{userConcept.length > 22 ? '…' : ''}&quot;
+                          </span>
+                        </button>
+                      ) : null}
+
                       <button
                         type="button"
-                        onClick={() => handleUsePrompt(inspectPrompt, false)}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-primary hover:bg-emerald-600 text-primary-foreground shadow-md transition-all active:scale-95 min-h-[36px]"
+                        onClick={() => handleUsePrompt(inspectPrompt, false, false)}
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold shadow-md transition-all active:scale-95 min-h-[36px] ${
+                          userConcept && userConcept.trim()
+                            ? 'bg-muted hover:bg-muted/80 text-foreground border border-border'
+                            : 'bg-primary hover:bg-emerald-600 text-primary-foreground'
+                        }`}
                       >
                         <Sparkles size={14} />
-                        <span>Use Prompt Verbatim</span>
+                        <span>Use Verbatim</span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => handleUsePrompt(inspectPrompt, true)}
+                        onClick={() => handleUsePrompt(inspectPrompt, true, Boolean(userConcept && userConcept.trim()))}
                         className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border shadow-2xs transition-all active:scale-95 min-h-[36px]"
-                        title="Insert prompt and apply photographic enhancer wand"
+                        title="Apply photographic enhancer wand"
                       >
                         <Wand2 size={14} className="text-primary" />
                         <span>Use + Enhance</span>

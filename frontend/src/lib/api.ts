@@ -24,6 +24,7 @@ import {
   PromptLibraryData,
   PromptGalleryResponse,
   PromptTaxonomy,
+  SlashCommand,
   FaceCardDictionaryResponse,
   BodyCardDictionaryResponse,
   CompilePromptResponse,
@@ -312,6 +313,9 @@ export const api = {
 
   getPromptTaxonomy: (): Promise<PromptTaxonomy> =>
     fetchJson<PromptTaxonomy>('/api/prompt-gallery/taxonomy'),
+
+  getPromptSlashCommands: (): Promise<SlashCommand[]> =>
+    fetchJson<SlashCommand[]>('/api/prompt-gallery/slash-commands'),
 
   addCustomChip: (text: string): Promise<{ id: string }> =>
     fetchJson<{ id: string }>('/api/prompt-library/custom', {

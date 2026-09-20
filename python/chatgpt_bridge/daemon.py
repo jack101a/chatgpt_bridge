@@ -3081,6 +3081,12 @@ async def get_prompt_gallery_taxonomy():
     return _prompt_library.get_taxonomy()
 
 
+@app.get("/api/prompt-gallery/slash-commands")
+async def get_prompt_gallery_slash_commands():
+    """Retrieve curated slash command prompt techniques."""
+    return _prompt_library.get_slash_commands()
+
+
 @app.get("/api/prompt-gallery/thumbnails/{prompt_id}")
 async def get_prompt_gallery_thumbnail(prompt_id: int):
     """Retrieve or dynamically cache a compressed local WebP thumbnail for a prompt."""
