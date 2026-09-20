@@ -400,43 +400,43 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex sm:items-center sm:justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-3xl max-h-[90vh] bg-white dark:bg-[#141416] border border-gray-200 dark:border-[#27272a] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="relative w-full max-w-3xl h-[100dvh] sm:h-auto sm:max-h-[90vh] bg-white dark:bg-[#141416] border-0 sm:border border-gray-200 dark:border-[#27272a] rounded-none sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-2 sm:zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Modal Header ── */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-white/10 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <Clapperboard className="w-5 h-5" />
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-100 dark:border-white/10 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <Clapperboard className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-[#0d0d0d] dark:text-white">
+                <h2 className="text-sm sm:text-lg font-bold text-[#0d0d0d] dark:text-white">
                   AI Storyboard Director
                 </h2>
-                <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 rounded-full border border-emerald-500/30">
+                <span className="px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 rounded-full border border-emerald-500/30">
                   Full Automation
                 </span>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Direct automated multi-image visual stories with character consistency & scene continuity
+              <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
+                Direct automated multi-image visual stories with continuity
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+            className="p-1.5 sm:p-2 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* ── Scrollable Body ── */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 sm:space-y-5 pb-24 sm:pb-8">
           {/* Top Bar: Character Binding & AI Director Model Selector Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Character Lock Selector for Director */}
@@ -1164,7 +1164,7 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
 
           {/* ── Confirmation Modal: Auto-Launch vs Review Prompts ── */}
           {showConfirmModal && (
-            <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
               <div className="bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-2xl p-5 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
                 <div className="flex items-center gap-2 text-rose-500 font-bold text-sm">
                   <Clapperboard className="w-5 h-5" />
@@ -1223,18 +1223,92 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
           )}
         </div>
 
-        {/* ── Modal Footer ── */}
-        <div className="px-5 py-3 border-t border-gray-100 dark:border-white/10 bg-gray-50/50 dark:bg-white/[0.02] flex items-center justify-between">
-          <span className="text-[11px] text-gray-400">
-            {shots.length > 0 ? `${shots.length} shots ready` : 'Define plot & shots above'}
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-gray-200 hover:bg-gray-300 dark:bg-white/10 dark:hover:bg-white/15 text-gray-700 dark:text-gray-300 text-xs font-semibold transition-all"
-          >
-            Close
-          </button>
+        {/* ── Sticky Modal Footer ── */}
+        <div className="px-4 sm:px-5 py-2.5 sm:py-3 border-t border-gray-100 dark:border-white/10 bg-white/95 dark:bg-[#141416]/95 backdrop-blur-md shrink-0 flex items-center justify-between gap-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_16px_rgba(0,0,0,0.04)] dark:shadow-[0_-4px_16px_rgba(0,0,0,0.2)]">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 text-gray-700 dark:text-gray-300 text-xs font-semibold transition-all cursor-pointer"
+            >
+              Close
+            </button>
+            <span className="text-[11px] text-gray-400 hidden sm:inline">
+              {shots.length > 0 ? `${shots.length} shots ready` : `${shotCount} shots configured`}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {shots.length > 0 && showPromptView && !isExecuting ? (
+              <button
+                type="button"
+                onClick={handleExecuteSequence}
+                className="px-4 py-1.5 sm:py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5 fill-white" />
+                <span>Run Story Sequence ({shots.length})</span>
+              </button>
+            ) : isExecuting ? (
+              <button
+                type="button"
+                onClick={handleCancelSequence}
+                className="px-3.5 py-1.5 sm:py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
+              >
+                <StopCircle className="w-3.5 h-3.5" />
+                <span>Stop Sequence</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => executePlan(true)}
+                  disabled={isPlanning || !intent.trim()}
+                  className={`px-3.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all ${
+                    intent.trim() && !isPlanning
+                      ? 'bg-[#10a37f] hover:bg-[#0d926e] text-white cursor-pointer active:scale-95'
+                      : 'bg-gray-100 dark:bg-white/5 text-gray-400 cursor-not-allowed'
+                  }`}
+                  title="Auto-launch generation immediately"
+                >
+                  {isPlanning && !showPromptView ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span className="hidden xs:inline">Planning…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 fill-white" />
+                      <span>Auto-Launch</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => executePlan(false)}
+                  disabled={isPlanning || !intent.trim()}
+                  className={`px-3.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all ${
+                    intent.trim() && !isPlanning
+                      ? 'bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-white/10 cursor-pointer active:scale-95'
+                      : 'bg-gray-100 dark:bg-white/5 text-gray-400 border-transparent cursor-not-allowed'
+                  }`}
+                  title="Review prompts before generation"
+                >
+                  {isPlanning && showPromptView ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span className="hidden xs:inline">Crafting…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Review</span>
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
