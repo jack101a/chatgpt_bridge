@@ -12,7 +12,7 @@ import httpx
 
 log = logging.getLogger("chatgpt_bridge.llm_client")
 
-DEFAULT_TIMEOUT: float = 60.0
+DEFAULT_TIMEOUT: float = 300.0
 
 
 def mask_api_key(key: str) -> str:

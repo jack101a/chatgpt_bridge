@@ -1159,11 +1159,11 @@ export const Composer: React.FC<ComposerProps> = ({
                 hapticImpact('light');
                 setIsDirectorModalOpen(true);
               }}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 text-xs font-semibold border border-rose-500/25 transition-all active:scale-95 shadow-2xs min-h-[34px] sm:min-h-[32px]"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 text-xs font-semibold border border-rose-500/25 transition-all active:scale-95 shadow-2xs min-h-[34px] sm:min-h-[32px]"
               title="AI Director: Cinematic Storyboard Generator"
             >
               <Clapperboard size={13} />
-              <span className="hidden sm:inline">Director</span>
+              <span className="hidden xs:inline sm:inline">Director</span>
             </button>
 
             <button
@@ -1498,6 +1498,21 @@ export const Composer: React.FC<ComposerProps> = ({
                   <span className="text-[11px] hidden sm:inline">
                     {safety.level === 'danger' ? 'Make Safe' : 'Enhance'}
                   </span>
+                </button>
+
+                {/* 🎬 Director Mode Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    hapticImpact('light');
+                    setIsDirectorModalOpen(true);
+                  }}
+                  className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-medium transition-all border min-h-[30px] sm:min-h-[32px] cursor-pointer bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 border-rose-500/30 active:scale-95 shadow-2xs"
+                  title="AI Director: Cinematic Storyboard Generator"
+                  aria-label="Open AI Director Mode"
+                >
+                  <Clapperboard size={13} className="text-rose-500" />
+                  <span className="text-[11px] font-semibold hidden sm:inline">Director</span>
                 </button>
 
                 {/* 🧠 Thinking Mode Toggle */}

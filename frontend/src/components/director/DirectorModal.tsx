@@ -17,6 +17,7 @@ import {
   ChevronDown,
   Search,
   RefreshCw,
+  Eye,
 } from 'lucide-react';
 import { StoryboardShot, CharacterCard, DirectorState, AIProviderConfig } from '../../types';
 import { api } from '../../lib/api';
@@ -79,6 +80,8 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
   const [planError, setPlanError] = useState<string | null>(null);
   const [shots, setShots] = useState<StoryboardShot[]>([]);
   const [screenplayHandshake, setScreenplayHandshake] = useState<string | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showPromptView, setShowPromptView] = useState(true);
 
   // Execution state
   const [isExecuting, setIsExecuting] = useState(false);
@@ -130,7 +133,7 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      if (initialPrompt && !intent) {
+      if (initialPrompt && initialPrompt !== intent) {
         setIntent(initialPrompt);
       }
       setSelectedChar(activeCharacter);
@@ -287,10 +290,11 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handlePlan = async () => {
+  const executePlan = async (autoLaunch: boolean) => {
     if (!intent.trim()) return;
     setIsPlanning(true);
     setPlanError(null);
+    setExecutingError(null);
     try {
       const plan = await api.planStoryboard({
         intent: intent.trim(),
@@ -304,6 +308,24 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
       if (plan?.shots && plan.shots.length > 0) {
         setShots(plan.shots);
         setScreenplayHandshake(plan.screenplay_handshake || null);
+
+        if (autoLaunch) {
+          setShowPromptView(false);
+          setIsExecuting(true);
+          try {
+            await api.executeStoryboard({
+              shots: plan.shots,
+              character_id: selectedChar ? selectedChar.id : 'freeform',
+              conversation_id: activeConvId || undefined,
+              screenplay_handshake: plan.screenplay_handshake || undefined,
+            });
+          } catch (err: any) {
+            setExecutingError(err.message || 'Failed to dispatch automated sequence');
+            setIsExecuting(false);
+          }
+        } else {
+          setShowPromptView(true);
+        }
       } else {
         setPlanError('AI Director returned an empty plan. Please try again or refine your prompt.');
       }
@@ -312,6 +334,11 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
     } finally {
       setIsPlanning(false);
     }
+  };
+
+  const handlePlan = () => {
+    if (!intent.trim()) return;
+    setShowConfirmModal(true);
   };
 
   const handleExecuteSequence = async () => {
@@ -907,32 +934,140 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={handlePlan}
-              disabled={isPlanning || !intent.trim()}
-              className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs ${
-                intent.trim() && !isPlanning
-                  ? 'bg-[#10a37f] hover:bg-[#0d926e] text-white cursor-pointer active:scale-[0.99]'
-                  : 'bg-gray-100 dark:bg-white/5 text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              {isPlanning ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>AI Director is Crafting {shotCount}-Shot Narrative Plan…</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  <span>{shots.length > 0 ? 'Re-Plan Storyboard Sequence' : 'Plan Storyboard Sequence'}</span>
-                </>
-              )}
-            </button>
+            {executingError && (
+              <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-xs text-red-600 dark:text-red-400 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{executingError}</span>
+              </div>
+            )}
+
+            {/* Launch Action Controls */}
+            <div className="space-y-2 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => executePlan(true)}
+                  disabled={isPlanning || isExecuting || !intent.trim()}
+                  className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs ${
+                    intent.trim() && !isPlanning && !isExecuting
+                      ? 'bg-[#10a37f] hover:bg-[#0d926e] text-white cursor-pointer active:scale-[0.99]'
+                      : 'bg-gray-100 dark:bg-white/5 text-gray-400 cursor-not-allowed'
+                  }`}
+                  title="Auto-launch generation immediately without previewing prompts"
+                >
+                  {isPlanning && !showPromptView ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Planning & Auto-Launching…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 fill-white" />
+                      <span>Auto-Launch Generation</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => executePlan(false)}
+                  disabled={isPlanning || isExecuting || !intent.trim()}
+                  className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all border ${
+                    intent.trim() && !isPlanning && !isExecuting
+                      ? 'bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-white/10 cursor-pointer active:scale-[0.99]'
+                      : 'bg-gray-100 dark:bg-white/5 text-gray-400 border-transparent cursor-not-allowed'
+                  }`}
+                  title="Generate prompts and review/edit cards before launching"
+                >
+                  {isPlanning && showPromptView ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Crafting Prompts…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Review & Confirm Prompts</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Trigger confirmation modal */}
+              <button
+                type="button"
+                onClick={handlePlan}
+                disabled={isPlanning || isExecuting || !intent.trim()}
+                className="w-full py-1.5 rounded-xl text-[11px] font-semibold text-gray-500 dark:text-gray-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-rose-500" />
+                <span>Ask before launching (Confirmation Modal)</span>
+              </button>
+            </div>
           </div>
 
+          {/* ── Active Sequence Progress / Auto-Launch Status Banner ── */}
+          {(isExecuting || (shots.length > 0 && !showPromptView)) && (
+            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <DotMatrixLoader size="sm" variant="hex" speed={1.2} />
+                  <div>
+                    <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                      {directorStatus?.status || (isExecuting ? 'Automated Storyboard Sequence Running…' : 'Storyboard Ready')}
+                    </div>
+                    <div className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
+                      {isExecuting ? 'Live Turn-by-Turn Continuity Engine' : `${shots.length} shots dispatched`}
+                    </div>
+                  </div>
+                </div>
+                {isExecuting && (
+                  <button
+                    type="button"
+                    onClick={handleCancelSequence}
+                    className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-semibold flex items-center gap-1 shadow-xs active:scale-95 cursor-pointer"
+                  >
+                    <StopCircle className="w-3.5 h-3.5" />
+                    <span>Stop Sequence</span>
+                  </button>
+                )}
+              </div>
+
+              {isExecuting && (
+                <>
+                  <div className="w-full bg-gray-200 dark:bg-white/10 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
+                      style={{
+                        width: `${Math.round(
+                          ((directorStatus?.current_shot || 0) / (directorStatus?.total_shots || shots.length)) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-gray-500 font-mono">
+                    <span>
+                      Shot {directorStatus?.current_shot || 0} of {directorStatus?.total_shots || shots.length}
+                    </span>
+                    <span>Turn-by-turn ChatGPT automation</span>
+                  </div>
+                </>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowPromptView((prev) => !prev)}
+                  className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                >
+                  {showPromptView ? 'Hide Prompt Cards' : `View Prompt Cards (${shots.length} shots)`}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ── Step 2: Planned Storyboard Review ── */}
-          {shots.length > 0 && (
+          {shots.length > 0 && showPromptView && (
             <div className="space-y-3 pt-2 border-t border-gray-100 dark:border-white/10">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1006,58 +1141,6 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
                 ))}
               </div>
 
-              {/* Execution Error Notice */}
-              {executingError && (
-                <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-xs text-red-600 dark:text-red-400 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{executingError}</span>
-                </div>
-              )}
-
-              {/* ── Live Execution Progress View ── */}
-              {isExecuting && (
-                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <DotMatrixLoader size="sm" variant="hex" speed={1.2} />
-                      <div>
-                        <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                          {directorStatus?.status || 'Automated Storyboard Sequence Running…'}
-                        </div>
-                        <div className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
-                          Live Turn-by-Turn Continuity Engine
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleCancelSequence}
-                      className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-semibold flex items-center gap-1 shadow-xs active:scale-95"
-                    >
-                      <StopCircle className="w-3.5 h-3.5" />
-                      <span>Stop Sequence</span>
-                    </button>
-                  </div>
-
-                  <div className="w-full bg-gray-200 dark:bg-white/10 rounded-full h-2 overflow-hidden">
-                    <div
-                      className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
-                      style={{
-                        width: `${Math.round(
-                          ((directorStatus?.current_shot || 0) / (directorStatus?.total_shots || shots.length)) * 100
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-[10px] text-gray-500 font-mono">
-                    <span>
-                      Shot {directorStatus?.current_shot || 0} of {directorStatus?.total_shots || shots.length}
-                    </span>
-                    <span>Turn-by-turn ChatGPT automation</span>
-                  </div>
-                </div>
-              )}
-
               {/* Automated Execution Button */}
               {!isExecuting && (
                 <div className="p-4 rounded-2xl bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-white/10 space-y-3">
@@ -1076,6 +1159,66 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
                   </button>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── Confirmation Modal: Auto-Launch vs Review Prompts ── */}
+          {showConfirmModal && (
+            <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-2xl p-5 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center gap-2 text-rose-500 font-bold text-sm">
+                  <Clapperboard className="w-5 h-5" />
+                  <span>Director Mode Confirmation</span>
+                </div>
+                <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                  Do you want to see and confirm the prompts first, or launch image generation automatically?
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowConfirmModal(false);
+                      executePlan(true);
+                    }}
+                    className="p-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex flex-col items-center justify-center gap-1 shadow-md shadow-emerald-600/20 active:scale-95 transition-all text-center cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <Play className="w-3.5 h-3.5 fill-white" />
+                      <span>No, Auto-Launch</span>
+                    </div>
+                    <span className="text-[10px] font-normal text-emerald-100">
+                      Skip prompt view • Direct generation
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowConfirmModal(false);
+                      executePlan(false);
+                    }}
+                    className="p-3 rounded-xl bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/15 text-gray-900 dark:text-white text-xs font-bold flex flex-col items-center justify-center gap-1 border border-gray-200 dark:border-white/10 active:scale-95 transition-all text-center cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Yes, See Prompts</span>
+                    </div>
+                    <span className="text-[10px] font-normal text-gray-500 dark:text-gray-400">
+                      Preview & confirm shots first
+                    </span>
+                  </button>
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmModal(false)}
+                    className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
