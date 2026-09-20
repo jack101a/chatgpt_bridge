@@ -28,6 +28,7 @@ cookies.json
 .chatgpt-bridge/
 daemon.json
 daemon.log
+python/chatgpt_bridge/data/thumbnails/
 
 # --- Test result artifacts ---
 *_test_results.json

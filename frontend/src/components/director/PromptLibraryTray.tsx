@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Sparkles,
   Plus,
@@ -13,6 +14,7 @@ import {
   Layers,
   ChevronDown,
   Loader2,
+  Maximize2,
 } from 'lucide-react';
 import { PromptLibraryData, CuratedPrompt, PromptTaxonomy } from '../../types';
 import { api } from '../../lib/api';
@@ -58,6 +60,7 @@ export function PromptLibraryTray({
   const [inspectPrompt, setInspectPrompt] = useState<CuratedPrompt | null>(null);
   const [copiedInspect, setCopiedInspect] = useState(false);
   const [showStyleFilter, setShowStyleFilter] = useState(false);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -383,19 +386,33 @@ export function PromptLibraryTray({
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-start">
-                  {/* Left: Larger Thumbnail */}
-                  <div className="md:col-span-4 rounded-xl overflow-hidden border border-border bg-muted/30 aspect-4/3 relative">
+                  {/* Left: Full Resolution Image Box with Zoom */}
+                  <div
+                    onClick={() => setIsLightboxOpen(true)}
+                    className="md:col-span-4 rounded-xl overflow-hidden border border-border bg-muted/30 aspect-4/3 relative group cursor-zoom-in shadow-xs hover:border-primary/50 transition-all"
+                    title="Click to view full high-resolution image"
+                  >
                     <img
-                      src={inspectPrompt.thumbnail}
+                      src={inspectPrompt.full_image || inspectPrompt.thumbnail}
                       alt={inspectPrompt.title}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
+                        // Fallback to local thumbnail if raw CDN has network glitch
+                        (e.target as HTMLImageElement).src = inspectPrompt.thumbnail;
                       }}
                     />
-                    <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                      <span className="px-2.5 py-1 rounded-lg bg-black/80 text-white text-[10.5px] font-semibold flex items-center gap-1 shadow-md backdrop-blur-xs">
+                        <Maximize2 size={12} />
+                        <span>View Full Artwork</span>
+                      </span>
+                    </div>
+                    <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none">
                       <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-black/70 text-white backdrop-blur-xs font-bold">
                         {inspectPrompt.source === 'freestylefly' ? 'freestylefly (32k★)' : 'EvoLinkAI (17k★)'}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded-md text-[9px] font-mono uppercase bg-emerald-600/90 text-white font-bold backdrop-blur-xs shadow-xs">
+                        Full Res
                       </span>
                     </div>
                   </div>
@@ -718,6 +735,59 @@ export function PromptLibraryTray({
           </div>
         )}
       </div>
+
+      {/* ── High-Resolution Lightbox Modal (Full Artwork Inspector) ── */}
+      {isLightboxOpen && inspectPrompt && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200"
+          onClick={() => setIsLightboxOpen(false)}
+        >
+          <div
+            className="absolute top-4 right-4 flex items-center gap-2 z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {inspectPrompt.full_image && (
+              <a
+                href={inspectPrompt.full_image}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-medium flex items-center gap-1.5 backdrop-blur-md transition-colors min-h-[36px]"
+                title="Open raw image in new tab"
+              >
+                <ExternalLink size={13} />
+                <span>Open Raw ↗</span>
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsLightboxOpen(false)}
+              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center cursor-pointer"
+              title="Close Full Artwork (Esc)"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div
+            className="relative max-w-5xl max-h-[85vh] flex flex-col items-center select-none"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={inspectPrompt.full_image || inspectPrompt.thumbnail}
+              alt={inspectPrompt.title}
+              className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl border border-white/10"
+            />
+            <div className="mt-3 text-center px-4">
+              <h4 className="text-white text-sm font-semibold">{inspectPrompt.title}</h4>
+              <p className="text-white/60 text-xs mt-0.5 font-mono">
+                {inspectPrompt.category} • Full Resolution Artwork
+              </p>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

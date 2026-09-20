@@ -401,6 +401,7 @@ export interface CuratedPrompt {
   sourceLabel?: string;
   sourceUrl?: string;
   thumbnail: string;
+  full_image?: string;
   featured?: boolean;
 }
 

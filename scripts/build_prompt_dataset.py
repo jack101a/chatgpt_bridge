@@ -43,7 +43,8 @@ def build_dataset():
     # Standardize freestylefly cases
     for c in freestyle_cases:
         cid = c["id"]
-        img_path = f"https://raw.githubusercontent.com/freestylefly/awesome-gpt-image-2/main/data/images/case{cid}.jpg"
+        img_rel = c.get("image", f"/images/case{cid}.jpg").lstrip("/")
+        img_path = f"https://raw.githubusercontent.com/freestylefly/awesome-gpt-image-2/main/data/{img_rel}"
         
         all_prompts.append({
             "id": cid,
@@ -57,7 +58,8 @@ def build_dataset():
             "source": "freestylefly",
             "sourceLabel": c.get("sourceLabel", ""),
             "sourceUrl": c.get("sourceUrl", ""),
-            "thumbnail": img_path,
+            "thumbnail": f"/api/prompt-gallery/thumbnails/{cid}",
+            "full_image": img_path,
             "featured": c.get("featured", False)
         })
 
@@ -113,7 +115,9 @@ def build_dataset():
         block = evolink_content[start_pos:end_pos]
         
         img_match = re.search(r"<img\s+src=[\"\x27](.*?)[\"\x27]", block)
-        thumbnail = img_match.group(1) if img_match else ""
+        thumbnail = img_match.group(1).strip() if img_match else ""
+        if thumbnail and not thumbnail.startswith("http"):
+            thumbnail = f"https://raw.githubusercontent.com/EvoLinkAI/awesome-gpt-image-2-API-and-Prompts/main/{thumbnail.lstrip('/')}"
         
         prompt_match = re.search(r"\*\*Prompt:\*\*\s*\n+```(?:[a-zA-Z0-9_-]*)\n(.*?)```", block, re.DOTALL)
         if not prompt_match:
@@ -178,7 +182,8 @@ def build_dataset():
             "source": "evolinkai",
             "sourceLabel": c_author or "EvoLink Community",
             "sourceUrl": c_source_url or c_author_url,
-            "thumbnail": thumbnail,
+            "thumbnail": f"/api/prompt-gallery/thumbnails/{1000 + c_num}",
+            "full_image": thumbnail,
             "featured": False
         })
 

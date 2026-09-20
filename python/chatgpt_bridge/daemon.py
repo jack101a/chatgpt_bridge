@@ -3081,6 +3081,20 @@ async def get_prompt_gallery_taxonomy():
     return _prompt_library.get_taxonomy()
 
 
+@app.get("/api/prompt-gallery/thumbnails/{prompt_id}")
+async def get_prompt_gallery_thumbnail(prompt_id: int):
+    """Retrieve or dynamically cache a compressed local WebP thumbnail for a prompt."""
+    result = _prompt_library.get_thumbnail(prompt_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    data, media_type = result
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
 # ── WebSocket Real-time Events ──
 
 

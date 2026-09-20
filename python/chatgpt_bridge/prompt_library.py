@@ -165,3 +165,44 @@ class PromptLibrary:
             "per_page": per_page,
             "pages": pages,
         }
+
+    def get_thumbnail(self, prompt_id: int) -> tuple[bytes, str] | None:
+        """
+        Get or dynamically generate a compressed WebP thumbnail (max 480x480) for a prompt.
+        Caches the WebP file locally in data/thumbnails/{prompt_id}.webp.
+        """
+        thumbnails_dir = Path(__file__).parent / "data" / "thumbnails"
+        thumbnails_dir.mkdir(parents=True, exist_ok=True)
+        cached_file = thumbnails_dir / f"{prompt_id}.webp"
+
+        if cached_file.exists():
+            return cached_file.read_bytes(), "image/webp"
+
+        # Find prompt to get full_image URL
+        all_prompts = self._load_curated_prompts()
+        prompt = next((p for p in all_prompts if p["id"] == prompt_id), None)
+        if not prompt or not prompt.get("full_image"):
+            return None
+
+        full_url = prompt["full_image"]
+        try:
+            import urllib.request
+            import io
+            from PIL import Image
+
+            req = urllib.request.Request(full_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw_data = resp.read()
+
+            img = Image.open(io.BytesIO(raw_data))
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGB")
+
+            img.thumbnail((480, 480), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="WEBP", quality=80)
+            webp_bytes = buf.getvalue()
+            cached_file.write_bytes(webp_bytes)
+            return webp_bytes, "image/webp"
+        except Exception:
+            return None
