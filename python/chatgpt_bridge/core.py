@@ -265,95 +265,92 @@ class ChatGPT:
         await self._ensure_started()
         token = await self.session.get_access_token()
         ctx = await self.browser.context()
-        page = await ctx.new_page()
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = await ctx.request.get(
+            "https://chatgpt.com/backend-api/wham/usage",
+            headers=headers,
+            timeout=15000,
+        )
+        if resp.status != 200:
+            log.warning("wham/usage returned status %d for %s", resp.status, acc.alias)
+            if acc.quota:
+                return acc.quota
+            raise ShapeChangedError(f"wham/usage returned status {resp.status}")
+
+        raw = await resp.json()
+        raw_rl = raw.get("rate_limit") or {}
+        pw = raw_rl.get("primary_window") or {}
+        sw = raw_rl.get("secondary_window") or {}
+        credits_data = raw.get("credits") or {}
+
+        # Reset credits check
+        reset_credits_count = 0
         try:
-            headers = {"Authorization": f"Bearer {token}"}
-            resp = await page.request.get(
-                "https://chatgpt.com/backend-api/wham/usage",
+            rc_resp = await ctx.request.get(
+                "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
                 headers=headers,
-                timeout=15000,
+                timeout=8000,
             )
-            if resp.status != 200:
-                log.warning("wham/usage returned status %d for %s", resp.status, acc.alias)
-                if acc.quota:
-                    return acc.quota
-                raise ShapeChangedError(f"wham/usage returned status {resp.status}")
+            if rc_resp.status == 200:
+                rc_data = await rc_resp.json()
+                reset_credits_count = rc_data.get("available_count", 0)
+        except Exception as rc_err:
+            log.debug("rate-limit-reset-credits check failed: %s", rc_err)
 
-            raw = await resp.json()
-            raw_rl = raw.get("rate_limit") or {}
-            pw = raw_rl.get("primary_window") or {}
-            sw = raw_rl.get("secondary_window") or {}
-            credits_data = raw.get("credits") or {}
+        used_pct = float(pw.get("used_percent") or 0.0)
+        left_pct = max(0.0, 100.0 - used_pct)
+        reset_at = pw.get("reset_at")
+        reset_after = int(pw.get("reset_after_seconds") or 0)
+        window_seconds = int(pw.get("limit_window_seconds") or 0)
 
-            # Reset credits check
-            reset_credits_count = 0
-            try:
-                rc_resp = await page.request.get(
-                    "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
-                    headers=headers,
-                    timeout=8000,
-                )
-                if rc_resp.status == 200:
-                    rc_data = await rc_resp.json()
-                    reset_credits_count = rc_data.get("available_count", 0)
-            except Exception as rc_err:
-                log.debug("rate-limit-reset-credits check failed: %s", rc_err)
+        reset_str = (
+            datetime.datetime.fromtimestamp(reset_at).strftime("%Y-%m-%d %H:%M:%S")
+            if reset_at
+            else ""
+        )
 
-            used_pct = float(pw.get("used_percent") or 0.0)
-            left_pct = max(0.0, 100.0 - used_pct)
-            reset_at = pw.get("reset_at")
-            reset_after = int(pw.get("reset_after_seconds") or 0)
-            window_seconds = int(pw.get("limit_window_seconds") or 0)
+        sw_used = (
+            float(sw.get("used_percent"))
+            if sw and sw.get("used_percent") is not None
+            else None
+        )
+        sw_left = max(0.0, 100.0 - sw_used) if sw_used is not None else None
+        sw_reset = sw.get("reset_at") if sw else None
+        sw_reset_str = (
+            datetime.datetime.fromtimestamp(sw_reset).strftime("%Y-%m-%d %H:%M:%S")
+            if sw_reset
+            else None
+        )
 
-            reset_str = (
-                datetime.datetime.fromtimestamp(reset_at).strftime("%Y-%m-%d %H:%M:%S")
-                if reset_at
-                else ""
-            )
+        quota_data = {
+            "account_id": acc.id,
+            "alias": acc.alias,
+            "email": raw.get("email") or acc.email,
+            "plan_type": raw.get("plan_type", "unknown"),
+            "allowed": bool(raw_rl.get("allowed", True)),
+            "limit_reached": bool(raw_rl.get("limit_reached", False)),
+            "used_percent": round(used_pct, 1),
+            "left_percent": round(left_pct, 1),
+            "reset_after_seconds": reset_after,
+            "reset_at": reset_at,
+            "reset_at_str": reset_str,
+            "limit_window_seconds": window_seconds,
+            "secondary_used_percent": (
+                round(sw_used, 1) if sw_used is not None else None
+            ),
+            "secondary_left_percent": (
+                round(sw_left, 1) if sw_left is not None else None
+            ),
+            "secondary_reset_at_str": sw_reset_str,
+            "credits_balance": credits_data.get("balance"),
+            "has_credits": bool(credits_data.get("has_credits")),
+            "reset_credits_count": reset_credits_count,
+            "fetched_at": now,
+        }
 
-            sw_used = (
-                float(sw.get("used_percent"))
-                if sw and sw.get("used_percent") is not None
-                else None
-            )
-            sw_left = max(0.0, 100.0 - sw_used) if sw_used is not None else None
-            sw_reset = sw.get("reset_at") if sw else None
-            sw_reset_str = (
-                datetime.datetime.fromtimestamp(sw_reset).strftime("%Y-%m-%d %H:%M:%S")
-                if sw_reset
-                else None
-            )
+        self.account_manager.update_quota(acc.id, quota_data)
+        return quota_data
 
-            quota_data = {
-                "account_id": acc.id,
-                "alias": acc.alias,
-                "email": raw.get("email") or acc.email,
-                "plan_type": raw.get("plan_type", "unknown"),
-                "allowed": bool(raw_rl.get("allowed", True)),
-                "limit_reached": bool(raw_rl.get("limit_reached", False)),
-                "used_percent": round(used_pct, 1),
-                "left_percent": round(left_pct, 1),
-                "reset_after_seconds": reset_after,
-                "reset_at": reset_at,
-                "reset_at_str": reset_str,
-                "limit_window_seconds": window_seconds,
-                "secondary_used_percent": (
-                    round(sw_used, 1) if sw_used is not None else None
-                ),
-                "secondary_left_percent": (
-                    round(sw_left, 1) if sw_left is not None else None
-                ),
-                "secondary_reset_at_str": sw_reset_str,
-                "credits_balance": credits_data.get("balance"),
-                "has_credits": bool(credits_data.get("has_credits")),
-                "reset_credits_count": reset_credits_count,
-                "fetched_at": now,
-            }
-
-            self.account_manager.update_quota(acc.id, quota_data)
-            return quota_data
-        finally:
-            await page.close()
 
     async def login_account(
         self,

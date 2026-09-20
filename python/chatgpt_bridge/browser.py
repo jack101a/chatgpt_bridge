@@ -6,6 +6,7 @@ so a logged-in session survives across runs.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,8 @@ from typing import Any
 from playwright.async_api import async_playwright
 
 from .errors import AuthError
+
+log = logging.getLogger(__name__)
 
 # State directory lives in the user's home.
 STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
@@ -73,6 +76,15 @@ class BrowserManager:
             user_data_dir=str(self.profile_dir),
             headless=effective_headless,
             args=[
+                # --- Docker / container safety ---
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                # Fallback: use /tmp instead of /dev/shm when shm is too small
+                "--disable-dev-shm-usage",
+                # --- GPU / rasterizer (saves 150-300 MB in headless Docker) ---
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                # --- Anti-bot evasion & UI cosmetics ---
                 "--disable-blink-features=AutomationControlled",
                 f"--window-size={width},{height}",
                 "--start-maximized",
@@ -80,15 +92,44 @@ class BrowserManager:
                 "--hide-crash-restore-bubble",
                 "--no-first-run",
                 "--no-default-browser-check",
+                # --- Audio / media (unused in automation) ---
                 "--mute-audio",
                 "--disable-audio-output",
+                # --- Disk cache cap (32 MB) ---
                 "--disk-cache-size=33554432",
+                # --- Memory caps ---
+                "--js-flags=--max-old-space-size=512",
+                "--renderer-process-limit=4",
+                # --- Feature bloat reduction ---
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-features=Translate,BackForwardCache,MediaRouter,OptimizationHints",
             ],
             no_viewport=True,
         )
+        # Close the initial blank tab that Playwright always opens on persistent context launch
+        pages = self._context.pages
+        if pages and not pages[0].is_closed():
+            try:
+                await pages[0].close()
+            except Exception:
+                pass
+
 
     async def context(self):
-        """Return the Playwright ``BrowserContext``, starting it if needed."""
+        """Return the Playwright ``BrowserContext``, starting it if needed.
+
+        Also detects dead contexts (e.g. Chromium OOM-killed) and resets state
+        so the next call relaunches a fresh browser rather than propagating
+        permanent ``Target closed`` errors.
+        """
+        if self._context is not None:
+            try:
+                if self._context.is_closed():
+                    log.warning("Detected closed browser context; resetting for relaunch.")
+                    await self.stop()
+            except Exception:
+                await self.stop()
         if self._context is None:
             await self.start()
         return self._context
@@ -100,25 +141,21 @@ class BrowserManager:
         reports an unauthenticated user.
         """
         ctx = await self.context()
-        page = await ctx.new_page()
-        try:
-            resp = await page.request.get(
-                "https://chatgpt.com/api/auth/session",
-                timeout=15_000,
+        resp = await ctx.request.get(
+            "https://chatgpt.com/api/auth/session",
+            timeout=15_000,
+        )
+        if resp.status != 200:
+            raise AuthError(
+                "ChatGPT session check failed "
+                f"(status {resp.status}); re-login or refresh cookies."
             )
-            if resp.status != 200:
-                raise AuthError(
-                    "ChatGPT session check failed "
-                    f"(status {resp.status}); re-login or refresh cookies."
-                )
-            data = await resp.json()
-            if not data or not data.get("user"):
-                raise AuthError(
-                    "ChatGPT session is not authenticated; "
-                    "re-login or refresh cookies."
-                )
-        finally:
-            await page.close()
+        data = await resp.json()
+        if not data or not data.get("user"):
+            raise AuthError(
+                "ChatGPT session is not authenticated; "
+                "re-login or refresh cookies."
+            )
 
     async def stop(self) -> None:
         """Close the context and stop Playwright."""

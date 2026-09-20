@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json as _json
+import logging
 from pathlib import Path
 
 from .browser import BrowserManager
@@ -9,6 +11,8 @@ from .cookies import load_cookie_file
 from .errors import AuthError
 
 import os
+
+log = logging.getLogger(__name__)
 
 STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
 # Default cookie file locations checked during login flow.
@@ -26,9 +30,8 @@ class SessionManager:
     async def is_alive(self) -> bool:
         """Return True iff the session endpoint reports an authenticated user."""
         ctx = await self.browser.context()
-        page = await ctx.new_page()
         try:
-            resp = await page.request.get(
+            resp = await ctx.request.get(
                 "https://chatgpt.com/api/auth/session",
                 timeout=15_000,
             )
@@ -38,15 +41,12 @@ class SessionManager:
             return bool(data and data.get("user"))
         except Exception:
             return False
-        finally:
-            await page.close()
 
     async def get_user_info(self) -> dict:
         """Parse user profile information (email, name, id) from session."""
         ctx = await self.browser.context()
-        page = await ctx.new_page()
         try:
-            resp = await page.request.get(
+            resp = await ctx.request.get(
                 "https://chatgpt.com/api/auth/session",
                 timeout=15_000,
             )
@@ -56,32 +56,26 @@ class SessionManager:
             return (data or {}).get("user") or {}
         except Exception:
             return {}
-        finally:
-            await page.close()
 
     async def get_access_token(self) -> str:
         """Parse the access token from the session endpoint JSON."""
         ctx = await self.browser.context()
-        page = await ctx.new_page()
-        try:
-            resp = await page.request.get(
-                "https://chatgpt.com/api/auth/session",
-                timeout=15_000,
+        resp = await ctx.request.get(
+            "https://chatgpt.com/api/auth/session",
+            timeout=15_000,
+        )
+        if resp.status != 200:
+            raise AuthError(
+                f"session endpoint returned status {resp.status}; "
+                "re-login or refresh cookies."
             )
-            if resp.status != 200:
-                raise AuthError(
-                    f"session endpoint returned status {resp.status}; "
-                    "re-login or refresh cookies."
-                )
-            data = await resp.json()
-            token = (data or {}).get("accessToken")
-            if not token:
-                raise AuthError(
-                    "session JSON missing accessToken; re-login or refresh cookies."
-                )
-            return token
-        finally:
-            await page.close()
+        data = await resp.json()
+        token = (data or {}).get("accessToken")
+        if not token:
+            raise AuthError(
+                "session JSON missing accessToken; re-login or refresh cookies."
+            )
+        return token
 
     async def get_cookies(self) -> list[dict]:
         """Return the current context cookies as Playwright-style dicts."""
@@ -176,54 +170,44 @@ class SessionManager:
         the full cookie jar + Cloudflare clearance, so this succeeds where a
         bare ``httpx`` call returns 403.
         """
-        import json as _json
-
         access_token = await self.get_access_token()
         ctx = await self.browser.context()
-        page = await ctx.new_page()
-        try:
-            resp = await page.request.patch(
-                f"https://chatgpt.com/backend-api/conversation/{conversation_id}",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {access_token}",
-                },
-                data=_json.dumps({"is_visible": False}),
-                timeout=30_000,
+        resp = await ctx.request.patch(
+            f"https://chatgpt.com/backend-api/conversation/{conversation_id}",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {access_token}",
+            },
+            data=_json.dumps({"is_visible": False}),
+            timeout=30_000,
+        )
+        if resp.status not in (200, 204):
+            raise AuthError(
+                f"delete conversation returned status {resp.status}"
             )
-            if resp.status not in (200, 204):
-                raise AuthError(
-                    f"delete conversation returned status {resp.status}"
-                )
-        finally:
-            await page.close()
 
     async def list_conversations(self, limit: int = 20) -> list[dict]:
         """List recent conversations (most-recently-updated first)."""
         access_token = await self.get_access_token()
         ctx = await self.browser.context()
-        page = await ctx.new_page()
-        try:
-            resp = await page.request.get(
-                "https://chatgpt.com/backend-api/conversations",
-                headers={"Authorization": f"Bearer {access_token}"},
-                params={
-                    "offset": 0,
-                    "limit": limit,
-                    "order": "updated",
-                    "is_archived": "false",
-                    "is_starred": "false",
-                },
-                timeout=30_000,
+        resp = await ctx.request.get(
+            "https://chatgpt.com/backend-api/conversations",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={
+                "offset": 0,
+                "limit": limit,
+                "order": "updated",
+                "is_archived": "false",
+                "is_starred": "false",
+            },
+            timeout=30_000,
+        )
+        if resp.status != 200:
+            raise AuthError(
+                f"list conversations returned status {resp.status}"
             )
-            if resp.status != 200:
-                raise AuthError(
-                    f"list conversations returned status {resp.status}"
-                )
-            data = await resp.json()
-            return data.get("items") or data.get("conversations") or []
-        finally:
-            await page.close()
+        data = await resp.json()
+        return data.get("items") or data.get("conversations") or []
 
     @staticmethod
     async def _wait_for_enter() -> None:
