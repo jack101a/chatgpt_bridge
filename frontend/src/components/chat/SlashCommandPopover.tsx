@@ -48,7 +48,7 @@ export const SlashCommandPopover: React.FC<SlashCommandPopoverProps> = ({
 
   return (
     <div
-      className="absolute left-2 right-2 sm:left-3 sm:right-3 bottom-full mb-2 z-50 rounded-2xl border border-border bg-card/95 backdrop-blur-md shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150"
+      className="absolute left-2 right-2 sm:left-3 sm:right-3 bottom-full mb-2 z-50 rounded-2xl border border-border bg-card dark:bg-[#141416] shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150"
       style={{ maxHeight: '340px' }}
     >
       {/* Popover Header */}
