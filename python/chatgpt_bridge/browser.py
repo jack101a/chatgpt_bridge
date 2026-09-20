@@ -63,10 +63,15 @@ class BrowserManager:
 
         width = int(os.environ.get("SCREEN_WIDTH", "1280"))
         height = int(os.environ.get("SCREEN_HEIGHT", "720"))
+        effective_headless = self.headless
+        if not effective_headless and not os.environ.get("DISPLAY"):
+            log.warning("No $DISPLAY environment variable detected; falling back to headless=True")
+            effective_headless = True
+
         self._playwright = await async_playwright().start()
         self._context = await self._playwright.chromium.launch_persistent_context(
             user_data_dir=str(self.profile_dir),
-            headless=self.headless,
+            headless=effective_headless,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 f"--window-size={width},{height}",

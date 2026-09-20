@@ -8,6 +8,7 @@ export default defineConfig({
     proxy: {
       '/image': 'http://localhost:8466',
       '/images': 'http://localhost:8466',
+      '/thumbnails': 'http://localhost:8466',
       '/accounts': 'http://localhost:8466',
       '/api': 'http://localhost:8466',
       '/ws': {
