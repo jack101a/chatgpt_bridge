@@ -14,7 +14,7 @@ services:
     # GPU/Viz, and Renderer processes. At 1280x720x32bit, a single uncompressed
     # frame is ~3.7MB; with double-buffering + canvas + image generation, usage
     # easily exceeds 200-400MB. Without this, Chromium crashes with SIGBUS.
-    shm_size: "2gb"
+    shm_size: "1gb"
 
     # -------------------------------------------------------------------------
     # Ports
@@ -59,26 +59,22 @@ services:
     # -------------------------------------------------------------------------
     # Resource Limits & Reservations (Prevent Host OOM)
     # -------------------------------------------------------------------------
-    # Without limits, a Chromium memory leak can exhaust host RAM and trigger
-    # the Linux OOM killer, which may kill the Docker daemon or host SSH process.
-    # With this limit, if OOM occurs, the kernel kills only Chromium inside
-    # the container cgroup — the host stays healthy.
+    # Sized safely for 8GB RAM host systems:
     deploy:
       resources:
         limits:
-          cpus: "2.00"
-          memory: 3G
+          cpus: "1.50"
+          memory: 2G
         reservations:
-          cpus: "0.50"
-          memory: 1.5G
+          cpus: "0.25"
+          memory: 512M
 
     # -------------------------------------------------------------------------
     # Healthcheck (Portainer Status Badge)
     # -------------------------------------------------------------------------
-    # start_period accounts for: Xvfb init (1-2s) + Chromium launch (5-10s) +
-    # FastAPI startup (1-2s). After that, /health is polled every 30s.
+    # Dual-mode healthcheck compatible with both API and Telegram bot modes:
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8465/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8465/health 2>/dev/null || python -c \"import os,sys; sys.exit(0 if any('chatgpt_bridge' in open(f'/proc/{p}/cmdline','rb').read().decode('latin1','ignore') for p in os.listdir('/proc') if p.isdigit() and os.path.exists(f'/proc/{p}/cmdline')) else 1)\""]
       interval: 30s
       timeout: 10s
       retries: 3

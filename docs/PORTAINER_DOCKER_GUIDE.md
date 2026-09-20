@@ -139,11 +139,11 @@ curl -X POST http://localhost:8465/accounts \
 deploy:
   resources:
     limits:
-      cpus: "2.00"
-      memory: 3G      # OOM kill happens inside the cgroup, not the host
+      cpus: "1.50"
+      memory: 2G      # Safe for 8GB RAM host systems
     reservations:
-      cpus: "0.50"
-      memory: 1.5G
+      cpus: "0.25"
+      memory: 512M
 ```
 
 > **Why limits matter:** Without a memory limit, a Chromium V8 heap leak can exhaust host RAM and trigger the Linux OOM killer, which may terminate the Docker daemon, Portainer, or SSH access. With limits, only the container is killed.
