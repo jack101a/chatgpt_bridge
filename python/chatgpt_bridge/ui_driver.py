@@ -746,32 +746,15 @@ class UIDriver:
                 last_text = text
                 stable_polls = 0
 
-            # 2. Generation in progress?
-            loading = await self._is_loading(page)
-            if loading:
-                if not saw_loading:
-                    saw_loading = True
-                    log.info("Active generation indicator detected (stop button/tool call). Waiting for DALL-E...")
-                elif time.monotonic() - last_log_time >= 5.0:
-                    last_log_time = time.monotonic()
-                    log.info("DALL-E generation still in progress... (%.1fs elapsed)", elapsed)
-                await asyncio.sleep(0.5)
-                continue
-
-            # 3. If no loading and text is settled without image, check timeout
-            min_wait = min(25.0, timeout_s * 0.8)
-            if text and elapsed >= min_wait and stable_polls >= 8:
-                return {"kind": "no_image", "text": text}
-
-            # 3. Check for a new image
+            # 2. Check for a new image FIRST before blocking on loading indicators
             src = await self._find_new_image_src(
                 page, existing_ids, min_turn_idx=min_turn_idx
             )
             if src:
                 fid = _extract_file_id(src)
-                # Gate: If elapsed < 5.0s and we never observed any loading indicator,
+                # Gate: If elapsed < 3.0s and we never observed any loading indicator,
                 # this cannot be a freshly generated DALL-E image. It's a DOM hydration artifact.
-                if elapsed < 5.0 and not saw_loading:
+                if elapsed < 3.0 and not saw_loading:
                     log.debug(
                         "Ignoring pre-existing DOM image id=%s during initial hydration (elapsed: %.1fs)",
                         fid,
@@ -785,6 +768,23 @@ class UIDriver:
                         elapsed,
                     )
                     return {"kind": "image", "src": src}
+
+            # 3. Generation in progress?
+            loading = await self._is_loading(page)
+            if loading:
+                if not saw_loading:
+                    saw_loading = True
+                    log.info("Active generation indicator detected (stop button/tool call). Waiting for DALL-E...")
+                elif time.monotonic() - last_log_time >= 5.0:
+                    last_log_time = time.monotonic()
+                    log.info("DALL-E generation still in progress... (%.1fs elapsed)", elapsed)
+                await asyncio.sleep(0.5)
+                continue
+
+            # 4. If no loading and text is settled without image, check timeout
+            min_wait = min(25.0, timeout_s * 0.8)
+            if text and elapsed >= min_wait and stable_polls >= 8:
+                return {"kind": "no_image", "text": text}
 
             # 4. "Try again" button visible (only if auto_retry=True)
             if auto_retry and not clicked_try_again and await self._click_try_again(page):
@@ -912,13 +912,11 @@ class UIDriver:
                 for i in range(min(await stop_btn.count(), 2)):
                     if await stop_btn.nth(i).is_visible():
                         return True
-            # 3. Check streaming / tool-running indicators
+            # 3. Check streaming / active loading indicators (only truly transient states)
             indicators = page.locator(
                 '.result-streaming, '
                 '[aria-busy="true"], '
-                '[data-testid*="loading"], '
-                '[data-testid*="dalle"], '
-                '[data-testid*="tool"]'
+                '[data-testid*="loading"]'
             )
             if await indicators.count() > 0:
                 for i in range(min(await indicators.count(), 3)):

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Clapperboard,
   X,
@@ -398,9 +399,9 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
     setCreativeGuidance((prev) => (prev ? `${prev}; ${chipText}` : chipText));
   };
 
-  return (
+  const modalContent = (
     <div
-      className="fixed inset-0 z-50 flex sm:items-center sm:justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[999] flex sm:items-center sm:justify-center p-0 sm:p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
@@ -1313,4 +1314,8 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined'
+    ? createPortal(modalContent, document.body)
+    : modalContent;
 };

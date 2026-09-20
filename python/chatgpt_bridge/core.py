@@ -577,7 +577,7 @@ class ChatGPT:
     async def generate_image(
         self,
         prompt: str,
-        timeout_s: int = 180,
+        timeout_s: int = 300,
         max_retries: int | None = None,
         conversation_id: str | None = None,
         retry: RetryConfig | None = None,
@@ -741,7 +741,7 @@ class ChatGPT:
     def generate_image_sync(
         self,
         prompt: str,
-        timeout_s: int = 180,
+        timeout_s: int = 300,
         max_retries: int | None = None,
         conversation_id: str | None = None,
     ) -> dict:
