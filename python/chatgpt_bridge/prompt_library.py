@@ -116,6 +116,7 @@ class PromptLibrary:
         scene: str | None = None,
         source: str | None = None,
         search: str | None = None,
+        lang: str | None = None,
         page: int = 1,
         per_page: int = 24,
     ) -> dict:
@@ -125,6 +126,14 @@ class PromptLibrary:
         """
         all_prompts = self._load_curated_prompts()
         filtered = all_prompts
+
+        if lang and lang.strip().lower() == "en":
+            import re
+            filtered = [
+                p for p in filtered
+                if not re.search(r'[\u4e00-\u9fff]', p.get("prompt", ""))
+                and not p.get("prompt", "").startswith("[中文]")
+            ]
 
         if category and category.strip() and category.lower() != "all":
             c_target = category.strip().lower()

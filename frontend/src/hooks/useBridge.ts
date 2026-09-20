@@ -181,6 +181,8 @@ export function useBridge() {
             prompt: req.prompt,
             conversation_id: req.conversation_id || activeConvId || undefined,
             thinking: req.thinking,
+            image: req.reference_image || undefined,
+            images: req.reference_images || (req.reference_image ? [req.reference_image] : undefined),
           });
 
           const botMsgId = `chat-${Date.now()}`;

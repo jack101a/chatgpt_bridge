@@ -70,6 +70,21 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
+  uploadImage: async (file: File): Promise<{ ok: boolean; id: string; filename: string; url: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const errorBody = await res.json().catch(() => ({ detail: res.statusText }));
+      const msg = errorBody.error?.message || errorBody.detail || errorBody.message || res.statusText;
+      throw new Error(msg);
+    }
+    return res.json();
+  },
+
   // Accounts
   getAccounts: async (): Promise<Account[]> => {
     const res = await fetchJson<{ accounts?: Account[] } | Account[]>('/accounts');
@@ -319,6 +334,7 @@ export const api = {
     scene?: string;
     source?: string;
     search?: string;
+    lang?: string;
     page?: number;
     per_page?: number;
   }): Promise<PromptGalleryResponse> => {
@@ -328,6 +344,7 @@ export const api = {
     if (params?.scene) qs.set('scene', params.scene);
     if (params?.source) qs.set('source', params.source);
     if (params?.search) qs.set('search', params.search);
+    if (params?.lang) qs.set('lang', params.lang);
     if (params?.page) qs.set('page', String(params.page));
     if (params?.per_page) qs.set('per_page', String(params.per_page));
     const query = qs.toString();

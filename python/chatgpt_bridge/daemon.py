@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
 import os
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
+import httpx
 log = logging.getLogger("chatgpt_bridge.daemon")
 
-from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -100,6 +103,8 @@ from .errors import (
 STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).expanduser()
 DAEMON_JSON = STATE_DIR / "daemon.json"
 IMAGES_DIR = STATE_DIR / "images"
+UPLOADS_DIR = IMAGES_DIR / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 THUMBNAILS_DIR = STATE_DIR / "thumbnails"
 META_FILE = STATE_DIR / "gallery_index.json"
 FAVS_FILE = STATE_DIR / "favorites.json"
@@ -152,16 +157,128 @@ def _get_dist_dir() -> Path | None:
     return None
 
 
+def _resolve_image_input(input_val: str | Path | None) -> Path | None:
+    """Resolve an image input string (base64 data URI, HTTP URL, filename, or local path) to a local Path."""
+    if not input_val:
+        return None
+    if isinstance(input_val, Path) and input_val.exists():
+        return input_val
+    raw = str(input_val).strip()
+    if not raw:
+        return None
+
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 1. Base64 Data URI: data:image/png;base64,iVBORw0KGgo...
+    if raw.startswith("data:image/") and ";base64," in raw:
+        try:
+            header, b64_data = raw.split(";base64,", 1)
+            ext = header.split("/")[1].split("+")[0].split(";")[0] or "png"
+            if ext == "jpeg":
+                ext = "jpg"
+            img_bytes = base64.b64decode(b64_data)
+            file_hash = hashlib.sha256(img_bytes).hexdigest()[:12]
+            dest = UPLOADS_DIR / f"upload_{file_hash}.{ext}"
+            if not dest.exists():
+                dest.write_bytes(img_bytes)
+            return dest
+        except Exception as e:
+            log.warning("Failed to decode base64 image data: %s", e)
+            return None
+
+    # 2. Remote HTTP/HTTPS URL
+    if raw.startswith("http://") or raw.startswith("https://"):
+        try:
+            file_hash = hashlib.sha256(raw.encode()).hexdigest()[:12]
+            parsed_path = urllib.parse.urlparse(raw).path
+            ext = Path(parsed_path).suffix or ".png"
+            dest = UPLOADS_DIR / f"url_{file_hash}{ext}"
+            if not dest.exists():
+                with httpx.Client(timeout=15.0) as client:
+                    resp = client.get(raw)
+                    if resp.status_code == 200:
+                        dest.write_bytes(resp.content)
+            if dest.exists():
+                return dest
+        except Exception as e:
+            log.warning("Failed to download remote image %s: %s", raw, e)
+            return None
+
+    # 3. Existing filename or path in UPLOADS_DIR, IMAGES_DIR, or filesystem
+    clean_ref = raw
+    if clean_ref.startswith("/images/uploads/"):
+        clean_ref = clean_ref[len("/images/uploads/"):]
+    elif clean_ref.startswith("images/uploads/"):
+        clean_ref = clean_ref[len("images/uploads/"):]
+    elif clean_ref.startswith("/images/"):
+        clean_ref = clean_ref[len("/images/"):]
+    elif clean_ref.startswith("images/"):
+        clean_ref = clean_ref[len("images/"):]
+
+    candidates = [
+        UPLOADS_DIR / clean_ref,
+        UPLOADS_DIR / f"{clean_ref}.png",
+        IMAGES_DIR / clean_ref,
+        IMAGES_DIR / f"{clean_ref}.png",
+        Path(raw),
+        Path(raw).with_suffix(".png"),
+    ]
+    for c in candidates:
+        if c.exists() and c.is_file():
+            return c
+
+    return None
+
+
 START_TS = time.time()
 
 # Port defaults to 8465, configurable via PORT or CHATGPT_BRIDGE_PORT
 PORT = int(os.environ.get("PORT") or os.environ.get("CHATGPT_BRIDGE_PORT") or "8465")
 HOST = os.environ.get("HOST", "0.0.0.0")
 
+DOCS_DESCRIPTION = """
+## 🔌 ChatGPT Bridge — Universal Local LLM & DALL-E Gateway
+
+A high-performance gateway connecting **OpenCode**, **OpenClaw**, **Continue.dev**, **Cline / Roo Code**, **Aider**, and custom agents directly to ChatGPT.
+
+### 🚀 Key Capabilities:
+- **OpenAI-Compatible Drop-In (`/v1`)**: Connect external code IDEs at `http://localhost:8466/v1` with zero glue code.
+- **Thinking Mode Support**: Toggle deep reasoning on Sol (`gpt-5-6-t-mini`) via `model="chatgpt-thinking"` or `thinking=true`.
+- **Live Quota & Limit Tracking**: Inspect upstream plan constraints, remaining percentage, and reset timestamps via `GET /api/accounts/quota`.
+- **DALL-E Image Generation**: Generate UI mockups and diagrams via `POST /image`.
+- **Interactive Documentation**: Visit [`/docs`](http://localhost:8466/docs) in your browser for the full interactive developer sandbox.
+"""
+
+OPENAPI_TAGS = [
+    {
+        "name": "OpenAI Drop-In Gateway (/v1)",
+        "description": "Zero-glue OpenAI-compatible completions and model discovery for OpenCode, OpenClaw, Continue.dev, Cline, and Aider.",
+    },
+    {
+        "name": "Chat & Thinking Mode",
+        "description": "Direct chat conversations with ChatGPT, session continuity, and deep reasoning toggle (Sol gpt-5-6-t-mini).",
+    },
+    {
+        "name": "Image Generation",
+        "description": "High-definition DALL-E image generation with reference image support and context editing.",
+    },
+    {
+        "name": "Plan Quota & Limits",
+        "description": "Real-time ChatGPT plan limits, usage percentage headroom, and rate-limit reset timers.",
+    },
+    {
+        "name": "System Health & Telemetry",
+        "description": "Liveness probes, browser status, and runtime telemetry.",
+    },
+]
+
 app = FastAPI(
-    title="ChatGPT Bridge API",
-    description="Universal REST API for ChatGPT text conversations and DALL-E image generation with companion dashboard.",
-    version="1.1.0",
+    title="ChatGPT Bridge API & IDE Hub",
+    description=DOCS_DESCRIPTION,
+    version="2.5.0",
+    docs_url=None,
+    redoc_url=None,
+    openapi_tags=OPENAPI_TAGS,
 )
 
 # Enable CORS for universal access from Web, Node.js, Python, or Mobile apps
@@ -177,11 +294,39 @@ _dist_dir = _get_dist_dir()
 if _dist_dir and (_dist_dir / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(_dist_dir / "assets")), name="assets")
 
-# Single shared core instance; requests serialized via a lock (single tab).
+# Concurrency Architecture: 2 Chat Lanes + 1 Dedicated Image Lane
 _core: ChatGPT | None = None
-_lock = asyncio.Lock()
+_chat_semaphore = asyncio.Semaphore(2)
+_image_semaphore = asyncio.Semaphore(1)
+_operation_lock = asyncio.Lock()
+_lock = _operation_lock
 _meta_lock = asyncio.Lock()
 _ws_clients: set[WebSocket] = set()
+
+# Client-isolated conversation states: client_id -> conversation_id
+_client_conversations: dict[str, str] = {}
+
+
+def _extract_client_id(request: Request | None = None, explicit_client_id: str | None = None) -> str:
+    """Extract and sanitize client ID from explicit field, headers, or Bearer auth."""
+    if explicit_client_id and str(explicit_client_id).strip():
+        return str(explicit_client_id).strip()
+    if request is not None:
+        cid = request.headers.get("x-client-id") or request.headers.get("x-project-id")
+        if cid and cid.strip():
+            return cid.strip()
+        auth = request.headers.get("authorization", "").strip()
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+            if token and token not in ("sk-local-bridge", "bridge-local-token", "default", "none"):
+                return token
+    return "default"
+
+# Backpressure queue limits
+MAX_QUEUED_CHATS = int(os.environ.get("CHATGPT_BRIDGE_MAX_QUEUED_CHATS", "20"))
+MAX_QUEUED_IMAGES = int(os.environ.get("CHATGPT_BRIDGE_MAX_QUEUED_IMAGES", "10"))
+_chat_queue_counter = 0
+_image_queue_counter = 0
 
 
 class AskRequest(BaseModel):
@@ -189,6 +334,60 @@ class AskRequest(BaseModel):
     model: str | None = Field(default=None, description="Optional model specifier")
     conversation_id: str | None = Field(default=None, description="Optional conversation ID for continuity")
     thinking: bool = Field(default=False, description="Enable thinking mode (gpt-5-6 reasoning)")
+    client_id: str | None = Field(default=None, description="Optional client/project ID (e.g. 'opencode', 'openclaw') for conversation isolation")
+    image: str | None = Field(default=None, description="Optional base64 data URI, HTTP image URL, or image filename for vision analysis")
+    images: list[str] | None = Field(default=None, description="Optional list of image data URIs, URLs, or filenames for vision analysis")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "prompt": "Write a Python script to monitor API rate limits.",
+                    "model": "chatgpt",
+                    "thinking": True,
+                }
+            ]
+        }
+    }
+
+
+class ChatCompletionMessage(BaseModel):
+    role: str = Field(default="user", description="Message role: 'system', 'user', or 'assistant'")
+    content: Any = Field(default="", description="Message text content")
+
+
+class ChatCompletionRequest(BaseModel):
+    model: str = Field(
+        default="chatgpt-thinking",
+        description="Model to use: 'chatgpt', 'chatgpt-thinking', 'gpt-5-6-t-mini', or 'gpt-4o'",
+    )
+    messages: list[ChatCompletionMessage] = Field(
+        default_factory=lambda: [
+            ChatCompletionMessage(role="user", content="Hello! How can you help me code today?")
+        ],
+        description="List of conversation messages",
+    )
+    stream: bool = Field(default=False, description="Stream response tokens via Server-Sent Events (SSE)")
+    temperature: float | None = Field(default=None, description="Sampling temperature")
+    max_tokens: int | None = Field(default=None, description="Maximum tokens to generate")
+    conversation_id: str | None = Field(default=None, description="Optional conversation ID to maintain state")
+    thinking: bool | None = Field(default=None, description="Enable Sol deep reasoning mode")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "model": "chatgpt-thinking",
+                    "messages": [
+                        {"role": "system", "content": "You are a senior full-stack software engineer."},
+                        {"role": "user", "content": "How do I configure OpenCode to use the ChatGPT Bridge?"}
+                    ],
+                    "stream": False,
+                    "thinking": True,
+                }
+            ]
+        }
+    }
 
 
 class ImageRequest(BaseModel):
@@ -203,6 +402,7 @@ class ImageRequest(BaseModel):
         default=None,
         description="Optional multiple reference image IDs/filenames/URLs to attach simultaneously (Turn 0 Contract Handshake)",
     )
+    client_id: str | None = Field(default=None, description="Optional client/project ID for continuity")
     metadata: dict | None = Field(default=None, description="Optional metadata to store with the image")
 
 
@@ -526,6 +726,14 @@ def _get_core() -> ChatGPT:
     if _core is None:
         headless = os.environ.get("CHATGPT_BRIDGE_HEADLESS", "0") == "1"
         _core = ChatGPT(headless=headless)
+
+        def _on_browser_stopped():
+            log.info("Browser stopped/idled: resetting active client conversation continuity.")
+            _client_conversations.clear()
+
+        if hasattr(_core, "on_stop_callbacks"):
+            _core.on_stop_callbacks.append(_on_browser_stopped)
+
         settings = _load_json(SETTINGS_FILE, {})
         if "auto_switch" in settings:
             _core.auto_switch = bool(settings["auto_switch"])
@@ -543,11 +751,113 @@ def _error_response(exc: Exception) -> JSONResponse:
     )
 
 
+# ── Developer Documentation Endpoints ──
+
+
+@app.get("/docs", include_in_schema=False)
+@app.get("/api/docs/ui", include_in_schema=False)
+async def scalar_docs() -> HTMLResponse:
+    """Serve modern 3-column interactive developer documentation powered by Scalar."""
+    content = """<!doctype html>
+<html>
+  <head>
+    <title>ChatGPT Bridge API Reference</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2310b981'><path d='M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'/></svg>" />
+    <style>
+      body { margin: 0; padding: 0; background: #0f172a; }
+    </style>
+  </head>
+  <body>
+    <script
+      id="api-reference"
+      data-url="/openapi.json"
+      data-configuration='{"theme": "kepler", "darkMode": true, "showSidebar": true, "hideDownloadButton": false, "defaultHttpClient": {"targetKey": "shell", "clientKey": "curl"}}'>
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+  </body>
+</html>"""
+    return HTMLResponse(content=content)
+
+
+@app.get("/api/docs", include_in_schema=False)
+@app.head("/api/docs", include_in_schema=False)
+async def api_docs_entrypoint(request: Request):
+    """Universal developer documentation gateway.
+    
+    - Browser (Accept: text/html): Redirects directly to the interactive /docs portal.
+    - AI Agent / Markdown (Accept: text/markdown): Returns clean Markdown guide.
+    - JSON / curl (Accept: application/json): Returns machine-readable API specifications and IDE presets.
+    """
+    accept = request.headers.get("accept", "").lower()
+    if "text/html" in accept:
+        return RedirectResponse(url="/docs", status_code=307)
+    if "text/markdown" in accept:
+        return await api_docs_raw()
+
+    host = request.headers.get("host", f"localhost:{PORT}")
+    return {
+        "name": "ChatGPT Bridge API & IDE Hub",
+        "version": "2.5.0",
+        "base_url": f"http://{host}",
+        "openai_compatible_base_url": f"http://{host}/v1",
+        "interactive_docs_url": f"http://{host}/docs",
+        "markdown_guide_url": f"http://{host}/api/docs/raw",
+        "openapi_spec_url": f"http://{host}/openapi.json",
+        "thinking_mode": {
+            "supported": True,
+            "engine": "Sol reasoning (gpt-5-6-t-mini)",
+            "openai_model": "chatgpt-thinking",
+            "native_flag": "thinking: true",
+        },
+        "endpoints": {
+            "chat_completions": "POST /v1/chat/completions",
+            "models": "GET /v1/models",
+            "ask": "POST /api/ask",
+            "quota": "GET /api/accounts/quota",
+            "quota_refresh": "POST /api/accounts/quota/refresh",
+            "switch_account": "POST /accounts/switch",
+            "image": "POST /image",
+            "health": "GET /health",
+            "status": "GET /status",
+        },
+        "ide_presets": {
+            "opencode": {
+                "provider": "openai-compatible",
+                "api_base": f"http://{host}/v1",
+                "models": ["chatgpt-thinking", "chatgpt"],
+            },
+            "continue": {
+                "provider": "openai",
+                "apiBase": f"http://{host}/v1",
+                "models": ["chatgpt-thinking", "chatgpt"],
+            },
+            "aider": f"aider --openai-api-base http://{host}/v1 --openai-api-key none --model chatgpt-thinking",
+        },
+    }
+
+
+@app.get("/api/docs/raw", include_in_schema=False)
+@app.get("/api/docs/markdown", include_in_schema=False)
+async def api_docs_raw() -> PlainTextResponse:
+    """Return the complete Markdown integration guide for terminal users, curl, or AI agents."""
+    guide_path = Path(__file__).resolve().parent.parent.parent / "docs" / "IDE_INTEGRATION_GUIDE.md"
+    if not guide_path.exists():
+        guide_path = Path("/home/ubuntu/antigravity/radiant-newton/docs/IDE_INTEGRATION_GUIDE.md")
+
+    if guide_path.exists():
+        content = guide_path.read_text(encoding="utf-8")
+        return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
+
+    return PlainTextResponse("# ChatGPT Bridge API Documentation\nGuide file not found.", status_code=404)
+
+
 # ── Dashboard SPA ──
 
 
-@app.get("/", response_class=HTMLResponse)
-@app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
 async def serve_dashboard() -> HTMLResponse:
     """Serve the single-page companion dashboard."""
     dist = _get_dist_dir()
@@ -564,13 +874,13 @@ async def serve_dashboard() -> HTMLResponse:
 # ── Core Bridge Endpoints ──
 
 
-@app.get("/health")
+@app.get("/health", tags=["System Health & Telemetry"], summary="Liveness Health Check")
 async def health() -> dict:
     """Basic health check."""
     return {"ok": True}
 
 
-@app.get("/status")
+@app.get("/status", tags=["System Health & Telemetry"], summary="Runtime System Status")
 async def status() -> dict:
     """Detailed runtime status including browser state, memory, and chat pool counts."""
     core = _get_core()
@@ -621,50 +931,254 @@ async def _align_account_for_conversation(cid: str | None) -> None:
                     log.warning("Failed to auto-align account to %s: %s", owner_alias, e)
 
 
-@app.post("/ask")
-@app.post("/api/ask")
-async def ask(req: AskRequest) -> dict:
+@app.post("/ask", tags=["Chat & Thinking Mode"], summary="Direct Chat (Legacy Alias)")
+@app.post("/api/ask", tags=["Chat & Thinking Mode"], summary="Direct Chat with Sol Thinking Toggle")
+async def ask(req: AskRequest, request: Request = None) -> dict:
     """Send a text prompt to ChatGPT and return the response."""
-    async with _lock:
-        try:
-            if req.conversation_id:
-                clean_cid = req.conversation_id.strip()
-                if clean_cid.lower() in ("new", "clean", "none", ""):
-                    _get_core().new_chat()
-                    req.conversation_id = "new"
-                else:
-                    await _align_account_for_conversation(clean_cid)
-            core = _get_core()
+    global _chat_queue_counter
+    client_id = _extract_client_id(request, getattr(req, "client_id", None))
+
+    if _chat_queue_counter >= MAX_QUEUED_CHATS:
+        raise HTTPException(
+            status_code=429,
+            detail={"error": "Chat queue saturated. Please retry after a few seconds.", "retry_after": 5},
+            headers={"Retry-After": "5"},
+        )
+
+    if not req.conversation_id and client_id != "default" and client_id in _client_conversations:
+        req.conversation_id = _client_conversations[client_id]
+
+    _chat_queue_counter += 1
+    try:
+        async with _chat_semaphore:
             try:
-                return await core.ask(
-                    req.prompt,
-                    model=req.model,
-                    conversation_id=req.conversation_id,
-                    thinking=req.thinking,
-                )
-            except TypeError as te:
-                if "thinking" in str(te):
-                    return await core.ask(
-                        req.prompt,
-                        model=req.model,
-                        conversation_id=req.conversation_id,
-                    )
-                raise
-        except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, PlaywrightTimeoutError) as exc:
-            return _error_response(exc)
+                if req.conversation_id:
+                    clean_cid = req.conversation_id.strip()
+                    if clean_cid.lower() in ("new", "clean", "none", ""):
+                        _get_core().new_chat()
+                        req.conversation_id = "new"
+                    else:
+                        await _align_account_for_conversation(clean_cid)
+                core = _get_core()
+                resolved_imgs: list[Path] = []
+                if getattr(req, "image", None):
+                    p = _resolve_image_input(req.image)
+                    if p and p not in resolved_imgs:
+                        resolved_imgs.append(p)
+                if getattr(req, "images", None):
+                    for img_item in req.images:
+                        p = _resolve_image_input(img_item)
+                        if p and p not in resolved_imgs:
+                            resolved_imgs.append(p)
+
+                ask_kwargs: dict[str, Any] = {
+                    "model": req.model,
+                    "conversation_id": req.conversation_id,
+                    "thinking": req.thinking,
+                }
+                if resolved_imgs:
+                    if len(resolved_imgs) == 1:
+                        ask_kwargs["image_path"] = resolved_imgs[0]
+                    ask_kwargs["image_paths"] = resolved_imgs
+
+                try:
+                    res = await core.ask(req.prompt, **ask_kwargs)
+                except TypeError as te:
+                    if "thinking" in str(te):
+                        ask_kwargs.pop("thinking", None)
+                        res = await core.ask(req.prompt, **ask_kwargs)
+                    else:
+                        raise
+                active_cid = res.get("conversation_id")
+                if active_cid and client_id != "default":
+                    _client_conversations[client_id] = active_cid
+                return res
+            except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, PlaywrightTimeoutError) as exc:
+                return _error_response(exc)
+    finally:
+        _chat_queue_counter = max(0, _chat_queue_counter - 1)
 
 
-@app.post("/image")
-async def image(req: ImageRequest) -> dict:
+@app.get("/v1/models", tags=["OpenAI Drop-In Gateway (/v1)"], summary="List Available Models (OpenAI Standard)")
+@app.get("/api/v1/models", tags=["OpenAI Drop-In Gateway (/v1)"], summary="List Available Models (API Alias)")
+async def list_v1_models() -> dict:
+    """OpenAI-compatible models listing for IDEs (OpenCode, OpenClaw, Continue, Cline, Aider)."""
+    now = int(time.time())
+    model_ids = [
+        "chatgpt",
+        "chatgpt-thinking",
+    ]
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": mid,
+                "object": "model",
+                "created": now,
+                "owned_by": "chatgpt-bridge",
+                "permission": [],
+                "root": mid,
+                "parent": None,
+            }
+            for mid in model_ids
+        ],
+    }
+
+
+@app.post("/v1/chat/completions", tags=["OpenAI Drop-In Gateway (/v1)"], summary="OpenAI-Compatible Chat Completions")
+@app.post("/api/v1/chat/completions", tags=["OpenAI Drop-In Gateway (/v1)"], summary="OpenAI-Compatible Chat Completions (API Alias)")
+async def chat_completions(req: ChatCompletionRequest, request: Request = None):
+    """OpenAI-compatible chat completions endpoint for external IDEs and agents.
+    
+    Compatible with OpenCode, OpenClaw, Continue.dev, Cline, Aider, LiteLLM,
+    and the official `openai` SDK (`client.chat.completions.create(...)`).
+    """
+    use_thinking = False
+    if req.thinking is not None:
+        use_thinking = req.thinking
+    elif any(kw in req.model.lower() for kw in ("think", "reason", "sol", "o3")):
+        use_thinking = True
+
+    system_prompts: list[str] = []
+    conversation_turns: list[str] = []
+    extracted_images: list[str] = []
+    for msg in req.messages:
+        content_val = msg.content
+        if isinstance(content_val, list):
+            turn_texts = []
+            for item in content_val:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        turn_texts.append(item.get("text", ""))
+                    elif item.get("type") == "image_url":
+                        url_obj = item.get("image_url")
+                        img_url_str = url_obj.get("url") if isinstance(url_obj, dict) else str(url_obj or "")
+                        if img_url_str:
+                            extracted_images.append(img_url_str)
+                elif isinstance(item, str):
+                    turn_texts.append(item)
+            content_str = "\n".join(turn_texts)
+        else:
+            content_str = content_val if isinstance(content_val, str) else json.dumps(content_val)
+
+        if msg.role == "system":
+            system_prompts.append(content_str)
+        elif msg.role in ("user", "assistant"):
+            prefix = "User: " if msg.role == "user" else "Assistant: "
+            conversation_turns.append(f"{prefix}{content_str}")
+
+    parts: list[str] = []
+    if system_prompts:
+        parts.append("[System Context]\n" + "\n\n".join(system_prompts))
+
+    if len(conversation_turns) == 1 and conversation_turns[0].startswith("User: "):
+        parts.append(conversation_turns[0][6:])
+    elif conversation_turns:
+        parts.append("\n\n".join(conversation_turns))
+    else:
+        parts.append("Hello")
+
+    prompt_text = "\n\n".join(parts)
+
+    ask_req = AskRequest(
+        prompt=prompt_text,
+        model=req.model,
+        conversation_id=req.conversation_id,
+        thinking=use_thinking,
+        images=extracted_images if extracted_images else None,
+    )
+    result = await ask(ask_req, request=request)
+    if "error" in result:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"message": result.get("error"), "type": "bridge_error", "code": 500}},
+        )
+
+    response_text = result.get("response", "")
+    created_ts = int(time.time())
+    completion_id = f"chatcmpl-{hashlib.md5(f'{time.time()}-{prompt_text[:20]}'.encode()).hexdigest()[:12]}"
+
+    if req.stream:
+        async def sse_stream():
+            first_chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created_ts,
+                "model": req.model,
+                "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(first_chunk)}\n\n"
+
+            content_chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created_ts,
+                "model": req.model,
+                "choices": [{"index": 0, "delta": {"content": response_text}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(content_chunk)}\n\n"
+
+            stop_chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created_ts,
+                "model": req.model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            }
+            yield f"data: {json.dumps(stop_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(sse_stream(), media_type="text/event-stream")
+
+    prompt_tokens = max(1, len(prompt_text) // 4)
+    comp_tokens = max(1, len(response_text) // 4)
+    return {
+        "id": completion_id,
+        "object": "chat.completion",
+        "created": created_ts,
+        "model": req.model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": response_text,
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": comp_tokens,
+            "total_tokens": prompt_tokens + comp_tokens,
+        },
+        "thinking": use_thinking,
+        "conversation_id": result.get("conversation_id"),
+        "account_used": result.get("account_used"),
+    }
+
+
+@app.post("/image", tags=["Image Generation"], summary="Generate DALL-E Image with Auto-Retry")
+async def image(req: ImageRequest, request: Request = None) -> dict:
     """Generate an image using ChatGPT/DALL-E with automatic retry."""
+    global _image_queue_counter
+    client_id = _extract_client_id(request, getattr(req, "client_id", None))
+    if _image_queue_counter >= MAX_QUEUED_IMAGES:
+        raise HTTPException(
+            status_code=429,
+            detail={"error": "Image generation queue saturated. Please retry after a few seconds.", "retry_after": 15},
+            headers={"Retry-After": "15"},
+        )
+
     t0 = time.time()
     await ws_broadcast({
         "type": "generation_progress",
         "status": "Submitting to engine…",
         "retry": 1,
     })
-    async with _lock:
-        try:
+    _image_queue_counter += 1
+    try:
+        async with _image_semaphore:
             kwargs = {}
             if req.max_tries is not None:
                 kwargs["max_retries"] = req.max_tries
@@ -676,6 +1190,8 @@ async def image(req: ImageRequest) -> dict:
                 else:
                     kwargs["conversation_id"] = clean_cid
                     await _align_account_for_conversation(clean_cid)
+            elif client_id != "default" and f"img_{client_id}" in _client_conversations:
+                kwargs["conversation_id"] = _client_conversations[f"img_{client_id}"]
             if req.tweaked_prompt is not None:
                 kwargs["tweaked_prompt"] = req.tweaked_prompt
             if req.tweaked_prompt_2 is not None:
@@ -683,34 +1199,14 @@ async def image(req: ImageRequest) -> dict:
             resolved_paths: list[Path] = []
             if req.reference_images:
                 for r_item in req.reference_images:
-                    if not r_item:
-                        continue
-                    ref = str(r_item).strip()
-                    if ref.startswith("/images/"):
-                        ref = ref[len("/images/"):]
-                    elif ref.startswith("images/"):
-                        ref = ref[len("images/"):]
-                    ref_path = IMAGES_DIR / ref
-                    if not ref_path.exists() and not ref.endswith(".png"):
-                        ref_path = IMAGES_DIR / f"{ref}.png"
-                    if ref_path.exists() and ref_path not in resolved_paths:
-                        resolved_paths.append(ref_path)
-                    elif Path(ref).exists() and Path(ref) not in resolved_paths:
-                        resolved_paths.append(Path(ref))
+                    p = _resolve_image_input(r_item)
+                    if p and p not in resolved_paths:
+                        resolved_paths.append(p)
 
             if req.reference_image:
-                ref = req.reference_image.strip()
-                if ref.startswith("/images/"):
-                    ref = ref[len("/images/"):]
-                elif ref.startswith("images/"):
-                    ref = ref[len("images/"):]
-                ref_path = IMAGES_DIR / ref
-                if not ref_path.exists() and not ref.endswith(".png"):
-                    ref_path = IMAGES_DIR / f"{ref}.png"
-                if ref_path.exists() and ref_path not in resolved_paths:
-                    resolved_paths.append(ref_path)
-                elif Path(ref).exists() and Path(ref) not in resolved_paths:
-                    resolved_paths.append(Path(ref))
+                p = _resolve_image_input(req.reference_image)
+                if p and p not in resolved_paths:
+                    resolved_paths.append(p)
 
             if len(resolved_paths) == 1:
                 kwargs["image_path"] = resolved_paths[0]
@@ -807,19 +1303,33 @@ async def image(req: ImageRequest) -> dict:
                         _save_json(META_FILE, idx)
                     await ws_broadcast({"type": "storage_evicted", "evicted": evicted})
 
+            img_cid = result.get("conversation_id")
+            if img_cid and client_id != "default":
+                _client_conversations[f"img_{client_id}"] = img_cid
             return result
-        except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, GenerationDeniedError, PlaywrightTimeoutError) as exc:
-            return _error_response(exc)
+    except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, GenerationDeniedError, PlaywrightTimeoutError) as exc:
+        return _error_response(exc)
+    finally:
+        _image_queue_counter = max(0, _image_queue_counter - 1)
 
 
-@app.api_route("/images/{filename}", methods=["GET", "HEAD"])
+@app.get("/images/{filename}", tags=["Image Generation"], summary="Retrieve Generated Image PNG")
+@app.head("/images/{filename}", include_in_schema=False)
 async def get_image(filename: str):
-    """Serve downloaded generated images directly over HTTP, streaming from Telegram if evicted."""
     file_path = IMAGES_DIR / filename
     if not (file_path.exists() and file_path.is_file()) and not filename.endswith(".png"):
         file_path = IMAGES_DIR / f"{filename}.png"
     if file_path.exists() and file_path.is_file():
         return FileResponse(file_path, media_type="image/png")
+
+    # If requested image has an upload/edit/url prefix, check uploads directory
+    if filename.startswith(("upload_", "url_", "edit_")):
+        uploads_dir = IMAGES_DIR / "uploads"
+        upload_path = uploads_dir / filename
+        if not (upload_path.exists() and upload_path.is_file()) and not filename.endswith(".png"):
+            upload_path = uploads_dir / f"{filename}.png"
+        if upload_path.exists() and upload_path.is_file():
+            return FileResponse(upload_path, media_type="image/png")
 
     # Check if image was evicted but exists in Telegram Cloud Vault
     stem = Path(filename).stem
@@ -846,7 +1356,172 @@ async def get_image(filename: str):
     raise HTTPException(status_code=404, detail="Image not found")
 
 
-@app.get("/thumbnails/{filename}")
+@app.get("/images/uploads/{filename}", tags=["Image Generation"], summary="Retrieve Uploaded Image")
+@app.head("/images/uploads/{filename}", include_in_schema=False)
+async def get_uploaded_image(filename: str):
+    uploads_dir = IMAGES_DIR / "uploads"
+    file_path = uploads_dir / filename
+    if not (file_path.exists() and file_path.is_file()) and not filename.endswith(".png"):
+        file_path = uploads_dir / f"{filename}.png"
+    if file_path.exists() and file_path.is_file():
+        return FileResponse(file_path, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Uploaded image not found")
+
+
+@app.post("/api/upload", tags=["Image Generation"], summary="Upload Reference Image for Editing or Vision")
+async def upload_image(
+    file: UploadFile = File(None),
+    data: str | None = Form(None),
+    filename: str | None = Form(None),
+    request: Request = None,
+) -> dict:
+    """Upload an image file (multipart/form-data) or base64 data to use as a reference for image editing or vision."""
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    img_bytes: bytes | None = None
+    orig_name = filename or "uploaded_image.png"
+
+    if file is not None:
+        img_bytes = await file.read()
+        orig_name = file.filename or orig_name
+    elif data:
+        raw = data.strip()
+        if raw.startswith("data:image/") and ";base64," in raw:
+            _, b64_part = raw.split(";base64,", 1)
+            try:
+                img_bytes = base64.b64decode(b64_part)
+            except Exception:
+                pass
+        else:
+            try:
+                img_bytes = base64.b64decode(raw)
+            except Exception:
+                pass
+
+    if not img_bytes and request is not None and request.headers.get("content-type", "").startswith("application/json"):
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                raw = body.get("data") or body.get("image") or ""
+                orig_name = body.get("filename") or orig_name
+                if raw.startswith("data:image/") and ";base64," in raw:
+                    _, b64_part = raw.split(";base64,", 1)
+                    img_bytes = base64.b64decode(b64_part)
+                elif raw:
+                    try:
+                        img_bytes = base64.b64decode(raw)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    if not img_bytes:
+        raise HTTPException(status_code=400, detail="No image file or valid base64 data provided.")
+
+    file_hash = hashlib.sha256(img_bytes).hexdigest()[:12]
+    ext = Path(orig_name).suffix.lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+        ext = ".png"
+    dest_name = f"upload_{file_hash}{ext}"
+    dest = UPLOADS_DIR / dest_name
+    dest.write_bytes(img_bytes)
+
+    host = request.headers.get("host", "localhost:8466") if request else "localhost:8466"
+    return {
+        "ok": True,
+        "id": f"upload_{file_hash}",
+        "filename": dest_name,
+        "url": f"/images/uploads/{dest_name}",
+        "full_url": f"http://{host}/images/uploads/{dest_name}",
+        "size_bytes": len(img_bytes),
+    }
+
+
+@app.post("/v1/images/edits", tags=["OpenAI Drop-In Gateway (/v1)"], summary="OpenAI-Compatible Image Edits")
+@app.post("/api/v1/images/edits", tags=["OpenAI Drop-In Gateway (/v1)"], summary="OpenAI-Compatible Image Edits (API Alias)")
+async def images_edits(
+    image_file: UploadFile = File(None, alias="image"),
+    prompt: str = Form(None),
+    mask: UploadFile = File(None),
+    model: str | None = Form(None),
+    n: int | None = Form(1),
+    size: str | None = Form("1024x1024"),
+    response_format: str | None = Form("url"),
+    user: str | None = Form(None),
+    request: Request = None,
+):
+    """OpenAI standard image edits endpoint.
+    
+    Accepts multipart/form-data or JSON (matching client.images.edit(...) in OpenAI SDK).
+    """
+    img_bytes: bytes | None = None
+    prompt_text = prompt
+
+    if image_file is not None:
+        img_bytes = await image_file.read()
+
+    # Support JSON if sent as application/json
+    if not img_bytes and request is not None and request.headers.get("content-type", "").startswith("application/json"):
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                prompt_text = body.get("prompt", prompt_text)
+                model = body.get("model", model)
+                response_format = body.get("response_format", response_format)
+                raw_img = body.get("image", "")
+                if raw_img.startswith("data:image/") and ";base64," in raw_img:
+                    _, b64 = raw_img.split(";base64,", 1)
+                    img_bytes = base64.b64decode(b64)
+                elif raw_img:
+                    try:
+                        img_bytes = base64.b64decode(raw_img)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    if not prompt_text:
+        raise HTTPException(status_code=400, detail={"error": {"message": "Prompt is required for image editing", "type": "invalid_request_error"}})
+    if not img_bytes:
+        raise HTTPException(status_code=400, detail={"error": {"message": "Image file is required for image editing", "type": "invalid_request_error"}})
+
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    file_hash = hashlib.sha256(img_bytes).hexdigest()[:12]
+    upload_path = UPLOADS_DIR / f"edit_{file_hash}.png"
+    upload_path.write_bytes(img_bytes)
+
+    img_req = ImageRequest(
+        prompt=prompt_text,
+        reference_image=str(upload_path),
+    )
+    res = await image(img_req, request=request)
+    if "error" in res:
+        raise HTTPException(status_code=500, detail={"error": {"message": res.get("error"), "type": "bridge_error"}})
+
+    host = request.headers.get("host", "localhost:8466") if request else "localhost:8466"
+    img_url = res.get("image_url") or ""
+    if not img_url.startswith("http"):
+        img_url = f"http://{host}{img_url}"
+
+    created_ts = int(time.time())
+    data_items = []
+    if (response_format or "").lower() == "b64_json":
+        p_name = res.get("image_url", "").split("/")[-1]
+        p_path = IMAGES_DIR / p_name
+        if p_path.exists():
+            b64_encoded = base64.b64encode(p_path.read_bytes()).decode()
+            data_items.append({"b64_json": b64_encoded})
+        else:
+            data_items.append({"url": img_url})
+    else:
+        data_items.append({"url": img_url})
+
+    return {
+        "created": created_ts,
+        "data": data_items,
+    }
+
+
+@app.get("/thumbnails/{filename}", tags=["Image Generation"], summary="Retrieve Image Thumbnail WebP")
 async def get_thumbnail(filename: str):
     """Serve low-res WebP thumbnail, auto-generating on-demand if missing."""
     stem = Path(filename).stem
@@ -881,18 +1556,23 @@ async def get_thumbnail(filename: str):
     raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 
-@app.post("/conversations/new")
-async def reset_conversation() -> dict:
+@app.post("/conversations/new", tags=["Chat & Thinking Mode"], summary="Reset Conversation Continuity")
+async def reset_conversation(request: Request = None) -> dict:
     """Reset the current conversation continuity so subsequent requests start a fresh thread."""
+    client_id = _extract_client_id(request)
+    if client_id in _client_conversations:
+        _client_conversations.pop(client_id, None)
+    if f"img_{client_id}" in _client_conversations:
+        _client_conversations.pop(f"img_{client_id}", None)
     core = _get_core()
     if hasattr(core, "new_chat"):
         core.new_chat()
     return {"ok": True, "message": "Conversation thread reset"}
 
 
-@app.delete("/conversation/{conversation_id}")
-@app.delete("/conversations/{conversation_id}")
-@app.post("/conversation/{conversation_id}/delete")
+@app.delete("/conversation/{conversation_id}", include_in_schema=False)
+@app.delete("/conversations/{conversation_id}", include_in_schema=False)
+@app.post("/conversation/{conversation_id}/delete", include_in_schema=False)
 async def delete_conversation(conversation_id: str) -> dict:
     """Delete a conversation from history."""
     async with _lock:
@@ -906,7 +1586,7 @@ async def delete_conversation(conversation_id: str) -> dict:
 # ── Accounts Management ──
 
 
-@app.get("/accounts")
+@app.get("/accounts", include_in_schema=False)
 async def list_accounts() -> dict:
     """List all configured accounts, active status, and rate-limit states."""
     core = _get_core()
@@ -932,14 +1612,14 @@ async def list_accounts() -> dict:
     return {"active_account_id": mgr.active_account_id, "accounts": accs}
 
 
-@app.get("/api/accounts")
+@app.get("/api/accounts", include_in_schema=False)
 async def api_accounts() -> list[dict]:
     """Direct account list for UI consumption."""
     res = await list_accounts()
     return res.get("accounts", [])
 
 
-@app.get("/api/accounts/quota")
+@app.get("/api/accounts/quota", tags=["Plan Quota & Limits"], summary="Fetch Real-Time ChatGPT Plan Quota")
 async def get_account_quota(account: str | None = None) -> dict:
     """Fetch real-time quota and limits for active (or specified) account from ChatGPT."""
     core = _get_core()
@@ -951,7 +1631,7 @@ async def get_account_quota(account: str | None = None) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
-@app.post("/api/accounts/quota/refresh")
+@app.post("/api/accounts/quota/refresh", tags=["Plan Quota & Limits"], summary="Force Refresh Plan Quota from Web Session")
 async def refresh_account_quota(account: str | None = None) -> dict:
     """Force refresh quota and limits directly from ChatGPT upstream."""
     core = _get_core()
@@ -965,7 +1645,7 @@ async def refresh_account_quota(account: str | None = None) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
-@app.post("/accounts/switch")
+@app.post("/accounts/switch", include_in_schema=False)
 async def switch_account(req: SwitchAccountRequest) -> dict:
     """Switch the active account programmatically."""
     core = _get_core()
@@ -982,7 +1662,7 @@ async def switch_account(req: SwitchAccountRequest) -> dict:
             return _error_response(e)
 
 
-@app.post("/api/accounts/cookies")
+@app.post("/api/accounts/cookies", include_in_schema=False)
 async def api_import_cookies(body: CookieImport) -> dict:
     """Import exported cookies JSON for a specific account."""
     try:
@@ -1014,7 +1694,7 @@ async def api_import_cookies(body: CookieImport) -> dict:
 # ── Gallery API ──
 
 
-@app.get("/api/gallery", response_model=GalleryPage)
+@app.get("/api/gallery", response_model=GalleryPage, include_in_schema=False)
 async def api_gallery(
     cursor: str | None = None,
     limit: int = Query(40, le=100),
@@ -1107,7 +1787,7 @@ async def api_gallery(
     return GalleryPage(items=res_items, next_cursor=nxt, total=total)
 
 
-@app.get("/api/gallery/{gid}", response_model=GalleryItem)
+@app.get("/api/gallery/{gid}", response_model=GalleryItem, include_in_schema=False)
 async def api_gallery_one(gid: str) -> GalleryItem:
     """Retrieve full metadata for a single gallery image."""
     idx = _load_json(META_FILE, {})
@@ -1151,7 +1831,7 @@ async def api_gallery_one(gid: str) -> GalleryItem:
     )
 
 
-@app.post("/api/gallery/{gid}/favorite")
+@app.post("/api/gallery/{gid}/favorite", include_in_schema=False)
 async def api_fav(gid: str) -> dict:
     """Toggle favorite status for an image."""
     favs = set(_load_json(FAVS_FILE, []))
@@ -1165,7 +1845,7 @@ async def api_fav(gid: str) -> dict:
     return {"favorite": is_fav}
 
 
-@app.delete("/api/gallery/{gid}")
+@app.delete("/api/gallery/{gid}", include_in_schema=False)
 async def api_del_img(gid: str) -> dict:
     """Delete an image file and remove it from the index and favorites."""
     img_path = IMAGES_DIR / f"{gid}.png"
@@ -1185,7 +1865,7 @@ async def api_del_img(gid: str) -> dict:
 # ── Chat Pool API ──
 
 
-@app.get("/api/chats", response_model=list[ChatSummary])
+@app.get("/api/chats", response_model=list[ChatSummary], include_in_schema=False)
 async def api_chats() -> list[ChatSummary]:
     """Retrieve summarized chat pool conversations with turn counts and thumbnails."""
     idx = _load_json(META_FILE, {})
@@ -1233,7 +1913,7 @@ async def api_chats() -> list[ChatSummary]:
     return sorted(out, key=lambda c: c.last_active, reverse=True)
 
 
-@app.post("/api/chats/purge_stale")
+@app.post("/api/chats/purge_stale", include_in_schema=False)
 async def api_purge(older_than_h: int = Query(24, ge=1)) -> dict:
     """Purge conversations inactive for longer than the specified hours."""
     idx = _load_json(META_FILE, {})
@@ -1268,7 +1948,7 @@ async def api_purge(older_than_h: int = Query(24, ge=1)) -> dict:
 # ── Settings & Telemetry API ──
 
 
-@app.get("/api/settings")
+@app.get("/api/settings", include_in_schema=False)
 async def get_settings() -> dict:
     """Retrieve runtime settings."""
     core = _get_core()
@@ -1319,7 +1999,7 @@ async def get_settings() -> dict:
     return s
 
 
-@app.patch("/api/settings")
+@app.patch("/api/settings", include_in_schema=False)
 async def patch_settings(p: SettingsPatch) -> dict:
     """Update runtime settings dynamically."""
     core = _get_core()
@@ -1409,7 +2089,7 @@ CORE ARCHITECTURE:
    - Return ONLY the clean enhanced prompt text. No quotes, no markdown wrappers, no conversational filler."""
 
 
-@app.get("/api/llm/config")
+@app.get("/api/llm/config", include_in_schema=False)
 async def get_llm_config() -> dict:
     """Retrieve OpenAI-compatible LLM configuration with masked API key."""
     settings = _load_json(SETTINGS_FILE, {})
@@ -1436,7 +2116,7 @@ async def get_llm_config() -> dict:
     }
 
 
-@app.post("/api/llm/config")
+@app.post("/api/llm/config", include_in_schema=False)
 async def post_llm_config(payload: LLMConfigPayload) -> dict:
     """Update OpenAI-compatible LLM configuration in settings.json."""
     settings = _load_json(SETTINGS_FILE, {})
@@ -1497,7 +2177,7 @@ async def post_llm_config(payload: LLMConfigPayload) -> dict:
     }
 
 
-@app.get("/api/llm/models")
+@app.get("/api/llm/models", include_in_schema=False)
 async def get_llm_models(base_url: str | None = None, api_key: str | None = None) -> dict:
     """Fetch live available models from the specified or configured LLM endpoint."""
     settings = _load_json(SETTINGS_FILE, {})
@@ -1524,7 +2204,7 @@ class AddCustomModelPayload(BaseModel):
     model: str
 
 
-@app.post("/api/llm/custom-models")
+@app.post("/api/llm/custom-models", include_in_schema=False)
 async def post_custom_model(payload: AddCustomModelPayload) -> dict:
     """Add a custom user-defined model from any provider."""
     model_name = payload.model.strip()
@@ -1539,7 +2219,7 @@ async def post_custom_model(payload: AddCustomModelPayload) -> dict:
     return {"ok": True, "custom_models": custom, "added": model_name}
 
 
-@app.delete("/api/llm/custom-models/{model_name:path}")
+@app.delete("/api/llm/custom-models/{model_name:path}", include_in_schema=False)
 async def delete_custom_model(model_name: str) -> dict:
     """Delete a custom user-defined model from the saved list."""
     settings = _load_json(SETTINGS_FILE, {})
@@ -1551,7 +2231,7 @@ async def delete_custom_model(model_name: str) -> dict:
     return {"ok": True, "custom_models": custom, "removed": model_name}
 
 
-@app.post("/api/llm/test")
+@app.post("/api/llm/test", include_in_schema=False)
 async def post_llm_test(payload: LLMTestRequest | None = None) -> dict:
     """Validate connection to OpenAI-compatible LLM endpoint."""
     settings = _load_json(SETTINGS_FILE, {})
@@ -1579,7 +2259,7 @@ async def post_llm_test(payload: LLMTestRequest | None = None) -> dict:
     return res
 
 
-@app.post("/api/prompt/enhance")
+@app.post("/api/prompt/enhance", include_in_schema=False)
 async def post_prompt_enhance(payload: PromptEnhanceRequest) -> dict:
     """Enhance a user prompt using ChatGPT 2.5 prompt engineering via configured LLM."""
     if not payload.prompt.strip():
@@ -1675,7 +2355,7 @@ async def post_prompt_enhance(payload: PromptEnhanceRequest) -> dict:
 # ── AI Multi-Provider & Work Assignment Architecture ──
 
 
-@app.get("/api/ai/config")
+@app.get("/api/ai/config", include_in_schema=False)
 async def get_ai_config() -> dict:
     """Retrieve multi-provider configurations, role assignments, and standard presets."""
     settings = _load_json(SETTINGS_FILE, {})
@@ -1698,7 +2378,7 @@ async def get_ai_config() -> dict:
     }
 
 
-@app.post("/api/ai/providers/{provider_id}")
+@app.post("/api/ai/providers/{provider_id}", include_in_schema=False)
 async def post_ai_provider(provider_id: str, payload: ProviderConfigPayload) -> dict:
     """Save or update configuration for a specific provider."""
     pid = provider_id.strip()
@@ -1760,7 +2440,7 @@ async def post_ai_provider(provider_id: str, payload: ProviderConfigPayload) -> 
     }
 
 
-@app.delete("/api/ai/providers/{provider_id}")
+@app.delete("/api/ai/providers/{provider_id}", include_in_schema=False)
 async def delete_ai_provider(provider_id: str) -> dict:
     """Delete a custom AI provider."""
     pid = provider_id.strip()
@@ -1773,7 +2453,7 @@ async def delete_ai_provider(provider_id: str) -> dict:
     return {"ok": True, "removed": pid}
 
 
-@app.post("/api/ai/providers/{provider_id}/test")
+@app.post("/api/ai/providers/{provider_id}/test", include_in_schema=False)
 async def post_ai_provider_test(provider_id: str, payload: ProviderConfigPayload | None = None) -> dict:
     """Test connection for a specific provider and fetch all endpoint models without truncation."""
     pid = provider_id.strip()
@@ -1809,7 +2489,7 @@ async def post_ai_provider_test(provider_id: str, payload: ProviderConfigPayload
     }
 
 
-@app.post("/api/ai/providers/{provider_id}/models")
+@app.post("/api/ai/providers/{provider_id}/models", include_in_schema=False)
 async def post_ai_provider_model(provider_id: str, payload: AddCustomModelPayload) -> dict:
     """Add a custom user model to a specific provider."""
     pid = provider_id.strip()
@@ -1839,7 +2519,7 @@ async def post_ai_provider_model(provider_id: str, payload: AddCustomModelPayloa
     return {"ok": True, "provider_id": pid, "custom_models": custom, "added": model_name}
 
 
-@app.delete("/api/ai/providers/{provider_id}/models/{model_name:path}")
+@app.delete("/api/ai/providers/{provider_id}/models/{model_name:path}", include_in_schema=False)
 async def delete_ai_provider_model(provider_id: str, model_name: str) -> dict:
     """Remove a custom model from a specific provider."""
     pid = provider_id.strip()
@@ -1858,7 +2538,7 @@ async def delete_ai_provider_model(provider_id: str, model_name: str) -> dict:
     return {"ok": True, "provider_id": pid, "custom_models": custom, "removed": m_name}
 
 
-@app.post("/api/ai/assignments")
+@app.post("/api/ai/assignments", include_in_schema=False)
 async def post_ai_assignments(payload: AssignmentsPayload) -> dict:
     """Update role assignments (Director Mode and Chatbox Enhancer)."""
     settings = _load_json(SETTINGS_FILE, {})
@@ -1891,7 +2571,7 @@ async def post_ai_assignments(payload: AssignmentsPayload) -> dict:
 # ── Character Studio & Active Session Lock API ──
 
 
-@app.get("/api/characters", response_model=CharacterListResponse)
+@app.get("/api/characters", response_model=CharacterListResponse, include_in_schema=False)
 async def get_characters() -> CharacterListResponse:
     """Retrieve all saved characters and current session active locked character."""
     mgr = _get_character_manager()
@@ -1905,7 +2585,7 @@ async def get_characters() -> CharacterListResponse:
     )
 
 
-@app.post("/api/characters", response_model=CharacterCard)
+@app.post("/api/characters", response_model=CharacterCard, include_in_schema=False)
 async def create_character(payload: CreateCharacterRequest) -> CharacterCard:
     """Create and persist a new character card, or update if id already exists."""
     mgr = _get_character_manager()
@@ -1921,7 +2601,7 @@ async def create_character(payload: CreateCharacterRequest) -> CharacterCard:
     return mgr.create(card)
 
 
-@app.put("/api/characters/{character_id}", response_model=CharacterCard)
+@app.put("/api/characters/{character_id}", response_model=CharacterCard, include_in_schema=False)
 async def update_character(character_id: str, payload: UpdateCharacterRequest) -> CharacterCard:
     """Update fields of an existing character card."""
     mgr = _get_character_manager()
@@ -1934,7 +2614,7 @@ async def update_character(character_id: str, payload: UpdateCharacterRequest) -
         raise HTTPException(status_code=422, detail=str(e))
 
 
-@app.delete("/api/characters/{character_id}")
+@app.delete("/api/characters/{character_id}", include_in_schema=False)
 async def delete_character(character_id: str) -> dict[str, Any]:
     """Delete character by ID and remove active lock if this character was locked."""
     mgr = _get_character_manager()
@@ -1944,7 +2624,7 @@ async def delete_character(character_id: str) -> dict[str, Any]:
     return {"ok": True, "id": character_id}
 
 
-@app.post("/api/characters/{character_id}/lock")
+@app.post("/api/characters/{character_id}/lock", include_in_schema=False)
 async def lock_character_endpoint(
     character_id: str,
     payload: LockCharacterPayload | None = None,
@@ -1986,7 +2666,7 @@ class BindConversationCharacterPayload(BaseModel):
     character_id: str | None = Field(default=None, description="Character ID to lock to this conversation, or null to detach")
 
 
-@app.post("/api/characters/{character_id}/handshake")
+@app.post("/api/characters/{character_id}/handshake", include_in_schema=False)
 async def character_handshake_endpoint(
     character_id: str,
     req: HandshakeRequest | None = None,
@@ -2051,7 +2731,7 @@ async def character_handshake_endpoint(
             return _error_response(exc)
 
 
-@app.post("/api/characters/compile-delta", response_model=DeltaPromptResponse)
+@app.post("/api/characters/compile-delta", response_model=DeltaPromptResponse, include_in_schema=False)
 async def compile_delta_endpoint(payload: DeltaPromptRequest) -> DeltaPromptResponse:
     """Compile structured delta fields into a clean prompt referencing locked character identity."""
     mgr = _get_character_manager()
@@ -2076,14 +2756,14 @@ async def compile_delta_endpoint(payload: DeltaPromptRequest) -> DeltaPromptResp
     )
 
 
-@app.get("/api/conversations/contracts")
+@app.get("/api/conversations/contracts", include_in_schema=False)
 async def get_all_conversation_contracts() -> dict[str, Any]:
     """List all conversation threads with primed character contracts."""
     contracts = _load_conversation_contracts()
     return {"ok": True, "contracts": contracts}
 
 
-@app.get("/api/conversations/{conversation_id}/contract")
+@app.get("/api/conversations/{conversation_id}/contract", include_in_schema=False)
 async def get_conversation_contract_endpoint(conversation_id: str) -> dict[str, Any]:
     """Retrieve character contract status for a conversation thread."""
     clean_id = conversation_id.strip()
@@ -2100,7 +2780,7 @@ async def get_conversation_contract_endpoint(conversation_id: str) -> dict[str, 
     }
 
 
-@app.post("/api/conversations/{conversation_id}/character")
+@app.post("/api/conversations/{conversation_id}/character", include_in_schema=False)
 async def bind_conversation_character_endpoint(
     conversation_id: str,
     payload: BindConversationCharacterPayload,
@@ -2147,7 +2827,7 @@ class FaceCardGeneratePayload(BaseModel):
     prompt: str | None = None
 
 
-@app.get("/api/cards/face/dictionary")
+@app.get("/api/cards/face/dictionary", include_in_schema=False)
 async def get_face_card_dictionary() -> dict[str, Any]:
     """Return dynamic data dictionary schema and harmonized archetype presets."""
     return {
@@ -2157,7 +2837,7 @@ async def get_face_card_dictionary() -> dict[str, Any]:
     }
 
 
-@app.post("/api/cards/face/compile-prompt")
+@app.post("/api/cards/face/compile-prompt", include_in_schema=False)
 async def compile_face_card_prompt_endpoint(payload: FaceCardDataPayload) -> dict[str, Any]:
     """Compile dictionary selections into standard 16:9 prompt template and Visual DNA."""
     prompt = compile_face_card_prompt(payload.data)
@@ -2169,7 +2849,7 @@ async def compile_face_card_prompt_endpoint(payload: FaceCardDataPayload) -> dic
     }
 
 
-@app.post("/api/cards/face/randomize")
+@app.post("/api/cards/face/randomize", include_in_schema=False)
 async def randomize_face_card_endpoint(payload: FaceCardRandomizePayload | None = None) -> dict[str, Any]:
     """Generate a coherent randomized face dictionary payload with compiled prompt."""
     archetype = payload.archetype if payload else None
@@ -2184,7 +2864,7 @@ async def randomize_face_card_endpoint(payload: FaceCardRandomizePayload | None 
     }
 
 
-@app.post("/api/cards/face/generate")
+@app.post("/api/cards/face/generate", include_in_schema=False)
 async def generate_face_card_endpoint(payload: FaceCardGeneratePayload) -> dict[str, Any]:
     """Compile prompt and invoke 16:9 image generation engine directly."""
     prompt = payload.prompt.strip() if payload.prompt and payload.prompt.strip() else compile_face_card_prompt(payload.data)
@@ -2222,7 +2902,7 @@ class BodyCardGeneratePayload(BaseModel):
     prompt: str | None = None
 
 
-@app.get("/api/cards/body/dictionary")
+@app.get("/api/cards/body/dictionary", include_in_schema=False)
 async def get_body_card_dictionary() -> dict[str, Any]:
     """Return dynamic data dictionary schema and harmonized archetype presets for body cards."""
     return {
@@ -2232,7 +2912,7 @@ async def get_body_card_dictionary() -> dict[str, Any]:
     }
 
 
-@app.post("/api/cards/body/compile-prompt")
+@app.post("/api/cards/body/compile-prompt", include_in_schema=False)
 async def compile_body_card_prompt_endpoint(payload: BodyCardDataPayload) -> dict[str, Any]:
     """Compile dictionary selections into standard 4:3 prompt template and Visual DNA."""
     prompt = compile_body_card_prompt(payload.data)
@@ -2244,7 +2924,7 @@ async def compile_body_card_prompt_endpoint(payload: BodyCardDataPayload) -> dic
     }
 
 
-@app.post("/api/cards/body/randomize")
+@app.post("/api/cards/body/randomize", include_in_schema=False)
 async def randomize_body_card_endpoint(payload: BodyCardRandomizePayload | None = None) -> dict[str, Any]:
     """Generate a coherent randomized body dictionary payload with compiled prompt."""
     archetype = payload.archetype if payload else None
@@ -2259,7 +2939,7 @@ async def randomize_body_card_endpoint(payload: BodyCardRandomizePayload | None 
     }
 
 
-@app.post("/api/cards/body/generate")
+@app.post("/api/cards/body/generate", include_in_schema=False)
 async def generate_body_card_endpoint(payload: BodyCardGeneratePayload) -> dict[str, Any]:
     """Compile prompt and invoke 4:3 full-body image generation engine directly."""
     prompt = payload.prompt.strip() if payload.prompt and payload.prompt.strip() else compile_body_card_prompt(payload.data)
@@ -2289,7 +2969,7 @@ class ExpressionCardGeneratePayload(BaseModel):
     prompt: str | None = None
 
 
-@app.post("/api/cards/expression/generate")
+@app.post("/api/cards/expression/generate", include_in_schema=False)
 async def generate_expression_card_endpoint(payload: ExpressionCardGeneratePayload) -> dict[str, Any]:
     """Compile prompt and invoke 4:3 2x3 grid expression card image generation engine directly."""
     prompt = payload.prompt.strip() if payload.prompt and payload.prompt.strip() else payload.data.get("prompt", "")
@@ -2553,13 +3233,13 @@ async def _execute_director_sequence(
                 pass
 
 
-@app.get("/api/director/status")
+@app.get("/api/director/status", include_in_schema=False)
 async def api_director_status():
     """Live status of automated multi-shot director sequence."""
     return _director_state
 
 
-@app.post("/api/director/cancel")
+@app.post("/api/director/cancel", include_in_schema=False)
 async def api_director_cancel():
     """Cancel currently running automated director sequence."""
     if _director_state["is_running"]:
@@ -2568,7 +3248,7 @@ async def api_director_cancel():
     return {"ok": True, "message": "No sequence currently running"}
 
 
-@app.post("/api/director/execute")
+@app.post("/api/director/execute", include_in_schema=False)
 async def api_director_execute(req: DirectorExecuteRequest, background_tasks: BackgroundTasks):
     if _director_state["is_running"]:
         raise HTTPException(status_code=409, detail="A director sequence is already running")
@@ -2584,7 +3264,7 @@ async def api_director_execute(req: DirectorExecuteRequest, background_tasks: Ba
     return {"ok": True, "message": "Sequence execution started"}
 
 
-@app.post("/api/director/plan", response_model=StoryboardPlan)
+@app.post("/api/director/plan", response_model=StoryboardPlan, include_in_schema=False)
 async def api_director_plan(req: DirectorPlanRequest):
     mgr = _get_character_manager()
     char = None
@@ -2631,7 +3311,7 @@ _sync_progress: dict[str, Any] = {
 }
 
 
-@app.get("/api/storage/status")
+@app.get("/api/storage/status", include_in_schema=False)
 async def api_storage_status() -> dict:
     """Live metrics on cache budget, thumbnail usage, and Telegram cloud vault."""
     settings = await get_settings()
@@ -2650,7 +3330,7 @@ async def api_storage_status() -> dict:
     return stats
 
 
-@app.post("/api/storage/test")
+@app.post("/api/storage/test", include_in_schema=False)
 async def api_storage_test(body: TelegramTestRequest | None = None) -> dict:
     """Test Telegram bot connection and channel write access."""
     settings = await get_settings()
@@ -2663,7 +3343,7 @@ async def api_storage_test(body: TelegramTestRequest | None = None) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
-@app.get("/api/storage/topics")
+@app.get("/api/storage/topics", include_in_schema=False)
 async def api_storage_topics() -> dict:
     """Discover forum topics or return configured topic thread IDs."""
     settings = await get_settings()
@@ -2681,7 +3361,7 @@ async def api_storage_topics() -> dict:
     return res
 
 
-@app.post("/api/storage/thumbnails/regenerate")
+@app.post("/api/storage/thumbnails/regenerate", include_in_schema=False)
 async def api_storage_regenerate_thumbnails() -> dict:
     """Regenerate crisp 720p HD WebP thumbnails for all local images."""
     count = regenerate_all_thumbnails(IMAGES_DIR, THUMBNAILS_DIR, max_size=720, quality=85, overwrite=True)
@@ -2786,7 +3466,7 @@ async def _run_storage_sync():
         _sync_progress["running"] = False
 
 
-@app.post("/api/storage/sync")
+@app.post("/api/storage/sync", include_in_schema=False)
 async def api_storage_sync() -> dict:
     """Trigger background migration/sync of existing images to Telegram."""
     global _sync_progress
@@ -2796,7 +3476,7 @@ async def api_storage_sync() -> dict:
     return {"ok": True, "message": "Storage sync started in background"}
 
 
-@app.get("/api/storage/sync/status")
+@app.get("/api/storage/sync/status", include_in_schema=False)
 async def api_storage_sync_status() -> dict:
     """Query progress of background storage sync."""
     return _sync_progress
@@ -2960,19 +3640,19 @@ async def on_startup():
         log.info("Startup auto-restore skipped or failed: %s", e)
 
 
-@app.post("/api/storage/backup")
+@app.post("/api/storage/backup", include_in_schema=False)
 async def api_storage_backup() -> dict[str, Any]:
     """Trigger manual vault manifest backup & upload to Telegram."""
     return await perform_vault_manifest_backup(auto_pin=True)
 
 
-@app.post("/api/storage/restore")
+@app.post("/api/storage/restore", include_in_schema=False)
 async def api_storage_restore() -> dict[str, Any]:
     """Trigger manual restore of gallery index from pinned Telegram manifest."""
     return await perform_vault_manifest_restore()
 
 
-@app.get("/api/storage/backups")
+@app.get("/api/storage/backups", include_in_schema=False)
 async def api_storage_backups() -> dict[str, Any]:
     """Query backup manifest history and latest status."""
     history = get_backup_history(VAULT_BACKUPS_FILE)
@@ -2983,7 +3663,7 @@ async def api_storage_backups() -> dict[str, Any]:
     }
 
 
-@app.get("/api/state")
+@app.get("/api/state", include_in_schema=False)
 async def get_client_state() -> dict:
     """Retrieve persisted UI client state (active tab, conversation, viewer modal, etc.)."""
     return _load_json(
@@ -2997,7 +3677,7 @@ async def get_client_state() -> dict:
     )
 
 
-@app.post("/api/state")
+@app.post("/api/state", include_in_schema=False)
 async def save_client_state(state: dict = Body(...)) -> dict:
     """Persist UI client state so page reloads seamlessly restore full session context."""
     current = _load_json(STATE_FILE, {})
@@ -3010,7 +3690,7 @@ async def save_client_state(state: dict = Body(...)) -> dict:
 # ── Full-Text & Vector Search API ──
 
 
-@app.get("/api/search")
+@app.get("/api/search", include_in_schema=False)
 async def api_search(q: str = Query(..., min_length=1)) -> list[dict]:
     """Search images by prompt and metadata with fuzzy matching."""
     idx = _load_json(META_FILE, {})
@@ -3039,7 +3719,7 @@ async def api_search(q: str = Query(..., min_length=1)) -> list[dict]:
     return [m[1] for m in matched[:100]]
 
 
-@app.get("/api/telemetry")
+@app.get("/api/telemetry", include_in_schema=False)
 async def api_telemetry() -> dict:
     """Retrieve real-time health, uptime, and engine state telemetry."""
     core = _get_core()
@@ -3072,7 +3752,7 @@ class CustomChipRequest(BaseModel):
     text: str
 
 
-@app.get("/api/prompt-library")
+@app.get("/api/prompt-library", include_in_schema=False)
 async def get_prompt_library():
     """Retrieve standard categories and user custom preset chips."""
     return {
@@ -3081,27 +3761,28 @@ async def get_prompt_library():
     }
 
 
-@app.post("/api/prompt-library/custom")
+@app.post("/api/prompt-library/custom", include_in_schema=False)
 async def add_custom_chip(req: CustomChipRequest):
     """Add a new custom preset chip."""
     chip_id = _prompt_library.add_custom_chip(req.text)
     return {"id": chip_id, "text": req.text}
 
 
-@app.delete("/api/prompt-library/custom/{chip_id}")
+@app.delete("/api/prompt-library/custom/{chip_id}", include_in_schema=False)
 async def delete_custom_chip(chip_id: str):
     """Delete a custom preset chip by ID."""
     _prompt_library.delete_custom_chip(chip_id)
     return {"status": "ok"}
 
 
-@app.get("/api/prompt-gallery")
+@app.get("/api/prompt-gallery", include_in_schema=False)
 async def get_prompt_gallery(
     category: str | None = None,
     style: str | None = None,
     scene: str | None = None,
     source: str | None = None,
     search: str | None = None,
+    lang: str | None = None,
     page: int = 1,
     per_page: int = 24,
 ):
@@ -3112,24 +3793,25 @@ async def get_prompt_gallery(
         scene=scene,
         source=source,
         search=search,
+        lang=lang,
         page=page,
         per_page=per_page,
     )
 
 
-@app.get("/api/prompt-gallery/taxonomy")
+@app.get("/api/prompt-gallery/taxonomy", include_in_schema=False)
 async def get_prompt_gallery_taxonomy():
     """Retrieve full style taxonomy including categories, styles, scenes, and templates."""
     return _prompt_library.get_taxonomy()
 
 
-@app.get("/api/prompt-gallery/slash-commands")
+@app.get("/api/prompt-gallery/slash-commands", include_in_schema=False)
 async def get_prompt_gallery_slash_commands():
     """Retrieve curated slash command prompt techniques."""
     return _prompt_library.get_slash_commands()
 
 
-@app.get("/api/prompt-gallery/thumbnails/{prompt_id}")
+@app.get("/api/prompt-gallery/thumbnails/{prompt_id}", include_in_schema=False)
 async def get_prompt_gallery_thumbnail(prompt_id: int):
     """Retrieve or dynamically cache a compressed local WebP thumbnail for a prompt."""
     result = _prompt_library.get_thumbnail(prompt_id)

@@ -16,6 +16,8 @@ export interface AskRequest {
   model?: string | null;
   conversation_id?: string | null;
   thinking?: boolean;
+  image?: string | null;
+  images?: string[] | null;
 }
 
 export interface AskResponse {

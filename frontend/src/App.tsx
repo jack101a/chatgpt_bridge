@@ -365,7 +365,7 @@ export function App() {
   };
 
   return (
-    <div className="flex h-screen h-[100dvh] w-screen overflow-hidden bg-background text-foreground relative">
+    <div className="fixed inset-0 flex w-full h-full overflow-hidden bg-background text-foreground">
       {/* Subtle Grid Pattern Background (sv-animations & sv-blocks style) */}
       <GridPatternBackground />
 
@@ -427,7 +427,6 @@ export function App() {
             onOpenDirector={() => setIsDirectorOpen(true)}
             activeAccountName={activeAccount?.alias}
             activeQuota={activeAccount?.quota}
-            onNavigateTab={handleSelectTab}
             onNewChat={handleStartNewChat}
           />
         </div>
@@ -519,6 +518,7 @@ export function App() {
             hideHeader={true}
           />
         </div>
+
 
         {/* ── Mobile Bottom Navigation (Visible on < 1024px) ── */}
         <MobileBottomNav

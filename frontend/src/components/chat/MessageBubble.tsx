@@ -59,11 +59,29 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     return (
       <div className="flex justify-end mb-4 animate-fade-in w-full min-w-0">
         <div className="max-w-[85%] sm:max-w-md bg-muted text-foreground px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed border border-border shadow-xs space-y-1.5 break-words min-w-0">
-          {message.referenceImage && (
-            <div className="flex items-center gap-1.5 text-[11px] font-mono text-primary bg-primary/10 px-2 py-0.5 rounded-md w-fit max-w-full truncate">
-              <span className="truncate">🖼️ ref: {message.referenceImage}</span>
-            </div>
-          )}
+          {message.referenceImage && (() => {
+            const refUrl =
+              message.referenceImage.startsWith('http') || message.referenceImage.startsWith('/')
+                ? message.referenceImage
+                : message.referenceImage.startsWith('upload_') ||
+                  message.referenceImage.startsWith('edit_') ||
+                  message.referenceImage.startsWith('url_')
+                ? `/images/uploads/${message.referenceImage}.png`
+                : `/images/${message.referenceImage}.png`;
+            return (
+              <div className="flex items-center gap-2 text-[11px] font-mono text-primary bg-primary/10 p-1.5 pr-2.5 rounded-xl border border-primary/20 w-fit max-w-full">
+                <img
+                  src={refUrl}
+                  alt="Reference"
+                  className="w-8 h-8 rounded-lg object-cover border border-primary/30 shrink-0 bg-background"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none';
+                  }}
+                />
+                <span className="truncate">ref: {message.referenceImage.replace(/^.*[\\/]/, '')}</span>
+              </div>
+            );
+          })()}
           <div className="break-words">{message.content}</div>
         </div>
       </div>

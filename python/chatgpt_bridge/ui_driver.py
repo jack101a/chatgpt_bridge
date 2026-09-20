@@ -174,6 +174,14 @@ class UIDriver:
         self.session = session
         self._active_page = None
         self._active_cid = None
+        self._chat_slots = [
+            {"id": 0, "page": None, "cid": None, "busy": False},
+            {"id": 1, "page": None, "cid": None, "busy": False},
+        ]
+        self._image_slot = {"id": "image", "page": None, "cid": None, "busy": False}
+        self._slot_lock = asyncio.Lock()
+        self._submit_pacer_lock = asyncio.Lock()
+        self._last_submit_time = 0.0
         self._delivered_image_ids = self._load_delivered_ids()
         self.project_name = os.environ.get("CHATGPT_BRIDGE_PROJECT_NAME", "").strip()
         self._project_id: str | None = None
@@ -223,121 +231,162 @@ class UIDriver:
             log.debug("Project isolation discovery failed or not supported: %s", exc)
         return None
 
-    async def _page(self, conversation_id: str | None = None):
+    async def _page_for_lane(self, conversation_id: str | None = None, lane: str = "chat"):
         target_home = (
             f"https://chatgpt.com/g/{self._project_id}"
             if self._project_id
             else HOME_URL
         )
 
-        # Reuse existing open page if already on the requested conversation or project/home
-        if self._active_page is not None:
-            try:
-                is_closed = self._active_page.is_closed()
-            except Exception:
-                is_closed = True
-            if not is_closed:
-                if conversation_id and self._active_cid == conversation_id:
-                    return self._active_page
-                if not conversation_id and not self._active_cid:
-                    cur_url_clean = self._active_page.url.rstrip("/")
-                    if cur_url_clean in (target_home.rstrip("/"), HOME_URL.rstrip("/")):
-                        return self._active_page
-                # Different conversation needed — close previous page
-                try:
-                    await self._active_page.close()
-                except Exception:
-                    pass
-                self._active_page = None
-                self._active_cid = None
-
-        ctx = await self.browser.context()
-        page = await ctx.new_page()
-
-        # If project isolation is configured and not checked yet, check at HOME_URL first
-        if self.project_name and not self._project_checked and not conversation_id:
-            try:
-                await page.goto(HOME_URL, wait_until="domcontentloaded", timeout=60_000)
-                self._project_id = await self._ensure_bot_project(page)
-            except Exception as exc:
-                log.debug("Initial project check at HOME_URL failed: %s", exc)
-            finally:
-                self._project_checked = True
-
-            if self._project_id:
-                target_home = f"https://chatgpt.com/g/{self._project_id}"
-                try:
-                    await page.goto(target_home, wait_until="domcontentloaded", timeout=30_000)
-                    if page.url.rstrip("/") == HOME_URL.rstrip("/"):
-                        log.info("Project url redirected to home, disabling project isolation")
-                        self._project_id = None
-                except Exception:
-                    self._project_id = None
-
-            self._active_page = page
-            self._active_cid = None
-            return page
-
-        url = (
-            f"https://chatgpt.com/c/{conversation_id}"
-            if conversation_id
-            else target_home
-        )
-        # Navigate with retries: the box's network is flaky (ERR_NETWORK_CHANGED)
-        # and /c/{id} loads are slower than the home page. Retry transient
-        # failures up to 3 times with a short backoff.
-        last_exc: Exception | None = None
-        for attempt in range(3):
-            try:
-                await page.goto(
-                    url,
-                    wait_until="domcontentloaded",
-                    timeout=60_000,
-                )
-                # If a specific conversation was requested, verify it did not redirect to HOME
-                if conversation_id:
-                    for _ in range(10):
-                        cur_url = page.url
-                        if f"/c/{conversation_id}" in cur_url or (cur_url != HOME_URL and "/c/" in cur_url):
+        async with self._slot_lock:
+            if lane == "image":
+                slot = self._image_slot
+            else:
+                slot = None
+                for s in self._chat_slots:
+                    if not s["busy"] and conversation_id and s["cid"] == conversation_id:
+                        slot = s
+                        break
+                if slot is None:
+                    for s in self._chat_slots:
+                        if not s["busy"]:
+                            slot = s
                             break
-                        await asyncio.sleep(0.4)
-                    if page.url.rstrip("/") in (HOME_URL.rstrip("/"), target_home.rstrip("/")):
-                        log.warning(
-                            "Conversation %s redirected to home (it may have expired or been pruned). Continuing as fresh chat on home.",
-                            conversation_id,
-                        )
-                        self._active_page = page
-                        self._active_cid = None
-                        return page
-                    # Allow existing conversation turns and images to hydrate into DOM
+                if slot is None:
+                    slot = self._chat_slots[0]
+            slot["busy"] = True
+
+        try:
+            cur_page = slot.get("page")
+            if cur_page is not None:
+                try:
+                    is_closed = cur_page.is_closed()
+                except Exception:
+                    is_closed = True
+                if not is_closed:
+                    if conversation_id and slot.get("cid") == conversation_id:
+                        self._active_page = cur_page
+                        self._active_cid = conversation_id
+                        return cur_page
+                    if not conversation_id and not slot.get("cid"):
+                        cur_url_clean = cur_page.url.rstrip("/")
+                        if cur_url_clean in (target_home.rstrip("/"), HOME_URL.rstrip("/")):
+                            self._active_page = cur_page
+                            self._active_cid = None
+                            return cur_page
                     try:
-                        await page.locator(TURN_SELECTOR).first.wait_for(
-                            state="attached", timeout=5000
-                        )
-                        await asyncio.sleep(1.0)
+                        await cur_page.close()
                     except Exception:
                         pass
-                elif self._project_id and page.url.rstrip("/") == HOME_URL.rstrip("/"):
-                    self._project_id = None
+                slot["page"] = None
+                slot["cid"] = None
+
+            ctx = await self.browser.context()
+            page = await ctx.new_page()
+
+            # If project isolation is configured and not checked yet, check at HOME_URL first
+            if self.project_name and not self._project_checked and not conversation_id:
+                try:
+                    await page.goto(HOME_URL, wait_until="domcontentloaded", timeout=60_000)
+                    self._project_id = await self._ensure_bot_project(page)
+                except Exception as exc:
+                    log.debug("Initial project check at HOME_URL failed: %s", exc)
+                finally:
+                    self._project_checked = True
+
+                if self._project_id:
+                    target_home = f"https://chatgpt.com/g/{self._project_id}"
+                    try:
+                        await page.goto(target_home, wait_until="domcontentloaded", timeout=30_000)
+                        if page.url.rstrip("/") == HOME_URL.rstrip("/"):
+                            log.info("Project url redirected to home, disabling project isolation")
+                            self._project_id = None
+                    except Exception:
+                        self._project_id = None
+
+                slot["page"] = page
+                slot["cid"] = None
                 self._active_page = page
-                self._active_cid = conversation_id
+                self._active_cid = None
                 return page
-            except Exception as exc:  # noqa: BLE001 — retry any nav failure
-                last_exc = exc
-                if attempt < 2:
-                    await asyncio.sleep(2 * (attempt + 1))
-        await page.close()
-        raise last_exc  # type: ignore[misc]
+
+            url = (
+                f"https://chatgpt.com/c/{conversation_id}"
+                if conversation_id
+                else target_home
+            )
+            last_exc: Exception | None = None
+            for attempt in range(3):
+                try:
+                    await page.goto(
+                        url,
+                        wait_until="domcontentloaded",
+                        timeout=60_000,
+                    )
+                    if conversation_id:
+                        for _ in range(10):
+                            cur_url = page.url
+                            if f"/c/{conversation_id}" in cur_url or (cur_url != HOME_URL and "/c/" in cur_url):
+                                break
+                            await asyncio.sleep(0.4)
+                        if page.url.rstrip("/") in (HOME_URL.rstrip("/"), target_home.rstrip("/")):
+                            log.warning(
+                                "Conversation %s redirected to home (it may have expired or been pruned). Continuing as fresh chat on home.",
+                                conversation_id,
+                            )
+                            slot["page"] = page
+                            slot["cid"] = None
+                            self._active_page = page
+                            self._active_cid = None
+                            return page
+                        try:
+                            await page.locator(TURN_SELECTOR).first.wait_for(
+                                state="attached", timeout=5000
+                            )
+                            await asyncio.sleep(1.0)
+                        except Exception:
+                            pass
+                    elif self._project_id and page.url.rstrip("/") == HOME_URL.rstrip("/"):
+                        self._project_id = None
+
+                    slot["page"] = page
+                    slot["cid"] = conversation_id
+                    self._active_page = page
+                    self._active_cid = conversation_id
+                    return page
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt < 2:
+                        await asyncio.sleep(2 * (attempt + 1))
+            await page.close()
+            raise last_exc
+        finally:
+            slot["busy"] = False
+
+    async def _page(self, conversation_id: str | None = None):
+        return await self._page_for_lane(conversation_id, lane="chat")
 
     async def close_page(self) -> None:
-        """Close the currently active page/tab."""
-        if self._active_page is not None:
+        """Close active pages across all slots."""
+        for slot in self._chat_slots:
+            p = slot.get("page")
+            if p is not None:
+                try:
+                    await p.close()
+                except Exception:
+                    pass
+                slot["page"] = None
+                slot["cid"] = None
+        p_img = self._image_slot.get("page")
+        if p_img is not None:
             try:
-                await self._active_page.close()
+                await p_img.close()
             except Exception:
                 pass
-            self._active_page = None
-            self._active_cid = None
+            self._image_slot["page"] = None
+            self._image_slot["cid"] = None
+        self._active_page = None
+        self._active_cid = None
 
     async def ask(
         self,
@@ -352,7 +401,10 @@ class UIDriver:
         When ``conversation_id`` is given, the prompt continues that existing
         conversation; otherwise a fresh chat is started.
         """
-        page = await self._page(conversation_id)
+        if self.__dict__.get("_page") is not None:
+            page = await self._page(conversation_id)
+        else:
+            page = await self._page_for_lane(conversation_id, lane="chat")
         prior_text = ""
         prior_assistant_count = 0
         try:
@@ -402,7 +454,10 @@ class UIDriver:
         last_kind = "no_image"
         last_text = ""
         cid = conversation_id
-        page = await self._page(cid)
+        if self.__dict__.get("_page") is not None:
+            page = await self._page(cid)
+        else:
+            page = await self._page_for_lane(cid, lane="image")
         initial_images = await self._existing_image_ids(page)
         turn_count_before = 0
         try:
@@ -482,7 +537,10 @@ class UIDriver:
             delay_s = cfg.delay_for(retry_idx)
             await asyncio.sleep(delay_s)
 
-            page = await self._page(cid)
+            if self.__dict__.get("_page") is not None:
+                page = await self._page(cid)
+            else:
+                page = await self._page_for_lane(cid, lane="image")
             try:
                 # Check if an image arrived during delay from previous attempt
                 src = await self._find_new_image_src(
@@ -1235,6 +1293,16 @@ class UIDriver:
                 if dis is None and aria_dis != "true":
                     break
             await asyncio.sleep(0.2)
+        # Anti-ban submit pacing: enforce minimum 450ms spacing between submits across tabs
+        if hasattr(self, "_submit_pacer_lock"):
+            import random
+            async with self._submit_pacer_lock:
+                now = time.monotonic()
+                delta = now - getattr(self, "_last_submit_time", 0.0)
+                if delta < 0.45:
+                    await asyncio.sleep(0.45 - delta + random.uniform(0.05, 0.2))
+                self._last_submit_time = time.monotonic()
+
         if await send_btn.count() > 0 and await send_btn.is_visible():
             try:
                 await send_btn.click()

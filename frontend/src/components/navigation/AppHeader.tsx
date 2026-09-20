@@ -11,6 +11,7 @@ import {
   Keyboard,
   PanelLeftOpen,
   PanelLeftClose,
+  Code2,
 } from 'lucide-react';
 import { CharacterCard, AccountQuota } from '../../types';
 import { hapticImpact } from '../../lib/haptics';
@@ -31,7 +32,6 @@ export interface AppHeaderProps {
   onOpenDirector?: () => void;
   activeAccountName?: string;
   activeQuota?: AccountQuota | null;
-  onNavigateTab?: (tab: 'chat' | 'gallery' | 'generator' | 'settings') => void;
   onNewChat?: () => void;
 }
 
@@ -67,15 +67,15 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   };
 
   return (
-    <header className="h-14 border-b border-border bg-card/90 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between z-30 shrink-0 select-none">
+    <header className="h-12 sm:h-14 border-b border-border bg-card/90 backdrop-blur-md px-2.5 sm:px-4 flex items-center justify-between z-30 shrink-0 select-none">
       {/* Left: Mobile Drawer Trigger / Brand */}
-      <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+      <div className="flex items-center space-x-1.5 sm:space-x-3 min-w-0">
         <button
           onClick={() => {
             hapticImpact('light');
             onOpenSidebarMobile?.();
           }}
-          className="lg:hidden flex items-center justify-center min-w-[40px] min-h-[40px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
+          className="lg:hidden flex items-center justify-center min-w-[36px] min-h-[36px] p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all"
           title="Open threads sidebar"
           aria-label="Open threads sidebar"
         >
@@ -119,7 +119,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             hapticImpact('light');
             onNewChat?.();
           }}
-          className="flex items-center space-x-2 min-w-0 text-left rounded-xl p-1 -m-1 hover:bg-muted/60 active:scale-[0.98] transition-all group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary cursor-pointer"
+          className="flex items-center space-x-2 shrink-0 text-left rounded-xl p-1 -m-1 hover:bg-muted/60 active:scale-[0.98] transition-all group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary cursor-pointer"
           title="Start new chat"
           aria-label="ChatGPT Bridge - Start New Chat"
         >
@@ -127,8 +127,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <Sparkles className="w-4 h-4" />
           </div>
           <div className="flex flex-col min-w-0">
-            <div className="flex items-center space-x-2">
-              <span className="font-semibold text-sm tracking-tight text-foreground truncate group-hover:text-primary transition-colors">
+            <div className="flex items-center space-x-1.5">
+              <span className="font-semibold text-sm tracking-tight text-foreground whitespace-nowrap group-hover:text-primary transition-colors">
                 ChatGPT Bridge
               </span>
               <span className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-muted text-muted-foreground border border-border">
@@ -168,7 +168,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             hapticImpact('light');
             onOpenCommandPalette();
           }}
-          className="sm:hidden min-w-[40px] min-h-[40px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all flex items-center justify-center"
+          className="sm:hidden min-w-[36px] min-h-[36px] p-1.5 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-95 transition-all flex items-center justify-center"
           title="Search / Command Palette"
         >
           <Search className="w-4 h-4" />
@@ -181,13 +181,25 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               hapticImpact('light');
               onOpenDirector();
             }}
-            className="flex items-center space-x-1.5 min-h-[36px] sm:min-h-[34px] px-2.5 py-1 rounded-xl text-xs font-medium text-rose-500 hover:text-rose-400 bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/25 transition-all active:scale-95 shadow-2xs"
+            className="hidden sm:flex items-center space-x-1.5 min-h-[36px] sm:min-h-[34px] px-2.5 py-1 rounded-xl text-xs font-medium text-rose-500 hover:text-rose-400 bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/25 transition-all active:scale-95 shadow-2xs"
             title="Launch Director Storyboard generator"
           >
             <Clapperboard className="w-3.5 h-3.5" />
             <span className="hidden md:inline">Director</span>
           </button>
         )}
+
+        {/* API Docs Link */}
+        <a
+          href="/docs"
+          target="_blank"
+          rel="noreferrer"
+          className="hidden md:flex min-w-[36px] min-h-[36px] px-2.5 rounded-xl text-xs font-medium items-center justify-center gap-1.5 border transition-all active:scale-95 text-muted-foreground hover:text-foreground hover:bg-muted border-border"
+          title="Open FastAPI Interactive Docs (/docs)"
+        >
+          <Code2 className="w-3.5 h-3.5" />
+          <span className="hidden xl:inline text-[11px] font-mono font-semibold">API Docs</span>
+        </a>
 
         {/* Shortcuts Cheatsheet Button */}
         {onOpenShortcuts && (
@@ -209,7 +221,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             hapticImpact('light');
             onOpenAccounts();
           }}
-          className="flex items-center space-x-1.5 min-h-[36px] sm:min-h-[34px] px-2.5 py-1 rounded-xl text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-muted border border-border active:scale-95 transition-all"
+          className="flex items-center space-x-1 sm:space-x-1.5 min-h-[32px] sm:min-h-[34px] px-2 sm:px-2.5 py-1 rounded-xl text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-muted border border-border active:scale-95 transition-all"
           title={`Account: ${activeAccountName || 'Daemon'}${
             activeQuota?.plan_type ? ` (${activeQuota.plan_type.toUpperCase()})` : ''
           } · Quota: ${
@@ -252,7 +264,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             hapticImpact('light');
             onToggleTheme();
           }}
-          className="min-w-[44px] min-h-[44px] p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-90 transition-all flex items-center justify-center"
+          className="min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] p-1.5 sm:p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted active:scale-90 transition-all flex items-center justify-center"
           title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           aria-label={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         >

@@ -10,6 +10,7 @@ import {
   UserCircle2,
   Layers,
   PanelLeftClose,
+  Code2,
 } from 'lucide-react';
 import { ChatThread, Account } from '../../types';
 import { hapticImpact } from '../../lib/haptics';
@@ -422,6 +423,21 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               Lock
             </span>
           </button>
+
+          <a
+            href="/docs"
+            target="_blank"
+            rel="noreferrer"
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+          >
+            <div className="flex items-center gap-2.5">
+              <Code2 size={16} />
+              <span>API Reference</span>
+            </div>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold">
+              v1
+            </span>
+          </a>
         </div>
 
         {/* Conversation History */}

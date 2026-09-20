@@ -82,8 +82,9 @@ class ChatGPT:
         self._last_activity = time.monotonic()
         self._busy_count: int = 0
         # Current conversation for continuity: text and image prompts continue
-        # in the same chat until new_chat() is called.
+        # in the same chat until new_chat() is called or browser restarts.
         self._current_conversation_id: str | None = None
+        self.on_stop_callbacks: list[Any] = []
 
     @contextlib.asynccontextmanager
     async def _busy_guard(self):
@@ -126,8 +127,7 @@ class ChatGPT:
                     "Browser idle for %ds; shutting down to free RAM/CPU.",
                     self.idle_timeout_s,
                 )
-                await self.browser.stop()
-                self._started = False
+                await self.aclose()
         except asyncio.CancelledError:
             pass
 
@@ -709,9 +709,17 @@ class ChatGPT:
     async def aclose(self) -> None:
         """Asynchronously stop UI page and browser."""
         if self._started:
+            self._started = False
+            self._current_conversation_id = None
+            for cb in list(self.on_stop_callbacks):
+                try:
+                    res = cb()
+                    if asyncio.iscoroutine(res):
+                        await res
+                except Exception as e:
+                    log.debug("on_stop_callback error: %s", e)
             await self.ui.close_page()
             await self.browser.stop()
-            self._started = False
 
     def close(self) -> None:
         """Synchronously stop the browser."""

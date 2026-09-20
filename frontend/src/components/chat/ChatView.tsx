@@ -1,19 +1,18 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Menu, Sparkles, Settings2, Shuffle, Compass, CornerDownLeft } from 'lucide-react';
+import { Menu, Sparkles, Settings2, Shuffle, Compass, ArrowUpRight } from 'lucide-react';
 import {
   GalleryItem,
   Account,
   ChatMessage,
   ImageRequest,
   CharacterCard,
-  CuratedPrompt,
 } from '../../types';
 import { MessageBubble } from './MessageBubble';
 import { Composer } from './Composer';
 import { PullToRefresh } from '../common/PullToRefresh';
 import { DotMatrixLoader } from '../common/DotMatrixLoader';
-import { api } from '../../lib/api';
 import { hapticImpact } from '../../lib/haptics';
+import { api } from '../../lib/api';
 
 interface ChatViewProps {
   messages: ChatMessage[];
@@ -40,50 +39,87 @@ interface ChatViewProps {
   hideHeader?: boolean;
 }
 
-const FALLBACK_SUGGESTIONS: CuratedPrompt[] = [
+export interface VisualInspiration {
+  id: number;
+  title: string;
+  category: string;
+  preview: string;
+  prompt: string;
+  thumbnail: string;
+}
+
+const CURATED_VISUAL_INSPIRATIONS: VisualInspiration[] = [
   {
-    id: 1,
-    title: 'Cyberpunk Ramen Stall',
-    category: 'Cinematic',
-    styles: ['Cyberpunk', 'Cinematic'],
-    scenes: ['Urban', 'Night'],
-    source: 'preset',
-    thumbnail: '',
-    prompt: 'A bustling cyberpunk ramen stall in rain with neon signs, steaming bowls, reflective wet pavement, 8k resolution, cinematic lighting',
-    promptPreview: 'A bustling cyberpunk ramen stall in rain with neon signs, steaming bowls...',
+    id: 540,
+    title: 'Surreal Futuristic City',
+    category: 'Editorial Art',
+    preview: 'Editorial art poster of a dreamlike futuristic world with sculptural buildings and geometric shadows.',
+    prompt:
+      'Create a visually unforgettable editorial art poster of a dreamlike futuristic world where familiar everyday life meets surreal architecture. Grand sculptural buildings, winding roads, oversized plants, tiny people, unexpected floating elements, dramatic perspective, cinematic atmosphere, and one iconic focal point. Blend vintage travel-poster design with modern luxury editorial aesthetics, sophisticated muted colors, soft natural light, subtle film grain, tactile paper texture, clean geometric shapes, minimal composition, nostalgic yet futuristic, whimsical but premium, highly detailed, instantly recognizable silhouette, collectible art print, no clutter, no photorealism, vertical 4:5.',
+    thumbnail: '/api/prompt-gallery/thumbnails/540',
   },
   {
-    id: 2,
-    title: 'Wanderer at Sunset',
-    category: 'Portrait',
-    styles: ['Portrait', 'Cinematic'],
-    scenes: ['Outdoor', 'Sunset'],
-    source: 'preset',
-    thumbnail: '',
-    prompt: 'Cinematic portrait of a lone wanderer at golden hour sunset, rim lighting, 35mm photography, shallow depth of field, atmospheric haze',
-    promptPreview: 'Cinematic portrait of a lone wanderer at golden hour sunset, rim lighting...',
+    id: 543,
+    title: 'Travel Enamel Pin Badge',
+    category: 'Product Design',
+    preview: 'Travel souvenir enamel pin badge composed as a landscape scene with polished gold divider outlines.',
+    prompt:
+      'Turn the reference photo into a travel souvenir enamel pin badge. Compose it as a SCENE, not a single isolated object. Subject hierarchy: the defining landscape forms the main body of the badge. Styling: thin polished gold outline around silhouette and internal dividers, glossy enamel color fill, gentle even lighting with soft sheen on gold lines, subtle drop shadow. Flat dark navy coarse linen texture background. Badge centered, filling 60% of the frame.',
+    thumbnail: '/api/prompt-gallery/thumbnails/543',
   },
   {
-    id: 3,
-    title: 'Bioluminescent Mushroom',
-    category: 'Macro',
-    styles: ['Macro', 'Nature'],
-    scenes: ['Forest', 'Night'],
-    source: 'preset',
-    thumbnail: '',
-    prompt: 'Macro shot of a glowing bioluminescent mushroom in an enchanted misty forest, ethereal blue and green spore particles, detailed texture',
-    promptPreview: 'Macro shot of a glowing bioluminescent mushroom in an enchanted misty forest...',
+    id: 542,
+    title: 'High-Contrast Ink Portrait',
+    category: 'Typography',
+    preview: 'High-contrast black and white typographic portrait poster with bold silhouette blocks and rough ink edges.',
+    prompt:
+      'High-contrast black and white typographic portrait poster of HUMAN, shown in side profile with FEATURE. Build the portrait with bold black silhouette blocks, sharp negative space, rough ink edges, fragmented stencil shapes, tiny editorial microtext, vertical typographic accents and expressive hand-drawn calligraphic marks. Minimal off-white paper background, asymmetrical layout, cropped vertical composition, experimental editorial poster design, raw ink print texture, aspect ratio 4:5.',
+    thumbnail: '/api/prompt-gallery/thumbnails/542',
   },
   {
-    id: 4,
-    title: 'Minimalist Architecture',
+    id: 489,
+    title: 'Tilt-Shift Diorama Courtyard',
     category: 'Architecture',
-    styles: ['Minimalist', 'Poster'],
-    scenes: ['Architectural', 'Studio'],
-    source: 'preset',
-    thumbnail: '',
-    prompt: 'Minimalist architectural poster in muted earth tones, geometric brutalist shadows, soft natural sunlight, Scandinavian aesthetic',
-    promptPreview: 'Minimalist architectural poster in muted earth tones, geometric brutalist shadows...',
+    preview: 'Cinematic miniature tilt-shift diorama of an architectural courtyard at twilight with volumetric glow.',
+    prompt:
+      'Create a highly detailed cinematic miniature tilt-shift diorama of an architectural courtyard at twilight. Dramatic volumetric lighting, warm interior glow spilling through large glass windows, tiny meticulously detailed trees, miniature streetlights with gentle lens flare, shallow depth of field, tilt-shift lens effect, 8k resolution, photorealistic textures.',
+    thumbnail: '/api/prompt-gallery/thumbnails/489',
+  },
+  {
+    id: 529,
+    title: 'Golden Hour Fashion Portrait',
+    category: 'Photography',
+    preview: 'Dreamy ultra-photorealistic outdoor fashion portrait in warm golden hour sunlight with shallow bokeh.',
+    prompt:
+      'Create a dreamy ultra-photorealistic outdoor fashion portrait in golden hour sunlight. Natural wind blowing through hair, cinematic shallow depth of field, 85mm f/1.4 lens bokeh, warm amber backlight highlights, realistic skin texture, subtle film grain, soft color grading.',
+    thumbnail: '/api/prompt-gallery/thumbnails/529',
+  },
+  {
+    id: 541,
+    title: '50/50 Mixed-Media Memory Card',
+    category: 'Mixed Media',
+    preview: 'Vertical memory card with 50/50 split between original photo and minimalist wax-crayon sketch.',
+    prompt:
+      "Transform the uploaded photo into a vertical mixed-media memory card with a strict 50/50 split. Keep the original photo unchanged in the top half. In the bottom half, use textured off-white handmade paper and add a muted, irregular color patch matching the photo's tones. Redraw the main subjects as a simple dark wax-crayon sketch with loose, imperfect lines and minimal details. Quiet, nostalgic Morandi-style aesthetic.",
+    thumbnail: '/api/prompt-gallery/thumbnails/541',
+  },
+  {
+    id: 516,
+    title: 'Stylized 3D Character Art',
+    category: '3D Render',
+    preview: 'Ultra-detailed 3D render in soft studio lighting with delicate clay textures and rim illumination.',
+    prompt:
+      'Create an ultra-detailed hyper-realistic 3D render of a stylized character in soft studio lighting. Subsurface scattering on skin, delicate clay and matte vinyl textures, gentle rim lighting, clean solid pastel background, isometric camera angle, octane render quality.',
+    thumbnail: '/api/prompt-gallery/thumbnails/516',
+  },
+  {
+    id: 544,
+    title: 'Visual Learning Card',
+    category: 'Infographic',
+    preview: 'Clean preschool vocabulary poster featuring realistic organic fruit with playful cross-section slice.',
+    prompt:
+      'Create a clean, child-friendly educational vocabulary poster for preschool/kindergarten children, inspired by a simple visual learning card. Feature fresh organic fruit with water droplets as the main large realistic object on the left, and show a PART / SLICE of the same fruit on the right with a playful dotted curved arrow. Soft white and light pastel-blue background, rounded image panels, clean spacing, realistic photography, simple typography.',
+    thumbnail: '/api/prompt-gallery/thumbnails/544',
   },
 ];
 
@@ -113,30 +149,53 @@ export const ChatView: React.FC<ChatViewProps> = ({
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [injectedPrompt, setInjectedPrompt] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<CuratedPrompt[]>(FALLBACK_SUGGESTIONS);
+  const [suggestions, setSuggestions] = useState<VisualInspiration[]>(() =>
+    CURATED_VISUAL_INSPIRATIONS.slice(0, 4)
+  );
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
 
-  const fetchDynamicSuggestions = useCallback(async () => {
+  // Dynamic shuffle with English filtering, falling back to curated pool
+  const shuffleSuggestions = useCallback(async () => {
+    hapticImpact('selection');
     setIsLoadingSuggestions(true);
     try {
-      // Pick a random page from 1 to 25 to fetch diverse inspiration
-      const randomPage = Math.floor(Math.random() * 25) + 1;
-      const res = await api.getPromptGallery({ per_page: 12, page: randomPage });
+      const randomPage = Math.floor(Math.random() * 20) + 1;
+      const res = await api.getPromptGallery({ lang: 'en', per_page: 8, page: randomPage });
       if (res && res.prompts && res.prompts.length > 0) {
-        // Shuffle and pick 4
-        const shuffled = [...res.prompts].sort(() => 0.5 - Math.random()).slice(0, 4);
-        setSuggestions(shuffled);
+        const mapped: VisualInspiration[] = res.prompts
+          .filter((p) => p.thumbnail && !p.prompt.startsWith('[中文]'))
+          .map((p) => {
+            const firstLine = p.prompt.split('\n')[0].split('.')[0].trim();
+            const fallbackTitle = p.category ? `${p.category}` : 'Prompt Concept';
+            const cleanTitle =
+              p.title && !/[\u4e00-\u9fff]/.test(p.title)
+                ? p.title.replace(/\(.*?\)/g, '').trim() || fallbackTitle
+                : fallbackTitle;
+            return {
+              id: p.id,
+              title: cleanTitle,
+              category: p.category || 'Creative',
+              preview: firstLine.length > 95 ? firstLine.slice(0, 92) + '…' : firstLine,
+              prompt: p.prompt,
+              thumbnail: p.thumbnail,
+            };
+          });
+        if (mapped.length >= 2) {
+          const shuffled = mapped.sort(() => 0.5 - Math.random()).slice(0, 4);
+          setSuggestions(shuffled);
+          return;
+        }
       }
     } catch (err) {
-      console.warn('Failed to load dynamic suggestions, using cached:', err);
+      console.warn('Could not fetch dynamic English suggestions:', err);
     } finally {
       setIsLoadingSuggestions(false);
     }
-  }, []);
 
-  useEffect(() => {
-    fetchDynamicSuggestions();
-  }, [fetchDynamicSuggestions]);
+    // Fallback: shuffle curated visual prompts
+    const shuffled = [...CURATED_VISUAL_INSPIRATIONS].sort(() => 0.5 - Math.random()).slice(0, 4);
+    setSuggestions(shuffled);
+  }, []);
 
   const handleSelectSuggestion = (prompt: string) => {
     hapticImpact('selection');
@@ -203,78 +262,71 @@ export const ChatView: React.FC<ChatViewProps> = ({
       <PullToRefresh ref={scrollRef} onRefresh={onRefresh} className="px-3 sm:px-4 py-3 sm:py-4 pb-8 sm:pb-6 space-y-3 sm:space-y-2 flex-1 w-full min-w-0 max-w-full overflow-y-auto overflow-x-hidden no-scrollbar">
         {/* Empty state suggestions */}
         {messages.length === 0 && !isGenerating && (
-          <div className="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto py-8 px-2 animate-fade-in">
-            <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center mb-3 shadow-sm">
-              <Sparkles size={22} />
+          <div className="min-h-full flex flex-col items-center justify-start sm:justify-center text-center max-w-lg mx-auto pt-2 pb-3 sm:py-6 px-1 sm:px-2 animate-fade-in">
+            <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center mb-1.5 sm:mb-2 shadow-2xs">
+              <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <h2 className="text-base font-semibold text-foreground mb-1">
+            <h2 className="text-sm sm:text-lg font-semibold tracking-tight text-foreground mb-0.5 font-heading">
               What do you want to imagine?
             </h2>
-            <p className="text-xs text-muted-foreground mb-4">
+            <p className="text-[11px] sm:text-xs text-muted-foreground mb-2.5 sm:mb-3.5 max-w-[280px] sm:max-w-sm leading-normal">
               Tap any prompt below to populate the chatbox, or type your own concept.
             </p>
 
-            <div className="w-full space-y-2">
+            <div className="w-full space-y-1.5 sm:space-y-2">
               <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  <Compass size={13} className="text-primary" />
-                  <span>Prompt Library Inspiration</span>
+                <div className="flex items-center gap-1.5 text-[9.5px] sm:text-[10.5px] font-semibold uppercase font-mono tracking-wider text-muted-foreground">
+                  <Compass size={11} className="text-primary" />
+                  <span>Prompt Inspiration</span>
                 </div>
                 <button
                   type="button"
-                  onClick={fetchDynamicSuggestions}
+                  onClick={shuffleSuggestions}
                   disabled={isLoadingSuggestions}
-                  className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors py-1 px-2 rounded-lg hover:bg-muted active:scale-95 disabled:opacity-50 cursor-pointer"
-                  title="Shuffle suggestions from Prompt Library"
+                  className="flex items-center gap-1 text-[10px] sm:text-[11px] text-muted-foreground hover:text-primary transition-colors py-0.5 px-1.5 rounded-lg hover:bg-muted active:scale-95 disabled:opacity-50 cursor-pointer"
+                  title="Shuffle prompts"
                 >
-                  <Shuffle size={12} className={isLoadingSuggestions ? 'animate-spin' : ''} />
+                  <Shuffle size={11} className={isLoadingSuggestions ? 'animate-spin' : ''} />
                   <span>Shuffle</span>
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
-                {suggestions.map((sug) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5 w-full">
+                {suggestions.map((item) => (
                   <button
-                    key={sug.id}
+                    key={item.id}
                     type="button"
-                    onClick={() => handleSelectSuggestion(sug.prompt)}
-                    className="flex items-start gap-2.5 text-left p-3 rounded-2xl bg-card hover:bg-muted/80 border border-border hover:border-primary/40 text-foreground transition-all active:scale-[0.98] group min-h-[64px] shadow-2xs relative overflow-hidden cursor-pointer"
-                    title="Click to insert into chatbox"
+                    onClick={() => handleSelectSuggestion(item.prompt)}
+                    className="flex items-center gap-2.5 p-2 sm:p-2.5 rounded-xl bg-card hover:bg-muted/80 border border-border hover:border-primary/40 text-foreground transition-all active:scale-[0.98] group min-h-[58px] sm:min-h-[62px] shadow-2xs text-left cursor-pointer"
+                    title="Tap to insert into chatbox"
                   >
-                    {sug.thumbnail ? (
-                      <img
-                        src={sug.thumbnail}
-                        alt={sug.title || 'Prompt thumbnail'}
-                        className="w-10 h-10 rounded-xl object-cover shrink-0 border border-border/50 bg-muted"
-                        loading="lazy"
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
-                        <Sparkles size={16} />
-                      </div>
-                    )}
+                    {/* Real Thumbnail Image */}
+                    <img
+                      src={item.thumbnail}
+                      alt={item.title}
+                      className="w-11 h-11 sm:w-12 sm:h-12 rounded-lg object-cover border border-border/60 bg-muted shrink-0 shadow-2xs"
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
 
-                    <div className="flex-1 min-w-0 pr-1">
+                    <div className="flex-1 min-w-0 pr-0.5">
                       <div className="flex items-center gap-1.5 mb-0.5">
-                        {sug.category && (
-                          <span className="text-[9px] font-medium font-mono uppercase px-1.5 py-0.2 rounded bg-muted text-muted-foreground border border-border/60 shrink-0">
-                            {sug.category}
-                          </span>
-                        )}
-                        <span className="text-xs font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                          {sug.title}
+                        <span className="text-[9px] font-mono font-semibold uppercase px-1.5 py-0.2 rounded bg-primary/10 text-primary border border-primary/20 shrink-0">
+                          {item.category}
+                        </span>
+                        <span className="text-[11.5px] sm:text-xs font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                          {item.title}
                         </span>
                       </div>
-                      <p className="text-[11px] text-muted-foreground line-clamp-2 leading-tight font-sans">
-                        {sug.promptPreview || sug.prompt}
+                      <p className="text-[10.5px] sm:text-[11px] text-muted-foreground line-clamp-2 leading-tight font-sans">
+                        {item.preview}
                       </p>
                     </div>
 
-                    <div className="self-center p-1 rounded-lg text-muted-foreground group-hover:text-primary group-hover:bg-primary/10 transition-colors shrink-0">
-                      <CornerDownLeft size={13} />
+                    <div className="text-muted-foreground group-hover:text-primary transition-colors shrink-0 p-1">
+                      <ArrowUpRight size={13} className="opacity-60 group-hover:opacity-100" />
                     </div>
                   </button>
                 ))}

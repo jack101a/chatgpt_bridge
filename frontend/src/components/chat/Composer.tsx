@@ -22,6 +22,7 @@ import {
   Check,
   Terminal,
   Brain,
+  Paperclip,
 } from 'lucide-react';
 import {
   ImageRequest,
@@ -74,6 +75,95 @@ export const Composer: React.FC<ComposerProps> = ({
   const [showLibrary, setShowLibrary] = useState(false);
   const [isDirectorModalOpen, setIsDirectorModalOpen] = useState(false);
   const [isThinkingMode, setIsThinkingMode] = useState(false);
+
+  // Uploaded image & drag-drop state
+  const [localReference, setLocalReference] = useState<GalleryItem | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const effectiveReference = localReference || referenceImage;
+
+  const handleClearReference = useCallback(() => {
+    setLocalReference(null);
+    onClearReference?.();
+    hapticImpact('light');
+  }, [onClearReference]);
+
+  const uploadAndAttachFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) return;
+    try {
+      setIsUploadingImage(true);
+      hapticImpact('light');
+      const res = await api.uploadImage(file);
+      if (res.ok) {
+        const item: GalleryItem = {
+          id: res.id,
+          url: res.url,
+          thumbnail_url: res.url,
+          prompt: file.name || 'Uploaded Reference',
+          tweaked_prompt: null,
+          tweaked_prompt_2: null,
+          conversation_id: null,
+          account_used: null,
+          created_at: Date.now(),
+          size_bytes: file.size,
+          md5: null,
+          duration_s: null,
+          favorite: false,
+        };
+        setLocalReference(item);
+        hapticImpact('medium');
+      }
+    } catch (err) {
+      console.error('Failed to upload image:', err);
+    } finally {
+      setIsUploadingImage(false);
+    }
+  }, []);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (e.clipboardData && e.clipboardData.items) {
+      for (let i = 0; i < e.clipboardData.items.length; i++) {
+        const item = e.clipboardData.items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            uploadAndAttachFile(file);
+            return;
+          }
+        }
+      }
+    }
+  }, [uploadAndAttachFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        if (files[i].type.startsWith('image/')) {
+          uploadAndAttachFile(files[i]);
+          return;
+        }
+      }
+    }
+  }, [uploadAndAttachFile]);
 
   // Injected prompt handler from parent or external event
   useEffect(() => {
@@ -443,10 +533,11 @@ export const Composer: React.FC<ComposerProps> = ({
         prompt: compiledPrompt,
         conversation_id: activeConvId || null,
         aspect: '1:1',
-        reference_image: referenceImage ? referenceImage.id : null,
+        reference_image: effectiveReference ? (effectiveReference.id || effectiveReference.url) : null,
       });
 
       setDeltaScene('');
+      setLocalReference(null);
       return;
     }
 
@@ -466,12 +557,13 @@ export const Composer: React.FC<ComposerProps> = ({
       prompt: finalPrompt,
       conversation_id: activeConvId || null,
       aspect: '1:1',
-      reference_image: referenceImage ? referenceImage.id : null,
+      reference_image: effectiveReference ? (effectiveReference.id || effectiveReference.url) : null,
       thinking: isThinkingMode,
       mode: isThinkingMode ? 'chat' : 'image',
     });
 
     setPromptText('');
+    setLocalReference(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -545,7 +637,7 @@ export const Composer: React.FC<ComposerProps> = ({
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto p-2 sm:p-3 space-y-2 select-none">
+    <div className="w-full max-w-4xl mx-auto px-2 pt-1 pb-1.5 sm:p-3 space-y-1.5 sm:space-y-2 select-none">
       {/* ── Visual Prompt Library Tray ── */}
       {showLibrary && (
         <PromptLibraryTray
@@ -579,29 +671,45 @@ export const Composer: React.FC<ComposerProps> = ({
       )}
 
       {/* ── Main Floating Capsule Stage ── */}
-      <div className="relative rounded-2xl border border-border bg-card shadow-lg transition-all duration-200">
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`relative rounded-2xl border bg-card shadow-lg transition-all duration-200 ${
+          isDragOver ? 'border-primary ring-2 ring-primary/20' : 'border-border'
+        }`}
+      >
+        {/* Drag over overlay */}
+        {isDragOver && (
+          <div className="absolute inset-0 z-30 bg-background/85 backdrop-blur-xs rounded-2xl flex items-center justify-center border-2 border-dashed border-primary gap-2 pointer-events-none">
+            <Paperclip size={20} className="text-primary animate-bounce" />
+            <span className="text-sm font-medium text-primary">Drop image to attach reference</span>
+          </div>
+        )}
+
         {/* ── Active Reference Preview Banner ── */}
-        {referenceImage && (
-          <div className="flex items-center justify-between px-3 py-2 bg-primary/10 border-b border-primary/20 text-xs rounded-t-2xl">
+        {effectiveReference && (
+          <div className="flex items-center justify-between px-3 py-2 bg-primary/10 border-b border-primary/20 text-xs rounded-t-2xl animate-fade-in">
             <div className="flex items-center gap-2 min-w-0">
               <img
-                src={referenceImage.thumbnail_url || referenceImage.url}
+                src={effectiveReference.thumbnail_url || effectiveReference.url}
                 alt="Reference"
-                className="w-7 h-7 rounded-lg object-cover border border-primary/40 shrink-0"
+                className="w-7 h-7 rounded-lg object-cover border border-primary/40 shrink-0 bg-background"
               />
               <div className="min-w-0">
                 <span className="font-semibold text-primary block leading-tight">
-                  Remix Reference Attached
+                  {localReference ? 'Uploaded Image Attached (Edit / Vision)' : 'Remix Reference Attached'}
                 </span>
-                <span className="text-[11px] text-muted-foreground truncate block">
-                  {referenceImage.prompt || referenceImage.id}
+                <span className="text-[11px] text-muted-foreground truncate block font-mono">
+                  {effectiveReference.prompt || effectiveReference.id}
                 </span>
               </div>
             </div>
             <button
-              onClick={onClearReference}
-              className="p-1 rounded-lg hover:bg-primary/20 text-primary transition-colors shrink-0"
+              onClick={handleClearReference}
+              className="p-1 rounded-lg hover:bg-primary/20 text-primary transition-colors shrink-0 cursor-pointer"
               title="Remove reference"
+              type="button"
             >
               <X size={14} />
             </button>
@@ -609,14 +717,14 @@ export const Composer: React.FC<ComposerProps> = ({
         )}
 
         {/* ── Top Bar: Character Pill, Delta Mode & Tools ── */}
-        <div className={`flex items-center justify-between px-2.5 sm:px-3 pt-2 pb-1.5 gap-1.5 sm:gap-2 border-b border-border/50 bg-muted/20 ${!referenceImage ? 'rounded-t-2xl' : ''}`}>
+        <div className={`flex items-center justify-between px-2 sm:px-3 py-1 sm:py-1.5 gap-1.5 sm:gap-2 border-b border-border/50 bg-muted/20 ${!effectiveReference ? 'rounded-t-2xl' : ''}`}>
           {/* Left: Character Lock Pill & Selector */}
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0" ref={menuRef}>
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setIsCharacterMenuOpen(!isCharacterMenuOpen)}
-                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border min-h-[34px] ${
+                className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-semibold transition-all cursor-pointer border min-h-[28px] sm:min-h-[30px] ${
                   activeCharacter
                     ? 'bg-primary/15 text-primary border-primary/30 hover:bg-primary/20 shadow-xs'
                     : 'bg-muted text-muted-foreground border-border hover:bg-muted/80 hover:text-foreground'
@@ -773,7 +881,7 @@ export const Composer: React.FC<ComposerProps> = ({
                   hapticImpact('light');
                   setIsModelPickerOpen(!isModelPickerOpen);
                 }}
-                className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl bg-muted/70 hover:bg-muted text-foreground text-xs font-mono border border-border transition-all active:scale-95 shadow-2xs min-h-[34px] sm:min-h-[30px] max-w-[105px] sm:max-w-[220px]"
+                className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg bg-muted/70 hover:bg-muted text-foreground text-[11px] sm:text-xs font-mono border border-border transition-all active:scale-95 shadow-2xs min-h-[28px] sm:min-h-[30px] max-w-[140px] sm:max-w-[220px]"
                 title={`Enhancer: ${aiProviders[enhancerProviderId]?.name || enhancerProviderId} → ${enhancerModel}. Click to switch provider or model.`}
               >
                 <Wand2 size={12} className="text-emerald-500 shrink-0" />
@@ -1051,7 +1159,7 @@ export const Composer: React.FC<ComposerProps> = ({
                 hapticImpact('light');
                 setIsDirectorModalOpen(true);
               }}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 text-xs font-semibold border border-rose-500/25 transition-all active:scale-95 shadow-2xs min-h-[34px] sm:min-h-[32px]"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/15 text-rose-500 text-xs font-semibold border border-rose-500/25 transition-all active:scale-95 shadow-2xs min-h-[34px] sm:min-h-[32px]"
               title="AI Director: Cinematic Storyboard Generator"
             >
               <Clapperboard size={13} />
@@ -1064,7 +1172,7 @@ export const Composer: React.FC<ComposerProps> = ({
                 hapticImpact('light');
                 setShowLibrary(!showLibrary);
               }}
-              className={`p-2 rounded-xl transition-all min-h-[34px] min-w-[34px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center ${
+              className={`hidden sm:flex p-2 rounded-xl transition-all min-h-[34px] min-w-[34px] sm:min-h-[32px] sm:min-w-[32px] items-center justify-center ${
                 showLibrary
                   ? 'bg-primary/15 text-primary'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -1233,35 +1341,38 @@ export const Composer: React.FC<ComposerProps> = ({
                 value={promptText}
                 onChange={handleTextChange}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 placeholder={
                   isThinkingMode
-                    ? 'Ask anything with deep reasoning (GPT-5.6 Thinking Mode active)…'
-                    : referenceImage
-                    ? 'Describe modifications using this reference…'
+                    ? effectiveReference
+                      ? 'Ask anything or reason over this image (Thinking Mode active)…'
+                      : 'Ask anything with deep reasoning (GPT-5.6 Thinking Mode active)…'
+                    : effectiveReference
+                    ? 'Describe modifications using this reference image…'
                     : activeCharacter
                     ? `Describe a scene for ${activeCharacter.name}…`
-                    : 'Describe what you want to imagine (or type / for curated styles)…'
+                    : 'Describe what you want to imagine (or paste / attach image)…'
                 }
-                className={`w-full block bg-transparent border-0 outline-none resize-none text-[16px] sm:text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans p-0 ${
+                className={`w-full block bg-transparent border-0 outline-none resize-none text-[13.5px] sm:text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans p-0 ${
                   isStudioMode
                     ? 'min-h-[240px] sm:min-h-[280px] max-h-[480px]'
-                    : 'min-h-[44px] max-h-[180px]'
+                    : 'min-h-[38px] max-h-[160px]'
                 }`}
               />
             </div>
 
             {/* 2. Sleek Bottom Action Toolbar */}
-            <div className="flex items-center justify-between px-3 sm:px-4 pb-2.5 pt-1.5 gap-2 border-t border-border/40">
+            <div className="flex items-center justify-between px-2.5 sm:px-4 pb-2 pt-1 gap-1 sm:gap-2 border-t border-border/40">
               {/* Left Group: Tools & Mode Toggles */}
-              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-                {/* Studio Mode Toggle */}
+              <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
+                {/* Studio Mode Toggle (Desktop only) */}
                 <button
                   type="button"
                   onClick={() => {
                     hapticImpact('light');
                     setIsStudioMode(!isStudioMode);
                   }}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all border min-h-[36px] sm:min-h-[32px] cursor-pointer ${
+                  className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium transition-all border min-h-[30px] sm:min-h-[32px] cursor-pointer ${
                     isStudioMode
                       ? 'bg-primary/15 text-primary border-primary/30 shadow-xs'
                       : 'bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border-border/60 shadow-2xs'
@@ -1270,8 +1381,31 @@ export const Composer: React.FC<ComposerProps> = ({
                   aria-label="Toggle Studio Mode"
                 >
                   {isStudioMode ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                  <span className="text-[11px] hidden sm:inline">
+                  <span className="text-[11px]">
                     {isStudioMode ? 'Compact' : 'Studio'}
+                  </span>
+                </button>
+
+                {/* 📎 Image Attachment Button */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingImage || isGenerating}
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-medium transition-all border min-h-[30px] sm:min-h-[32px] min-w-[30px] sm:min-w-0 justify-center cursor-pointer ${
+                    effectiveReference
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                      : 'bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border-border/60 shadow-2xs'
+                  }`}
+                  title="Attach reference image for editing or vision (or paste / drop file)"
+                  aria-label="Attach reference image"
+                >
+                  {isUploadingImage ? (
+                    <Loader2 size={13} className="animate-spin text-emerald-500" />
+                  ) : (
+                    <Paperclip size={13} className={effectiveReference ? 'text-emerald-500' : 'text-muted-foreground'} />
+                  )}
+                  <span className="text-[11px] font-sans hidden sm:inline">
+                    {isUploadingImage ? 'Uploading…' : effectiveReference ? 'Attached' : 'Attach'}
                   </span>
                 </button>
 
@@ -1285,7 +1419,7 @@ export const Composer: React.FC<ComposerProps> = ({
                     setSlashConcept(promptText.trim());
                     setSlashSelectedIndex(0);
                   }}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-mono transition-all border min-h-[36px] sm:min-h-[32px] cursor-pointer ${
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-mono transition-all border min-h-[30px] sm:min-h-[32px] min-w-[30px] sm:min-w-0 justify-center cursor-pointer ${
                     isSlashOpen
                       ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                       : 'bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border-border/60 shadow-2xs'
@@ -1297,16 +1431,52 @@ export const Composer: React.FC<ComposerProps> = ({
                   <span className="text-[11px] font-semibold text-primary">/</span>
                   <span className="text-[11px] font-sans text-muted-foreground hidden sm:inline">Styles</span>
                 </button>
+
+                {/* Prompt Library Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    hapticImpact('light');
+                    setShowLibrary(!showLibrary);
+                  }}
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-medium transition-all border min-h-[30px] sm:min-h-[32px] min-w-[30px] sm:min-w-0 justify-center cursor-pointer ${
+                    showLibrary
+                      ? 'bg-primary/15 text-primary border-primary/30 shadow-xs'
+                      : 'bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border-border/60 shadow-2xs'
+                  }`}
+                  title="Browse Prompt Library & Curated Cases"
+                  aria-label="Browse prompt library"
+                >
+                  <Sparkles size={13} className={showLibrary ? 'text-primary' : 'text-muted-foreground'} />
+                  <span className="text-[11px] hidden sm:inline">Library</span>
+                </button>
+
+                {/* Hidden File Input for Image Upload */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      uploadAndAttachFile(file);
+                    }
+                    if (fileInputRef.current) {
+                      fileInputRef.current.value = '';
+                    }
+                  }}
+                />
               </div>
 
               {/* Right Group: Enhance & Send Actions */}
-              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                 {/* 1-Click Enhance / Make Safe */}
                 <button
                   type="button"
                   onClick={handleEnhance}
                   disabled={isGenerating || isEnhancing || !promptText.trim()}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border min-h-[36px] sm:min-h-[32px] cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-xl text-xs font-medium transition-all border min-h-[30px] sm:min-h-[32px] min-w-[30px] sm:min-w-0 justify-center cursor-pointer ${
                     safety.level === 'danger'
                       ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border-amber-500/30 active:scale-95 shadow-sm'
                       : promptText.trim()
@@ -1337,7 +1507,7 @@ export const Composer: React.FC<ComposerProps> = ({
                     setIsThinkingMode((prev) => !prev);
                     hapticImpact('light');
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border min-h-[36px] sm:min-h-[32px] cursor-pointer ${
+                  className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-medium transition-all border min-h-[30px] sm:min-h-[32px] cursor-pointer ${
                     isThinkingMode
                       ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 shadow-xs shadow-emerald-500/20 active:scale-95'
                       : 'bg-muted/70 hover:bg-muted text-muted-foreground hover:text-foreground border-border/70 active:scale-95'
@@ -1361,7 +1531,7 @@ export const Composer: React.FC<ComposerProps> = ({
                   type="button"
                   onClick={handleSubmit}
                   disabled={isGenerating || !promptText.trim()}
-                  className={`w-9 h-9 sm:w-8.5 sm:h-8.5 min-w-[36px] min-h-[36px] rounded-xl flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+                  className={`w-7.5 h-7.5 sm:w-8.5 sm:h-8.5 min-w-[30px] min-h-[30px] sm:min-w-[34px] sm:min-h-[34px] rounded-xl flex items-center justify-center shrink-0 transition-all cursor-pointer ${
                     promptText.trim() && !isGenerating
                       ? isThinkingMode
                         ? 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-90 shadow-md shadow-emerald-600/30'
@@ -1371,80 +1541,80 @@ export const Composer: React.FC<ComposerProps> = ({
                   title={isThinkingMode ? 'Send in Thinking Mode (Reasoning Chat)' : 'Generate Image'}
                   aria-label={isThinkingMode ? 'Send with Thinking Mode' : 'Send prompt'}
                 >
-                  <ArrowUp size={16} strokeWidth={2.5} />
+                  <ArrowUp size={15} strokeWidth={2.5} />
                 </button>
               </div>
             </div>
           </div>
         ) : (
-          <div className="p-3 space-y-2.5">
+          <div className="p-2.5 sm:p-3 space-y-2 sm:space-y-2.5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input
                 type="text"
                 value={deltaScene}
                 onChange={(e) => setDeltaScene(e.target.value)}
                 placeholder="[SCENE]: Location & action (required)"
-                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-[13px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaOutfit}
                 onChange={(e) => setDeltaOutfit(e.target.value)}
                 placeholder="[OUTFIT]: Specific clothing"
-                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-[13px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaPose}
                 onChange={(e) => setDeltaPose(e.target.value)}
                 placeholder="[POSE]: Posture or gesture"
-                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-[13px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaExpression}
                 onChange={(e) => setDeltaExpression(e.target.value)}
                 placeholder="[EXPRESSION]: Facial expression and gaze"
-                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-[13px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaCamera}
                 onChange={(e) => setDeltaCamera(e.target.value)}
                 placeholder="[CAMERA]: Lens & POV (e.g. 50mm candid)"
-                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-[13px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaLighting}
                 onChange={(e) => setDeltaLighting(e.target.value)}
                 placeholder="[LIGHTING]: Atmosphere & light"
-                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-[13px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans"
               />
               <input
                 type="text"
                 value={deltaBackground}
                 onChange={(e) => setDeltaBackground(e.target.value)}
                 placeholder="[BACKGROUND]: Environment details"
-                className="w-full px-3 py-2 sm:py-1.5 rounded-lg bg-muted/60 border border-border text-[16px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans sm:col-span-2"
+                className="w-full px-3 py-1.5 rounded-lg bg-muted/60 border border-border text-[13px] sm:text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary font-sans sm:col-span-2"
               />
             </div>
             <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
-              <span className="text-[11px] text-muted-foreground font-mono">
+              <span className="text-[10.5px] text-muted-foreground font-mono">
                 Clean Delta preserves character DNA without token drift.
               </span>
               <button
                 type="button"
                 onClick={handleSubmit}
                 disabled={isGenerating || !deltaScene.trim()}
-                className={`flex items-center gap-1.5 px-4 py-2 sm:py-1.5 rounded-xl text-xs font-semibold transition-all min-h-[38px] sm:min-h-[32px] ${
+                className={`flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-xl text-xs font-semibold transition-all min-h-[30px] sm:min-h-[32px] ${
                   deltaScene.trim() && !isGenerating
                     ? 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-95 shadow-md shadow-emerald-500/25'
                     : 'bg-muted text-muted-foreground/50 cursor-not-allowed'
                 }`}
               >
                 <span>Generate Delta</span>
-                <ArrowUp size={14} strokeWidth={2.5} />
+                <ArrowUp size={13} strokeWidth={2.5} />
               </button>
             </div>
           </div>
@@ -1452,8 +1622,8 @@ export const Composer: React.FC<ComposerProps> = ({
       </div>
 
       {/* ── Micro-Telemetry & Keyboard Hint Footer ── */}
-      <div className="flex items-center justify-between px-2 text-[10.5px] font-mono text-muted-foreground">
-        <div className="hidden sm:flex items-center gap-2">
+      <div className="hidden sm:flex items-center justify-between px-2 text-[10.5px] font-mono text-muted-foreground">
+        <div className="flex items-center gap-2">
           <span>↵ Send</span>
           <span>•</span>
           <span>⇧↵ Newline</span>
