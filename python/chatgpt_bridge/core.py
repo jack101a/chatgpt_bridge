@@ -208,6 +208,153 @@ class ChatGPT:
         self._current_conversation_id = None
         return acc
 
+    async def fetch_account_quota(
+        self,
+        account_id_or_alias: str | None = None,
+        force_refresh: bool = False,
+    ) -> dict:
+        """Fetch real-time quota and limits for an account from ChatGPT backend-api.
+
+        Queries /backend-api/wham/usage and /backend-api/wham/rate-limit-reset-credits.
+        Caches results with a 60-second TTL to avoid upstream 429 throttling.
+        """
+        import datetime
+
+        acc = (
+            self.account_manager.find_account(account_id_or_alias)
+            if account_id_or_alias
+            else self.account_manager.get_active_account()
+        )
+        if not acc:
+            raise KeyError(f"Account not found: {account_id_or_alias}")
+
+        now = time.time()
+        # Return memory cached quota if still valid (< 60s)
+        if not force_refresh and acc.quota:
+            fetched_at = acc.quota.get("fetched_at", 0)
+            if now - fetched_at < 60:
+                return acc.quota
+
+        is_active = self.account_manager.active_account_id == acc.id
+        if not is_active:
+            if acc.quota:
+                return acc.quota
+            # For non-active accounts without fresh fetch, return stored state
+            return {
+                "account_id": acc.id,
+                "alias": acc.alias,
+                "email": acc.email,
+                "plan_type": "unknown",
+                "allowed": not acc.is_rate_limited(),
+                "limit_reached": acc.is_rate_limited(),
+                "used_percent": 100.0 if acc.is_rate_limited() else 0.0,
+                "left_percent": 0.0 if acc.is_rate_limited() else 100.0,
+                "reset_after_seconds": int(acc.remaining_rate_limit_seconds()),
+                "reset_at": int(acc.rate_limited_until or 0),
+                "reset_at_str": acc.rate_limit_resets_at_str,
+                "limit_window_seconds": 0,
+                "secondary_used_percent": None,
+                "secondary_left_percent": None,
+                "secondary_reset_at_str": None,
+                "credits_balance": None,
+                "has_credits": False,
+                "reset_credits_count": 0,
+                "fetched_at": now,
+            }
+
+        await self._ensure_started()
+        token = await self.session.get_access_token()
+        ctx = await self.browser.context()
+        page = await ctx.new_page()
+        try:
+            headers = {"Authorization": f"Bearer {token}"}
+            resp = await page.request.get(
+                "https://chatgpt.com/backend-api/wham/usage",
+                headers=headers,
+                timeout=15000,
+            )
+            if resp.status != 200:
+                log.warning("wham/usage returned status %d for %s", resp.status, acc.alias)
+                if acc.quota:
+                    return acc.quota
+                raise ShapeChangedError(f"wham/usage returned status {resp.status}")
+
+            raw = await resp.json()
+            raw_rl = raw.get("rate_limit") or {}
+            pw = raw_rl.get("primary_window") or {}
+            sw = raw_rl.get("secondary_window") or {}
+            credits_data = raw.get("credits") or {}
+
+            # Reset credits check
+            reset_credits_count = 0
+            try:
+                rc_resp = await page.request.get(
+                    "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
+                    headers=headers,
+                    timeout=8000,
+                )
+                if rc_resp.status == 200:
+                    rc_data = await rc_resp.json()
+                    reset_credits_count = rc_data.get("available_count", 0)
+            except Exception as rc_err:
+                log.debug("rate-limit-reset-credits check failed: %s", rc_err)
+
+            used_pct = float(pw.get("used_percent") or 0.0)
+            left_pct = max(0.0, 100.0 - used_pct)
+            reset_at = pw.get("reset_at")
+            reset_after = int(pw.get("reset_after_seconds") or 0)
+            window_seconds = int(pw.get("limit_window_seconds") or 0)
+
+            reset_str = (
+                datetime.datetime.fromtimestamp(reset_at).strftime("%Y-%m-%d %H:%M:%S")
+                if reset_at
+                else ""
+            )
+
+            sw_used = (
+                float(sw.get("used_percent"))
+                if sw and sw.get("used_percent") is not None
+                else None
+            )
+            sw_left = max(0.0, 100.0 - sw_used) if sw_used is not None else None
+            sw_reset = sw.get("reset_at") if sw else None
+            sw_reset_str = (
+                datetime.datetime.fromtimestamp(sw_reset).strftime("%Y-%m-%d %H:%M:%S")
+                if sw_reset
+                else None
+            )
+
+            quota_data = {
+                "account_id": acc.id,
+                "alias": acc.alias,
+                "email": raw.get("email") or acc.email,
+                "plan_type": raw.get("plan_type", "unknown"),
+                "allowed": bool(raw_rl.get("allowed", True)),
+                "limit_reached": bool(raw_rl.get("limit_reached", False)),
+                "used_percent": round(used_pct, 1),
+                "left_percent": round(left_pct, 1),
+                "reset_after_seconds": reset_after,
+                "reset_at": reset_at,
+                "reset_at_str": reset_str,
+                "limit_window_seconds": window_seconds,
+                "secondary_used_percent": (
+                    round(sw_used, 1) if sw_used is not None else None
+                ),
+                "secondary_left_percent": (
+                    round(sw_left, 1) if sw_left is not None else None
+                ),
+                "secondary_reset_at_str": sw_reset_str,
+                "credits_balance": credits_data.get("balance"),
+                "has_credits": bool(credits_data.get("has_credits")),
+                "reset_credits_count": reset_credits_count,
+                "fetched_at": now,
+            }
+
+            self.account_manager.update_quota(acc.id, quota_data)
+            return quota_data
+        finally:
+            await page.close()
+
     async def login_account(
         self,
         account_id_or_alias: str,
@@ -309,12 +456,13 @@ class ChatGPT:
         conversation_id: str | None = None,
         image_path: str | Path | None = None,
         image_paths: list[str | Path] | None = None,
+        thinking: bool = False,
     ) -> dict:
         """Return ``{"text", "conversation_id"}``.
 
         Continues the current conversation (or ``conversation_id`` if given);
         starts a fresh chat when neither exists. Tries the backend HTTP path
-        first; on :class:`ShapeChangedError` or when images are attached falls back to the UI driver.
+        first; on :class:`ShapeChangedError`, when thinking is requested, or when images are attached falls back to the UI driver.
         """
         async with self._busy_guard():
             switched_from: str | None = None
@@ -332,12 +480,13 @@ class ChatGPT:
             active_acc = self.account_manager.get_active_account()
 
             try:
-                if (image_paths or image_path) or not self.use_http:
+                if thinking or (image_paths or image_path) or not self.use_http:
                     result = await self.ui.ask(
                         prompt,
                         conversation_id=cid,
                         image_path=image_path,
                         image_paths=image_paths,
+                        thinking=thinking,
                     )
                 else:
                     try:
@@ -348,10 +497,12 @@ class ChatGPT:
                             conversation_id=cid,
                             image_path=image_path,
                             image_paths=image_paths,
+                            thinking=thinking,
                         )
                 self._current_conversation_id = result.get("conversation_id") or self._current_conversation_id
                 await self._track(result.get("conversation_id"))
                 result["account_used"] = active_acc.alias
+                result["thinking"] = thinking
                 if switched_from:
                     result["switched_from"] = switched_from
                 return result
@@ -379,12 +530,14 @@ class ChatGPT:
                             conversation_id=None,
                             image_path=image_path,
                             image_paths=image_paths,
+                            thinking=thinking,
                         )
                         new_acc = self.account_manager.get_active_account()
                         self._current_conversation_id = retry_res.get("conversation_id") or self._current_conversation_id
                         await self._track(retry_res.get("conversation_id"))
                         retry_res["account_used"] = new_acc.alias
                         retry_res["switched_from"] = prev_alias
+                        retry_res["thinking"] = thinking
                         return retry_res
                 raise
 

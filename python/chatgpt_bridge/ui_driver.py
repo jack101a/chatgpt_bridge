@@ -345,6 +345,7 @@ class UIDriver:
         conversation_id: str | None = None,
         image_path: str | Path | None = None,
         image_paths: list[str | Path] | None = None,
+        thinking: bool = False,
     ) -> dict:
         """Submit a prompt via the composer and return ``{"text", ...}``.
 
@@ -352,8 +353,26 @@ class UIDriver:
         conversation; otherwise a fresh chat is started.
         """
         page = await self._page(conversation_id)
-        await self._submit_prompt(page, prompt, image_path=image_path, image_paths=image_paths)
-        text = await self._wait_for_answer(page)
+        prior_text = ""
+        prior_assistant_count = 0
+        try:
+            prior_text = await self._read_last_assistant(page)
+            prior_assistant_count = await page.evaluate("() => document.querySelectorAll('[data-message-author-role=\"assistant\"]').length")
+        except Exception:
+            pass
+
+        await self._submit_prompt(
+            page,
+            prompt,
+            image_path=image_path,
+            image_paths=image_paths,
+            thinking=thinking,
+        )
+        text = await self._wait_for_answer(
+            page,
+            prior_text=prior_text,
+            prior_count=prior_assistant_count,
+        )
         cid = conversation_id or await self._current_conversation_id(page)
         self._active_cid = cid
         return {"text": text, "conversation_id": cid}
@@ -1069,6 +1088,7 @@ class UIDriver:
         prompt: str,
         image_path: str | Path | None = None,
         image_paths: list[str | Path] | None = None,
+        thinking: bool = False,
     ) -> None:
         # Wait for a VISIBLE composer. Using .first pins to the first match in
         # DOM order, which on /c/{id} is a hidden contenteditable skeleton div;
@@ -1114,6 +1134,36 @@ class UIDriver:
             }""")
         except Exception:
             pass
+
+        # Toggle Thinking mode if requested
+        try:
+            think_btn = page.locator('button:has-text("Think"), [aria-label*="Think"], [data-testid*="think"]').first
+            if await think_btn.count() > 0 and await think_btn.is_visible():
+                is_active = await page.evaluate("""() => {
+                    const btn = Array.from(document.querySelectorAll('button')).find(b => {
+                        const txt = (b.innerText || '').toLowerCase();
+                        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                        const testid = (b.getAttribute('data-testid') || '').toLowerCase();
+                        return txt.includes('think') || aria.includes('think') || testid.includes('think');
+                    });
+                    if (!btn) return false;
+                    const pressed = btn.getAttribute('aria-pressed') === 'true';
+                    const state = btn.getAttribute('data-state');
+                    const bg = window.getComputedStyle(btn).backgroundColor || '';
+                    const classList = btn.className || '';
+                    const hasTint = bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && !bg.includes('rgba(255, 255, 255');
+                    return pressed || state === 'active' || state === 'on' || classList.includes('bg-token-main-surface-secondary') || hasTint;
+                }""")
+                if thinking and not is_active:
+                    log.info("Enabling Thinking mode via Think button...")
+                    await think_btn.click()
+                    await asyncio.sleep(0.4)
+                elif not thinking and is_active:
+                    log.info("Disabling Thinking mode via Think button...")
+                    await think_btn.click()
+                    await asyncio.sleep(0.4)
+        except Exception as e:
+            log.warning("Could not toggle Think button state: %s", e)
 
         # Normalize reference image(s) if provided
         paths: list[Path] = []
@@ -1193,12 +1243,23 @@ class UIDriver:
         else:
             await page.keyboard.press("Enter")
 
-    async def _wait_for_answer(self, page, timeout_s: int = 120) -> str:
+    async def _wait_for_answer(
+        self,
+        page,
+        timeout_s: int = 120,
+        prior_text: str = "",
+        prior_count: int = 0,
+    ) -> str:
         """Poll assistant turns until the answer is stable and generation has completed."""
         deadline = time.monotonic() + timeout_s
         last_text = ""
         stable_polls = 0
+        saw_generating = False
         stop_selector = 'button[data-testid="stop-button"], button[aria-label*="Stop"]'
+
+        # Brief delay for ChatGPT UI to register submit and update DOM
+        await asyncio.sleep(1.0)
+
         while time.monotonic() < deadline:
             dialog_err = await self._check_rate_limit_dialog(page)
             if dialog_err:
@@ -1209,20 +1270,43 @@ class UIDriver:
                 stop_btn = page.locator(stop_selector)
                 if await stop_btn.count() > 0 and await stop_btn.first.is_visible():
                     generating = True
+                    saw_generating = True
+            except Exception:
+                pass
+
+            curr_count = 0
+            try:
+                curr_count = await page.evaluate(
+                    "() => document.querySelectorAll('[data-message-author-role=\"assistant\"]').length"
+                )
             except Exception:
                 pass
 
             text = await self._read_last_assistant(page)
             clean = text.replace("```", "").strip()
-            if not generating and clean and text == last_text:
+
+            # If response hasn't begun updating or streaming yet, continue waiting
+            if (
+                prior_count > 0
+                and curr_count <= prior_count
+                and text == prior_text
+                and not saw_generating
+            ):
+                await asyncio.sleep(0.8)
+                continue
+
+            # Check for stable completed response
+            if not generating and clean and text == last_text and (curr_count > prior_count or text != prior_text):
                 stable_polls += 1
                 if stable_polls >= 2:
                     return text
             elif text:
                 last_text = text
                 stable_polls = 0
+
             await asyncio.sleep(1.0)
-        if last_text:
+
+        if last_text and (last_text != prior_text or prior_count == 0):
             return last_text
         raise ShapeChangedError("no assistant answer detected in UI")
 

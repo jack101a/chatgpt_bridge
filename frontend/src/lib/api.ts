@@ -35,6 +35,9 @@ import {
   DeltaPromptRequest,
   DeltaPromptResponse,
   ConversationContract,
+  AskRequest,
+  AskResponse,
+  AccountQuota,
 } from '../types';
 
 export async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -54,9 +57,15 @@ export async function fetchJson<T>(url: string, options?: RequestInit): Promise<
 }
 
 export const api = {
-  // Generations
+  // Generations & Chat
   generateImage: (req: ImageRequest): Promise<ImageResult> =>
     fetchJson<ImageResult>('/image', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
+
+  askChat: (req: AskRequest): Promise<AskResponse> =>
+    fetchJson<AskResponse>('/api/ask', {
       method: 'POST',
       body: JSON.stringify(req),
     }),
@@ -78,6 +87,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ account, cookies_json }),
     }),
+
+  getAccountQuota: async (account?: string): Promise<AccountQuota | null> => {
+    const url = account ? `/api/accounts/quota?account=${encodeURIComponent(account)}` : '/api/accounts/quota';
+    const res = await fetchJson<{ ok: boolean; quota?: AccountQuota; error?: string }>(url);
+    return res.quota || null;
+  },
+
+  refreshAccountQuota: async (account?: string): Promise<AccountQuota | null> => {
+    const url = account ? `/api/accounts/quota/refresh?account=${encodeURIComponent(account)}` : '/api/accounts/quota/refresh';
+    const res = await fetchJson<{ ok: boolean; quota?: AccountQuota; error?: string }>(url, {
+      method: 'POST',
+    });
+    return res.quota || null;
+  },
 
   // Gallery
   getGallery: (params: {

@@ -85,7 +85,7 @@ export function useBridge() {
                 selectThread(msg.conversation_id);
               }
             }
-          } else if (msg.type === 'account_switched') {
+          } else if (msg.type === 'account_switched' || msg.type === 'account_quota_updated') {
             refreshAccounts();
             refreshTelemetry();
           } else if (msg.type === 'generation_done') {
@@ -172,10 +172,38 @@ export function useBridge() {
       ]);
 
       setIsGenerating(true);
-      setProgressStatus('Submitting prompt to engine…');
+      setProgressStatus(req.thinking ? 'Reasoning in Thinking Mode…' : 'Submitting to engine…');
       setRetryCount(1);
 
       try {
+        if (req.mode === 'chat' || req.thinking) {
+          const result = await api.askChat({
+            prompt: req.prompt,
+            conversation_id: req.conversation_id || activeConvId || undefined,
+            thinking: req.thinking,
+          });
+
+          const botMsgId = `chat-${Date.now()}`;
+          const newMsg: ChatMessage = {
+            id: botMsgId,
+            role: 'assistant',
+            type: 'text',
+            content: result.text,
+            account: result.account_used,
+            conversation_id: result.conversation_id,
+            thinking: result.thinking,
+          };
+
+          if (result.conversation_id && !activeConvId) {
+            setActiveConvId(result.conversation_id);
+          }
+
+          setMessages((prev) => [...prev, newMsg]);
+          refreshThreads();
+          refreshTelemetry();
+          return;
+        }
+
         const result = await api.generateImage({
           ...req,
           conversation_id: req.conversation_id || activeConvId || undefined,
@@ -222,6 +250,15 @@ export function useBridge() {
     [activeConvId, isGenerating, refreshTelemetry, refreshThreads]
   );
 
+  const refreshQuota = useCallback(async (account?: string) => {
+    try {
+      await api.refreshAccountQuota(account);
+      await refreshAccounts();
+    } catch (e) {
+      console.error('Failed to refresh quota:', e);
+    }
+  }, [refreshAccounts]);
+
   const refreshChat = useCallback(async () => {
     await Promise.all([
       refreshThreads(),
@@ -248,6 +285,7 @@ export function useBridge() {
     newChat,
     generate,
     refreshAccounts,
+    refreshQuota,
     refreshTelemetry,
     refreshThreads,
     refreshChat,

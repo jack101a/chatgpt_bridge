@@ -7,6 +7,45 @@ export interface ImageRequest {
   timeout_s?: number;
   reference_image?: string | null;
   reference_images?: string[] | null;
+  thinking?: boolean;
+  mode?: 'image' | 'chat';
+}
+
+export interface AskRequest {
+  prompt: string;
+  model?: string | null;
+  conversation_id?: string | null;
+  thinking?: boolean;
+}
+
+export interface AskResponse {
+  text: string;
+  conversation_id: string;
+  account_used: string;
+  thinking?: boolean;
+  switched_from?: string;
+}
+
+export interface AccountQuota {
+  account_id: string;
+  alias: string;
+  email: string;
+  plan_type: string;
+  allowed: boolean;
+  limit_reached: boolean;
+  used_percent: number;
+  left_percent: number;
+  reset_after_seconds: number;
+  reset_at: number | null;
+  reset_at_str: string;
+  limit_window_seconds: number;
+  secondary_used_percent?: number | null;
+  secondary_left_percent?: number | null;
+  secondary_reset_at_str?: string | null;
+  credits_balance?: string | number | null;
+  has_credits: boolean;
+  reset_credits_count: number;
+  fetched_at: number;
 }
 
 export interface ClientState {
@@ -76,6 +115,7 @@ export interface Account {
   is_rate_limited: boolean;
   rate_limited_until: number | null;
   rate_limit_resets_at_str: string;
+  quota?: AccountQuota | null;
 }
 
 export interface Telemetry {
@@ -159,6 +199,7 @@ export interface ChatMessage {
   tweaked_prompt_2?: string | null;
   retries?: number;
   referenceImage?: string | null;
+  thinking?: boolean;
 }
 
 export interface VaultBackupItem {

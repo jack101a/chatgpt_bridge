@@ -426,6 +426,7 @@ export function App() {
             isConnected={bridge.wsConnected}
             onOpenDirector={() => setIsDirectorOpen(true)}
             activeAccountName={activeAccount?.alias}
+            activeQuota={activeAccount?.quota}
             onNavigateTab={handleSelectTab}
             onNewChat={handleStartNewChat}
           />
@@ -535,6 +536,7 @@ export function App() {
         accounts={bridge.accounts}
         telemetry={bridge.telemetry}
         onRefreshAccounts={bridge.refreshAccounts}
+        onRefreshQuota={bridge.refreshQuota}
         isDarkMode={isDarkMode}
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
       />

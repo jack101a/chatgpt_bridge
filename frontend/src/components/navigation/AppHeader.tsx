@@ -12,7 +12,7 @@ import {
   PanelLeftOpen,
   PanelLeftClose,
 } from 'lucide-react';
-import { CharacterCard } from '../../types';
+import { CharacterCard, AccountQuota } from '../../types';
 import { hapticImpact } from '../../lib/haptics';
 
 export interface AppHeaderProps {
@@ -30,6 +30,7 @@ export interface AppHeaderProps {
   isConnected: boolean;
   onOpenDirector?: () => void;
   activeAccountName?: string;
+  activeQuota?: AccountQuota | null;
   onNavigateTab?: (tab: 'chat' | 'gallery' | 'generator' | 'settings') => void;
   onNewChat?: () => void;
 }
@@ -47,6 +48,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   isConnected,
   onOpenDirector,
   activeAccountName,
+  activeQuota,
   onNewChat,
 }) => {
   const getTabLabel = () => {
@@ -201,14 +203,18 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </button>
         )}
 
-        {/* Account Status Pill */}
+        {/* Account Status & Quota Pill */}
         <button
           onClick={() => {
             hapticImpact('light');
             onOpenAccounts();
           }}
           className="flex items-center space-x-1.5 min-h-[36px] sm:min-h-[34px] px-2.5 py-1 rounded-xl text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-muted border border-border active:scale-95 transition-all"
-          title="Account Status & Quotas"
+          title={`Account: ${activeAccountName || 'Daemon'}${
+            activeQuota?.plan_type ? ` (${activeQuota.plan_type.toUpperCase()})` : ''
+          } · Quota: ${
+            activeQuota?.left_percent !== undefined ? `${Math.round(activeQuota.left_percent)}% left` : 'Ready'
+          } · Click for limits`}
         >
           <span
             className={`w-2 h-2 rounded-full ${
@@ -216,9 +222,27 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             }`}
           />
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 hidden sm:block" />
-          <span className="hidden lg:inline max-w-[90px] truncate">
+          <span className="hidden lg:inline max-w-[90px] truncate font-medium text-foreground">
             {activeAccountName || 'Daemon'}
           </span>
+          {activeQuota?.plan_type && (
+            <span className="hidden sm:inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold bg-card border border-border text-foreground uppercase">
+              {activeQuota.plan_type}
+            </span>
+          )}
+          {activeQuota?.left_percent !== undefined && (
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full font-semibold ${
+                activeQuota.left_percent > 30
+                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                  : activeQuota.left_percent > 0
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                  : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30'
+              }`}
+            >
+              {Math.round(activeQuota.left_percent)}%
+            </span>
+          )}
           <Radio className="w-3 h-3 text-muted-foreground hidden sm:block" />
         </button>
 

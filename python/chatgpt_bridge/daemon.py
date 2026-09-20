@@ -188,6 +188,7 @@ class AskRequest(BaseModel):
     prompt: str = Field(..., description="Prompt or message to send to ChatGPT")
     model: str | None = Field(default=None, description="Optional model specifier")
     conversation_id: str | None = Field(default=None, description="Optional conversation ID for continuity")
+    thinking: bool = Field(default=False, description="Enable thinking mode (gpt-5-6 reasoning)")
 
 
 class ImageRequest(BaseModel):
@@ -621,6 +622,7 @@ async def _align_account_for_conversation(cid: str | None) -> None:
 
 
 @app.post("/ask")
+@app.post("/api/ask")
 async def ask(req: AskRequest) -> dict:
     """Send a text prompt to ChatGPT and return the response."""
     async with _lock:
@@ -632,9 +634,22 @@ async def ask(req: AskRequest) -> dict:
                     req.conversation_id = "new"
                 else:
                     await _align_account_for_conversation(clean_cid)
-            return await _get_core().ask(
-                req.prompt, model=req.model, conversation_id=req.conversation_id
-            )
+            core = _get_core()
+            try:
+                return await core.ask(
+                    req.prompt,
+                    model=req.model,
+                    conversation_id=req.conversation_id,
+                    thinking=req.thinking,
+                )
+            except TypeError as te:
+                if "thinking" in str(te):
+                    return await core.ask(
+                        req.prompt,
+                        model=req.model,
+                        conversation_id=req.conversation_id,
+                    )
+                raise
         except (AuthError, ShapeChangedError, BridgeTimeoutError, DaemonUnreachableError, PlaywrightTimeoutError) as exc:
             return _error_response(exc)
 
@@ -910,6 +925,7 @@ async def list_accounts() -> dict:
             "is_rate_limited": a.is_rate_limited(),
             "rate_limited_until": a.rate_limited_until,
             "rate_limit_resets_at_str": a.rate_limit_resets_at_str,
+            "quota": getattr(a, "quota", None),
         }
         for a in mgr.accounts.values()
     ]
@@ -921,6 +937,32 @@ async def api_accounts() -> list[dict]:
     """Direct account list for UI consumption."""
     res = await list_accounts()
     return res.get("accounts", [])
+
+
+@app.get("/api/accounts/quota")
+async def get_account_quota(account: str | None = None) -> dict:
+    """Fetch real-time quota and limits for active (or specified) account from ChatGPT."""
+    core = _get_core()
+    try:
+        quota = await core.fetch_account_quota(account_id_or_alias=account)
+        return {"ok": True, "quota": quota}
+    except Exception as exc:
+        log.warning("Failed to fetch account quota: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+@app.post("/api/accounts/quota/refresh")
+async def refresh_account_quota(account: str | None = None) -> dict:
+    """Force refresh quota and limits directly from ChatGPT upstream."""
+    core = _get_core()
+    try:
+        quota = await core.fetch_account_quota(account_id_or_alias=account, force_refresh=True)
+        acc_name = account or core.account_manager.active_account_id
+        await ws_broadcast({"type": "account_quota_updated", "account": acc_name, "quota": quota})
+        return {"ok": True, "quota": quota}
+    except Exception as exc:
+        log.warning("Failed to refresh account quota: %s", exc)
+        return {"ok": False, "error": str(exc)}
 
 
 @app.post("/accounts/switch")

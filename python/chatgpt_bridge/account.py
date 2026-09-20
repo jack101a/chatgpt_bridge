@@ -37,6 +37,7 @@ class AccountInfo:
     consecutive_rate_limits: int = 0
     rate_limited_until: float | None = None
     rate_limit_resets_at_str: str = ""
+    quota: dict | None = None
 
     @property
     def is_logged_in(self) -> bool:
@@ -211,6 +212,24 @@ class AccountManager:
             updated = True
         if updated:
             self._save()
+
+    def update_quota(self, account_id: str, quota_data: dict) -> None:
+        """Update live quota tracking data for an account."""
+        acc = self.accounts.get(account_id)
+        if not acc:
+            return
+        acc.quota = quota_data
+        if quota_data:
+            if quota_data.get("limit_reached"):
+                reset_at = quota_data.get("reset_at")
+                if reset_at:
+                    acc.rate_limited_until = float(reset_at)
+                acc.rate_limit_resets_at_str = quota_data.get("reset_at_str", "")
+            elif quota_data.get("allowed") and acc.rate_limited_until:
+                # If upstream confirms allowed and not limit reached, clear local rate limit
+                acc.rate_limited_until = None
+                acc.rate_limit_resets_at_str = ""
+        self._save()
 
     def record_generation_success(self, account_id: str) -> None:
         """Record successful image generation, resetting rate limit strikes."""

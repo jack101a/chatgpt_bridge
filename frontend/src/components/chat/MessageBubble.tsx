@@ -8,6 +8,7 @@ import {
   Sparkles,
   Heart,
   Bot,
+  Brain,
 } from 'lucide-react';
 import { ChatMessage, GalleryItem } from '../../types';
 import { copyToClipboard } from '../../lib/api';
@@ -69,15 +70,29 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     );
   }
 
-  // Assistant Text Message (Errors, info)
+  // Assistant Text Message (Errors, info, Reasoning Chat)
   if (message.type === 'text') {
     return (
       <div className="flex items-start gap-3 mb-5 animate-fade-in w-full min-w-0">
         <div className="w-7 h-7 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-primary shrink-0 mt-0.5 shadow-xs">
-          <Bot size={15} />
+          {message.thinking ? <Brain size={15} className="text-emerald-500" /> : <Bot size={15} />}
         </div>
-        <div className="flex-1 min-w-0 text-[14px] text-foreground leading-relaxed break-words">
-          {message.content}
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-foreground">Bridge AI</span>
+            {message.thinking && (
+              <span className="flex items-center gap-1 text-[10.5px] font-mono font-medium px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <Brain size={11} />
+                Reasoning Mode
+              </span>
+            )}
+            {message.account && (
+              <span className="text-[10.5px] font-mono text-muted-foreground">via {message.account}</span>
+            )}
+          </div>
+          <div className="text-[14px] text-foreground leading-relaxed break-words bg-card p-3.5 rounded-2xl border border-border/80 shadow-2xs whitespace-pre-wrap">
+            {message.content}
+          </div>
         </div>
       </div>
     );

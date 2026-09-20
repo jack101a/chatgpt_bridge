@@ -25,6 +25,7 @@ import {
   Trash2,
   Sliders,
   Globe,
+  Gauge,
 } from 'lucide-react';
 import {
   Account,
@@ -171,6 +172,7 @@ interface AccountsDrawerProps {
   accounts: Account[];
   telemetry: Telemetry | null;
   onRefreshAccounts: () => void;
+  onRefreshQuota?: (accountIdOrAlias?: string) => Promise<any>;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
 }
@@ -181,6 +183,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
   accounts,
   telemetry,
   onRefreshAccounts,
+  onRefreshQuota,
   isDarkMode,
   onToggleDarkMode,
 }) => {
@@ -192,6 +195,23 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [optimisticAutoSwitch, setOptimisticAutoSwitch] = useState<boolean | null>(null);
   const [optimisticMaxChats, setOptimisticMaxChats] = useState<number | null>(null);
+  const [refreshingQuotaId, setRefreshingQuotaId] = useState<string | null>(null);
+
+  const handleRefreshQuota = async (accIdOrAlias: string) => {
+    setRefreshingQuotaId(accIdOrAlias);
+    try {
+      if (onRefreshQuota) {
+        await onRefreshQuota(accIdOrAlias);
+      } else {
+        await api.refreshAccountQuota(accIdOrAlias);
+        onRefreshAccounts();
+      }
+    } catch (err: any) {
+      console.error('Failed to refresh account quota:', err);
+    } finally {
+      setRefreshingQuotaId(null);
+    }
+  };
 
   // Storage & Telegram Vault states
   const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
@@ -414,6 +434,12 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
         }
       }
     }).catch(() => {});
+
+    // Auto-fetch quota for active account if not already present
+    const active = accounts.find((a) => a.is_active);
+    if (active && !active.quota) {
+      handleRefreshQuota(active.alias || active.id);
+    }
   }, [isOpen, fetchStorage, fetchBackups]);
 
   // Poll sync progress when background sync is active
@@ -861,16 +887,31 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
           </button>
         </div>
 
-        {/* ── Section: ChatGPT Accounts ── */}
+        {/* ── Section: ChatGPT Accounts & Rate Limits ── */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              ChatGPT Accounts
-            </h3>
-            <span className="text-[11px] text-muted-foreground/70">Rotates on rate limit</span>
+            <div className="flex items-center gap-1.5">
+              <ShieldCheck size={14} className="text-emerald-500" />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Accounts & Quota Limits
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const active = accounts.find((a) => a.is_active) || accounts[0];
+                if (active) handleRefreshQuota(active.alias || active.id);
+              }}
+              disabled={refreshingQuotaId !== null}
+              className="text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 font-medium transition-opacity disabled:opacity-50"
+              title="Refresh quota data directly from ChatGPT"
+            >
+              <RefreshCw size={11} className={refreshingQuotaId !== null ? 'animate-spin' : ''} />
+              <span>Refresh Quotas</span>
+            </button>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             {accounts.map((acc) => {
               const inCooldown =
                 acc.rate_limited_until && acc.rate_limited_until > Date.now() / 1000;
@@ -878,49 +919,73 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                 ? Math.ceil((acc.rate_limited_until! - Date.now() / 1000) / 60)
                 : 0;
 
+              const isRefreshingThis =
+                refreshingQuotaId === acc.id || refreshingQuotaId === acc.alias;
+              const quota = acc.quota;
+              const leftPercent = quota?.left_percent ?? (inCooldown ? 0 : 100);
+              const usedPercent = quota?.used_percent ?? (inCooldown ? 100 : 0);
+              const planName = quota?.plan_type ? quota.plan_type.toUpperCase() : 'GO';
+
               return (
                 <div
                   key={acc.id}
-                  className={`p-3 rounded-2xl border transition-all ${
+                  className={`p-3.5 rounded-2xl border transition-all space-y-2.5 ${
                     acc.is_active
                       ? 'bg-emerald-500/10 border-emerald-500/30'
                       : 'bg-muted/40 border-border'
                   }`}
                 >
+                  {/* Account Header */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center font-bold text-xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center font-bold text-xs shrink-0">
                         {acc.alias.slice(0, 1).toUpperCase()}
                       </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-xs font-semibold text-foreground">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-xs font-semibold text-foreground truncate">
                             {acc.alias}
                           </p>
                           {acc.is_active && (
-                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-bold">
+                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[9px] font-bold shrink-0">
                               ACTIVE
                             </span>
                           )}
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-card border border-border text-muted-foreground uppercase shrink-0">
+                            {planName}
+                          </span>
                         </div>
-                        <p className="text-[11px] text-muted-foreground font-mono truncate max-w-[180px]">
+                        <p className="text-[11px] text-muted-foreground font-mono truncate max-w-[170px] sm:max-w-[240px]">
                           {acc.email || acc.id}
                         </p>
                       </div>
                     </div>
 
-                    {/* Status Badge & Action */}
-                    <div className="flex items-center gap-2">
+                    {/* Actions & Cooldown Status */}
+                    <div className="flex items-center gap-1.5 shrink-0">
                       {inCooldown ? (
                         <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono border border-amber-500/20">
                           <Clock size={10} />
                           {cooldownMinutes}m cooldown
                         </span>
                       ) : (
-                        <span className="text-[11px] font-mono text-muted-foreground">
+                        <span className="text-[11px] font-mono text-muted-foreground hidden sm:inline">
                           {acc.total_generations} gens
                         </span>
                       )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleRefreshQuota(acc.alias || acc.id)}
+                        disabled={isRefreshingThis}
+                        title="Check real-time rate limits & quotas from ChatGPT"
+                        className="p-1.5 rounded-full hover:bg-card border border-transparent hover:border-border text-muted-foreground hover:text-foreground transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        <RefreshCw
+                          size={12}
+                          className={isRefreshingThis ? 'animate-spin text-emerald-500' : ''}
+                        />
+                      </button>
 
                       {!acc.is_active && (
                         <button
@@ -930,6 +995,72 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                           Switch
                         </button>
                       )}
+                    </div>
+                  </div>
+
+                  {/* Quota & Limits Card */}
+                  <div className="p-2.5 rounded-xl bg-card border border-border/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <div className="flex items-center gap-1 font-medium text-foreground">
+                        <Gauge size={12} className="text-emerald-500" />
+                        <span>Quota Headroom</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`font-mono font-semibold ${
+                            leftPercent > 30
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : leftPercent > 0
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-rose-600 dark:text-rose-400'
+                          }`}
+                        >
+                          {Math.round(leftPercent)}% left
+                        </span>
+                        <span className="text-muted-foreground/60 text-[10px]">
+                          ({Math.round(usedPercent)}% used)
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden flex border border-border/40">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          leftPercent > 30
+                            ? 'bg-emerald-500'
+                            : leftPercent > 0
+                            ? 'bg-amber-500'
+                            : 'bg-rose-500'
+                        }`}
+                        style={{
+                          width: `${Math.min(100, Math.max(0, leftPercent))}%`,
+                        }}
+                      />
+                    </div>
+
+                    {/* Quota Meta Details */}
+                    <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground pt-0.5">
+                      <span className="truncate">
+                        {quota?.reset_at_str ? (
+                          `Resets: ${quota.reset_at_str.slice(5, 16)}`
+                        ) : inCooldown ? (
+                          `Cooldown: ${cooldownMinutes}m`
+                        ) : (
+                          '5h / Monthly sliding window'
+                        )}
+                      </span>
+                      {quota?.secondary_left_percent != null && (
+                        <span className="text-muted-foreground truncate">
+                          Weekly: {Math.round(quota.secondary_left_percent)}% left
+                        </span>
+                      )}
+                      {quota?.reset_credits_count && quota.reset_credits_count > 0 ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-0.5">
+                          <Sparkles size={10} />
+                          {quota.reset_credits_count} credit
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </div>

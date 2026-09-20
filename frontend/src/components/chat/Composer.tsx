@@ -21,6 +21,7 @@ import {
   Copy,
   Check,
   Terminal,
+  Brain,
 } from 'lucide-react';
 import {
   ImageRequest,
@@ -51,6 +52,8 @@ interface ComposerProps {
   activeCharacter?: CharacterCard | null;
   onSelectCharacter?: (character: CharacterCard | null) => void;
   onThreadCreated?: (newConvId: string) => void;
+  injectedPrompt?: string | null;
+  onPromptConsumed?: () => void;
 }
 
 export const Composer: React.FC<ComposerProps> = ({
@@ -64,10 +67,48 @@ export const Composer: React.FC<ComposerProps> = ({
   activeCharacter = null,
   onSelectCharacter,
   onThreadCreated,
+  injectedPrompt,
+  onPromptConsumed,
 }) => {
   const [promptText, setPromptText] = useState('');
   const [showLibrary, setShowLibrary] = useState(false);
   const [isDirectorModalOpen, setIsDirectorModalOpen] = useState(false);
+  const [isThinkingMode, setIsThinkingMode] = useState(false);
+
+  // Injected prompt handler from parent or external event
+  useEffect(() => {
+    if (injectedPrompt) {
+      setPromptText(injectedPrompt);
+      if (injectedPrompt.length > 180) {
+        setIsStudioMode(true);
+      }
+      onPromptConsumed?.();
+      setTimeout(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
+    }
+  }, [injectedPrompt, onPromptConsumed]);
+
+  useEffect(() => {
+    const handleInsert = (e: any) => {
+      const p = e.detail?.prompt;
+      if (p) {
+        setPromptText(p);
+        if (p.length > 180) {
+          setIsStudioMode(true);
+        }
+        if (e.detail?.focus !== false) {
+          setTimeout(() => {
+            textareaRef.current?.focus();
+            textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 50);
+        }
+      }
+    };
+    window.addEventListener('bridge:insert-prompt', handleInsert);
+    return () => window.removeEventListener('bridge:insert-prompt', handleInsert);
+  }, []);
 
   // Character Lock & Consistency State
   const [isCharacterMenuOpen, setIsCharacterMenuOpen] = useState(false);
@@ -426,6 +467,8 @@ export const Composer: React.FC<ComposerProps> = ({
       conversation_id: activeConvId || null,
       aspect: '1:1',
       reference_image: referenceImage ? referenceImage.id : null,
+      thinking: isThinkingMode,
+      mode: isThinkingMode ? 'chat' : 'image',
     });
 
     setPromptText('');
@@ -1191,7 +1234,9 @@ export const Composer: React.FC<ComposerProps> = ({
                 onChange={handleTextChange}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  referenceImage
+                  isThinkingMode
+                    ? 'Ask anything with deep reasoning (GPT-5.6 Thinking Mode active)…'
+                    : referenceImage
                     ? 'Describe modifications using this reference…'
                     : activeCharacter
                     ? `Describe a scene for ${activeCharacter.name}…`
@@ -1285,6 +1330,32 @@ export const Composer: React.FC<ComposerProps> = ({
                   </span>
                 </button>
 
+                {/* 🧠 Thinking Mode Toggle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsThinkingMode((prev) => !prev);
+                    hapticImpact('light');
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border min-h-[36px] sm:min-h-[32px] cursor-pointer ${
+                    isThinkingMode
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 shadow-xs shadow-emerald-500/20 active:scale-95'
+                      : 'bg-muted/70 hover:bg-muted text-muted-foreground hover:text-foreground border-border/70 active:scale-95'
+                  }`}
+                  title={
+                    isThinkingMode
+                      ? 'Thinking Mode Active (GPT-5.6 Deep Reasoning enabled)'
+                      : 'Enable Thinking Mode (Send chat with deep reasoning)'
+                  }
+                  aria-label="Toggle Thinking Mode"
+                >
+                  <Brain size={13} className={isThinkingMode ? 'text-emerald-500 animate-pulse' : 'text-muted-foreground'} />
+                  <span className="text-[11px] font-semibold">Think</span>
+                  {isThinkingMode && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping hidden sm:inline-block" />
+                  )}
+                </button>
+
                 {/* Send Button */}
                 <button
                   type="button"
@@ -1292,10 +1363,13 @@ export const Composer: React.FC<ComposerProps> = ({
                   disabled={isGenerating || !promptText.trim()}
                   className={`w-9 h-9 sm:w-8.5 sm:h-8.5 min-w-[36px] min-h-[36px] rounded-xl flex items-center justify-center shrink-0 transition-all cursor-pointer ${
                     promptText.trim() && !isGenerating
-                      ? 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-90 shadow-md shadow-emerald-500/25'
+                      ? isThinkingMode
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-90 shadow-md shadow-emerald-600/30'
+                        : 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-90 shadow-md shadow-emerald-500/25'
                       : 'bg-muted text-muted-foreground/40 cursor-not-allowed'
                   }`}
-                  aria-label="Send prompt"
+                  title={isThinkingMode ? 'Send in Thinking Mode (Reasoning Chat)' : 'Generate Image'}
+                  aria-label={isThinkingMode ? 'Send with Thinking Mode' : 'Send prompt'}
                 >
                   <ArrowUp size={16} strokeWidth={2.5} />
                 </button>

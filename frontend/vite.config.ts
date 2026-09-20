@@ -10,6 +10,7 @@ export default defineConfig({
       '/images': 'http://localhost:8466',
       '/thumbnails': 'http://localhost:8466',
       '/accounts': 'http://localhost:8466',
+      '/ask': 'http://localhost:8466',
       '/api': 'http://localhost:8466',
       '/ws': {
         target: 'ws://localhost:8466',
