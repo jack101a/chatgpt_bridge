@@ -139,10 +139,10 @@ curl -X POST http://localhost:8465/accounts \
 deploy:
   resources:
     limits:
-      cpus: "1.50"
+      cpus: "2.00"
       memory: 2G      # Safe for 8GB RAM host systems
     reservations:
-      cpus: "0.25"
+      cpus: "0.50"
       memory: 512M
 ```
 
