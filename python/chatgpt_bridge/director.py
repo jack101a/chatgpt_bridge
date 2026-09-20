@@ -171,12 +171,170 @@ UNIVERSAL_NEGATIVE_CONSTRAINTS = (
 )
 
 
+def _extract_subject_from_intent(intent: str, creative_guidance: Optional[str] = None) -> dict:
+    """Extract demographic, ethnic, physical, and styling traits from user intent."""
+    intent_l = f"{intent} {creative_guidance or ''}".lower()
+
+    # 1. Detected name if explicitly capitalized and not common stopword
+    detected_name = None
+    common_words = {
+        "a", "an", "the", "in", "on", "at", "to", "for", "of", "with", "by", "from",
+        "her", "his", "their", "my", "our", "pov", "dslr", "cinematic", "portrait",
+        "shot", "shots", "close-up", "closeup", "indoor", "outdoor", "director",
+        "indian", "slavic", "irish", "asian", "latina", "poor", "rich", "beautiful",
+        "gorgeous", "unflawed", "natural", "milky", "white", "skin", "bust", "curve",
+        "hourglass", "walking", "sitting", "standing", "looking", "smiling", "taking",
+        "bedroom", "photos", "mystical", "forest", "dark", "light", "camera", "lens",
+        "girl", "woman", "person", "scene", "photo", "image", "realistic", "high"
+    }
+    for token in intent.split():
+        clean = token.strip("(),.:;\"'\n\t")
+        if clean and clean[0].isupper() and clean.lower() not in common_words:
+            detected_name = clean
+            break
+
+    # 2. Ethnicity / Heritage
+    ethnicities = [
+        ("indian", "Indian"),
+        ("south asian", "South Asian"),
+        ("japanese", "Japanese"),
+        ("korean", "Korean"),
+        ("chinese", "Chinese"),
+        ("east asian", "East Asian"),
+        ("asian", "Asian"),
+        ("latina", "Latina"),
+        ("hispanic", "Hispanic"),
+        ("brazilian", "Brazilian"),
+        ("black", "Black"),
+        ("african", "African"),
+        ("persian", "Persian"),
+        ("arab", "Arab"),
+        ("middle eastern", "Middle Eastern"),
+        ("slavic", "Slavic"),
+        ("russian", "Russian"),
+        ("scandinavian", "Scandinavian"),
+        ("norvic", "Norvic-Irish"),
+        ("irish", "Irish"),
+        ("italian", "Italian"),
+        ("french", "French"),
+    ]
+    detected_heritage = ""
+    for kw, label in ethnicities:
+        if kw in intent_l:
+            detected_heritage = label
+            break
+
+    # 3. Skin tone
+    if "milky white" in intent_l or "milky-white" in intent_l:
+        skin_tone = "radiant, natural milky-white skin with soft dewy luminosity"
+    elif "porcelain" in intent_l or "alabaster" in intent_l:
+        skin_tone = "luminous porcelain-pale alabaster skin"
+    elif "dusky" in intent_l:
+        skin_tone = "warm, radiant dusky skin with golden undertones"
+    elif "golden" in intent_l or "bronze" in intent_l or "tan" in intent_l:
+        skin_tone = "warm sunkissed golden-tan skin"
+    elif "olive" in intent_l:
+        skin_tone = "smooth warm olive skin"
+    elif "dark skin" in intent_l or "dark complexion" in intent_l:
+        skin_tone = "rich, deep radiant dark skin"
+    elif detected_heritage in ["Indian", "South Asian"]:
+        skin_tone = "healthy, luminous skin with natural warm radiance"
+    else:
+        skin_tone = "radiant, healthy glowing skin"
+
+    # 4. Eye color
+    if "dark eyes" in intent_l or "black eyes" in intent_l:
+        iris_color = "deep captivating dark eyes"
+    elif "brown eyes" in intent_l:
+        iris_color = "warm deep amber-brown eyes"
+    elif "blue eyes" in intent_l or "blue" in intent_l:
+        iris_color = "captivating clear light blue eyes"
+    elif "green eyes" in intent_l or "emerald" in intent_l:
+        iris_color = "striking clear emerald green eyes"
+    elif "hazel" in intent_l:
+        iris_color = "luminous clear hazel eyes"
+    elif detected_heritage in ["Indian", "South Asian", "East Asian", "Japanese", "Korean", "Chinese", "Black", "African"]:
+        iris_color = "captivating deep dark brown eyes"
+    else:
+        iris_color = "expressive clear eyes"
+
+    # 5. Hair
+    if "blonde" in intent_l or "blond" in intent_l:
+        hair = "tousled honey-blonde hair"
+    elif "dark hair" in intent_l or "black hair" in intent_l:
+        hair = "long lustrous dark hair cascading with natural texture"
+    elif "brown hair" in intent_l or "brunette" in intent_l:
+        hair = "long silky rich brown hair"
+    elif "red hair" in intent_l or "auburn" in intent_l:
+        hair = "vibrant auburn hair"
+    elif detected_heritage in ["Indian", "South Asian", "East Asian", "Japanese", "Korean", "Chinese", "Black", "African"]:
+        hair = "long, natural lustrous dark hair with subtle organic waves"
+    else:
+        hair = "long hair with natural texture and subtle sheen falling past her shoulders"
+
+    # 6. Physique
+    if any(k in intent_l for k in ["bust", "hourglass", "curve", "curves", "curvy", "voluptuous"]):
+        physique = "an ultra full round bust and a defined narrow hourglass waist"
+    else:
+        physique = "graceful feminine proportions"
+
+    # 7. Age & Title
+    age_str = "in her early 20s"
+    if "early 20s" in intent_l or "early twenties" in intent_l:
+        age_str = "in her early 20s"
+    elif "late 20s" in intent_l:
+        age_str = "in her late 20s"
+    elif "20s" in intent_l or "twenties" in intent_l:
+        age_str = "in her 20s"
+
+    beauty = "of breathtaking, unflawed beauty" if any(k in intent_l for k in ["unflawed", "gorgeous", "beauty", "beautiful", "stunning"]) else "with striking natural beauty"
+
+    if detected_name:
+        display_name = detected_name
+    elif detected_heritage:
+        display_name = f"the {detected_heritage} young woman"
+    else:
+        display_name = "the young woman"
+
+    h_prefix = f"{detected_heritage} " if detected_heritage else ""
+    if detected_name:
+        subj_title = f"{detected_name}, a {h_prefix}young woman {age_str}"
+    elif detected_heritage:
+        subj_title = f"a gorgeous {detected_heritage} young woman {age_str}"
+    else:
+        subj_title = f"a striking young woman {age_str}"
+
+    full_desc = f"{subj_title} {beauty}, with sculpted facial contours, naturally full lips, {iris_color}, {hair}, {skin_tone}, and {physique}"
+
+    return {
+        "display_name": display_name,
+        "full_desc": full_desc,
+        "heritage": detected_heritage,
+        "skin_tone": skin_tone,
+        "iris_color": iris_color,
+        "hair": hair,
+        "physique": physique,
+    }
+
+
 class DirectorEngine:
-    def __init__(self, llm_client: OpenAICompatibleClient, base_url: str = "", api_key: str = "", model: str = "gpt-4o"):
+    def __init__(
+        self,
+        llm_client: OpenAICompatibleClient,
+        base_url: str = "",
+        api_key: str = "",
+        model: str = "gpt-4o",
+        fallback_base_url: str = "",
+        fallback_api_key: str = "",
+        fallback_model: str = "",
+    ):
         self.llm = llm_client
         self.base_url = base_url
         self.api_key = api_key
         self.model = model
+        self.fallback_base_url = fallback_base_url
+        self.fallback_api_key = fallback_api_key
+        self.fallback_model = fallback_model
 
     def _synthesize_master_prompt_fallback(
         self,
@@ -190,13 +348,12 @@ class DirectorEngine:
         creative_guidance: Optional[str] = None,
     ) -> str:
         """Deterministic generator assembling a focused, high-signal directorial prompt (~160-240 words)."""
+        subj_info = _extract_subject_from_intent(intent, creative_guidance)
         has_char = character is not None
         if has_char and character.name:
             char_name = character.name
-        elif any(k in intent.lower() for k in ["norvic", "novic", "irish", "maeve"]):
-            char_name = "Maeve"
         else:
-            char_name = "Alina"
+            char_name = subj_info["display_name"]
 
         cam_pov = shot_seed.get("camera_pov", "").strip() or "cinematic medium shot"
         desc = shot_seed.get("description", "").strip() or shot_seed.get("action_mood", "").strip() or intent
@@ -279,31 +436,20 @@ class DirectorEngine:
                 wardrobe = character.wardrobes[0].description
         if not wardrobe and wardrobe_notes:
             wardrobe = wardrobe_notes
-        elif not wardrobe and not has_char and any(k in intent.lower() for k in ["poor", "chores", "cottage", "peasant"]):
+        elif not wardrobe and not has_char and any(k in intent.lower() for k in ["peasant blouse", "frayed", "rags"]):
             wardrobe = "weathered coarse unbleached linen peasant blouse with frayed edges and a faded rustic skirt"
+        elif not wardrobe and any(k in intent.lower() for k in ["poor", "humble"]):
+            wardrobe = "simple, modest everyday cotton attire that drapes naturally over her figure"
         elif not wardrobe:
             wardrobe = "simple, elegant casual attire"
 
-        is_poor_norvic = not has_char and any(k in intent.lower() for k in ["norvic", "novic", "irish", "maeve", "cottage", "poor", "peasant", "chores"])
-        bust_phrase = "an ultra full round bust and a defined narrow hourglass waist" if any(k in intent.lower() for k in ["bust", "hourglass", "curve", "figure"]) else "graceful feminine proportions"
-        heritage_phrase = "Norvic-Irish " if any(k in intent.lower() for k in ["norvic", "novic", "irish", "nordic", "celtic"]) else ""
-
-        if is_poor_norvic:
-            subject_desc = (
-                f"{char_name}, a breathtakingly beautiful 21-year-old {heritage_phrase}young woman of divine ethereal beauty, "
-                f"with sculpted cheekbones, naturally full lips, captivating {iris_color} eyes, {hair_desc}, "
-                f"radiant glowing porcelain-pale alabaster skin with delicate faint freckles across her nose and cheeks, and {bust_phrase}"
-            )
-        elif has_char:
+        if has_char:
             subject_desc = (
                 f"{char_name}, a striking young woman in her early 20s with rare distinctive beauty, "
                 f"mesmerizing {iris_color} eyes, {hair_desc}, and radiant, glowing porcelain skin"
             )
         else:
-            subject_desc = (
-                f"{char_name}, a strikingly beautiful young woman in her early 20s with refined feminine facial proportions, "
-                f"captivating {iris_color} eyes, {hair_desc}, sculpted cheekbones, naturally full lips, and radiant, glowing skin"
-            )
+            subject_desc = subj_info["full_desc"]
 
         # Action description clean-up
         clean_act = action_desc.strip().rstrip(".")
@@ -335,12 +481,16 @@ class DirectorEngine:
 
         # 3. Lighting & Environment (Shot-specific, NO storyline dumping)
         shot_is_flash = any(k in f"{cam_pov} {desc}".lower() for k in ["flash", "dark room", "in the dark", "direct flash"])
+        is_cottage_scene = any(k in f"{desc}".lower() for k in ["cottage", "chores", "hearth", "timber cottage", "granite basin"])
         if shot_is_flash:
             lighting_sentence = "A harsh direct on-camera xenon flash illuminates her face and form with intense frontal brightness, while the background drops into deep underexposed shadows with a crisp cast shadow."
             env_sentence = "Spontaneous late-night snapshot atmosphere with high contrast and vivid immediacy."
-        elif is_poor_norvic or any(k in f"{desc}".lower() for k in ["cottage", "chores", "hearth", "poor", "rustic"]):
+        elif is_cottage_scene:
             lighting_sentence = f"{lighting_desc.rstrip('.,')}, softly illuminating her facial contours and highlighting the smooth, luminous clarity of her radiant skin."
             env_sentence = "The surrounding space has authentic rustic warmth with tactile domestic textures softly rendered in the background."
+        elif any(k in f"{desc}".lower() for k in ["pov", "close-up", "closeup", "portrait"]):
+            lighting_sentence = f"{lighting_desc.rstrip('.,')}, softly sculpting her features with gentle directional highlight rolloff and flattering, luminous skin clarity."
+            env_sentence = "The intimate background is softly diffused with authentic shallow optical blur, focusing total visual attention on her expressive presence."
         else:
             lighting_sentence = f"{lighting_desc.rstrip('.,')}, casting natural soft shadows and delicate highlight rolloff across her features."
             env_sentence = "The immediate environment is rendered with natural atmospheric depth and authentic physical space."
@@ -455,7 +605,24 @@ class DirectorEngine:
                 )
             return clean_and_enhance_prompt(resp_clean, add_anti_plastic=True)
         except Exception as e:
-            logger.warning(f"Shot {shot_idx} expansion LLM call failed ({e}); generating deterministic fallback")
+            logger.warning("Shot %d primary LLM expansion failed (%s)", shot_idx, e)
+            if self.fallback_base_url and self.fallback_api_key:
+                try:
+                    logger.info("Retrying Shot %d expansion with fallback LLM (%s)...", shot_idx, self.fallback_model)
+                    resp = await self.llm.chat_completion(
+                        base_url=self.fallback_base_url,
+                        api_key=self.fallback_api_key,
+                        model=self.fallback_model,
+                        messages=messages,
+                        temperature=0.7,
+                        json_mode=False,
+                        timeout=45.0
+                    )
+                    resp_clean = resp.strip()
+                    if resp_clean and not resp_clean.startswith("{") and not resp_clean.startswith("```json") and len(resp_clean.split()) >= 80:
+                        return clean_and_enhance_prompt(resp_clean, add_anti_plastic=True)
+                except Exception as fb_e:
+                    logger.warning("Shot %d fallback LLM expansion also failed (%s)", shot_idx, fb_e)
             return self._synthesize_master_prompt_fallback(
                 shot_seed=shot_seed,
                 character=character,
@@ -585,30 +752,63 @@ CRITICAL REQUIREMENT: The 'shots' array MUST contain EXACTLY {shot_count} items,
             shots_data = data.get("shots", [])
             screenplay_handshake = data.get("screenplay_handshake")
         except Exception as e:
-            logger.warning("Call 1 (Macro Plan) LLM call failed (%s); generating deterministic macro shot seeds", e)
-            shots_data = []
+            logger.warning("Call 1 (Macro Plan) primary LLM failed (%s)", e)
+            if self.fallback_base_url and self.fallback_api_key:
+                try:
+                    logger.info("Retrying Call 1 with fallback LLM (%s)...", self.fallback_model)
+                    resp = await self.llm.chat_completion(
+                        base_url=self.fallback_base_url,
+                        api_key=self.fallback_api_key,
+                        model=self.fallback_model,
+                        messages=messages,
+                        json_mode=True,
+                        timeout=30.0
+                    )
+                    json_str = extract_json(resp)
+                    data = json.loads(json_str)
+                    shots_data = data.get("shots", [])
+                    screenplay_handshake = data.get("screenplay_handshake")
+                except Exception as fb_e:
+                    logger.warning("Call 1 fallback LLM failed (%s); generating deterministic macro shot seeds", fb_e)
+                    shots_data = []
+            else:
+                shots_data = []
 
         # ── Deterministic Macro Seed Fallback if Call 1 Failed ────────────────────────
         if not shots_data:
-            if not has_char and any(k in intent.lower() for k in ["norvic", "novic", "irish", "maeve"]):
-                sname = "Maeve"
-                subj = "Maeve, a breathtakingly beautiful 21-year-old Norvic-Irish young woman of divine ethereal beauty, with thick wavy strawberry-blonde hair, luminous clear emerald-blue eyes, radiant glowing porcelain-pale alabaster skin with delicate faint freckles, sculpted cheekbones, and an ultra full round bust with a defined narrow hourglass waist, living in humble rustic poverty"
+            subj_info = _extract_subject_from_intent(intent, creative_guidance)
+            if has_char:
+                sname = char_name
+                subj = f"{char_name}, {vdna}" if vdna else char_name
             else:
-                sname = char_name if has_char else "Alina"
-                subj = char_name if has_char else "Alina, a striking 23-year-old woman with tousled honey-blonde hair, warm hazel eyes, sculpted cheekbones, and an ample bust with a statuesque hourglass silhouette"
+                sname = subj_info["display_name"]
+                subj = subj_info["full_desc"]
 
-            if any(k in f"{intent} {creative_guidance or ''}".lower() for k in ["chores", "cottage", "poor", "rustic", "house chores"]):
+            if any(k in f"{intent} {creative_guidance or ''}".lower() for k in ["cottage", "timber cottage", "house chores", "sweeping floor"]):
                 perspectives = [
-                    (f"wide-angle atmospheric 35mm shot framing {sname}", f"{sname} waking gently on a simple straw pallet in a weathered timber cottage, off-white worn linen shift softly draping her hourglass silhouette, delicate collarbone, pale morning window daylight"),
-                    (f"waist-up 50mm portrait of {sname} at stone wash basin", f"{sname} cupping cool well water at a rustic granite basin, clear water droplets suspended in morning air and glistening on dewy skin, modest ecru shift dress with frayed linen apron"),
-                    (f"full-length 35mm candid perspective framing {sname}", f"{sname} sweeping the worn pine floorboards with a handcrafted straw broom, golden sunbeams catching floating dust motes, focused contemplative half-smile"),
-                    (f"low-angle 35mm perspective at fieldstone hearth facing {sname}", f"{sname} placing seasoned oak wood onto glowing embers in the cottage fireplace, warm amber firelight dancing across her collarbones and radiant complexion, sparks drifting upward"),
-                    (f"wide-angle atmospheric 24mm framing {sname} in cottage doorway", f"{sname} hanging washed coarse linens on a rustic clothesline, gentle morning breeze catching damp fabric and her strawberry-blonde hair, soft daylight"),
-                    (f"candid medium shot of {sname} at rustic pine table", f"{sname} kneading bread dough with flour-dusted hands, genuine contented smile, natural window daylight revealing healthy luminous skin"),
-                    (f"intimate eye-level 85mm portrait of {sname}", f"{sname} paused mid-chore, wiping a stray hair from her forehead with the back of her wrist, radiant natural emerald-blue eyes and serene authentic expression"),
-                    (f"atmospheric golden-hour portrait of {sname} on cottage doorstep", f"{sname} resting on the weathered timber doorstep holding a simple clay water jug, warm golden hour sunbeams casting rich glow over her silhouette"),
-                    (f"candid side-profile 50mm snapshot of {sname}", f"{sname} tending a small herb garden outside the cottage, soft evening twilight, delicate natural freckles and authentic hair flyaways caught in breeze"),
-                    (f"cozy candlelit hearthside finale framing {sname}", f"{sname} relaxing peacefully by the warm cottage firelight at the end of the day, authentic gentle smile, soft shadows and serene rustic contentment"),
+                    (f"wide-angle atmospheric 35mm shot framing {sname}", f"{sname} waking gently in a weathered timber cottage, soft natural daylight illuminating her form"),
+                    (f"waist-up 50mm portrait of {sname} at stone wash basin", f"{sname} cupping cool fresh water at a rustic granite basin, clear water droplets suspended in morning air and glistening on dewy skin"),
+                    (f"full-length 35mm candid perspective framing {sname}", f"{sname} sweeping the worn floorboards, golden sunbeams catching floating dust motes, focused contemplative half-smile"),
+                    (f"low-angle 35mm perspective at fieldstone hearth facing {sname}", f"{sname} tending the cottage fireplace, warm amber firelight dancing across her features and radiant complexion, sparks drifting upward"),
+                    (f"wide-angle atmospheric 24mm framing {sname} in doorway", f"{sname} standing in the rustic doorway, gentle morning breeze catching fabric and hair, soft daylight"),
+                    (f"candid medium shot of {sname} at rustic wooden table", f"{sname} seated comfortably, genuine contented smile, natural window daylight revealing healthy luminous skin"),
+                    (f"intimate eye-level 85mm portrait of {sname}", f"{sname} paused in quiet reflection, radiant eyes and serene authentic expression"),
+                    (f"atmospheric golden-hour portrait of {sname} on doorstep", f"{sname} resting on the weathered timber doorstep, warm golden hour sunbeams casting rich glow over her silhouette"),
+                    (f"candid side-profile 50mm snapshot of {sname}", f"{sname} outdoors in soft evening twilight, delicate natural skin and authentic hair flyaways caught in breeze"),
+                    (f"cozy candlelit hearthside finale framing {sname}", f"{sname} relaxing peacefully by the warm firelight at the end of the day, authentic gentle smile, soft shadows and serene rustic contentment"),
+                ]
+            elif any(k in f"{intent} {creative_guidance or ''}".lower() for k in ["pov", "close-up", "closeup", "portrait", "face", "bust"]):
+                perspectives = [
+                    (f"intimate first-person POV close-up shot framing {sname}", f"{sname} looking directly into the camera lens with a captivating, sincere gaze, soft directional light gently sculpting her facial contours and highlighting her radiant complexion"),
+                    (f"candid eye-level POV portrait of {sname}", f"{sname} captured with a serene, authentic micro-expression, subtle head tilt, and lively natural catchlights in her eyes"),
+                    (f"spontaneous 3/4 angle POV close-up framing {sname}", f"{sname} turning gently toward the viewer, soft dimensional lighting accentuating her facial harmony and natural silhouette"),
+                    (f"intimate shallow-depth-of-field POV perspective of {sname}", f"{sname} resting in a relaxed, candid posture, delicate collarbone and natural form softly framed with creamy background falloff"),
+                    (f"warm atmospheric close-up portrait of {sname}", f"{sname} illuminated by soft directional ambient light, authentic skin micro-texture and honest optical clarity with lifelike depth"),
+                    (f"candid POV snapshot of {sname} looking over shoulder", f"{sname} turning with an expressive, authentic glance, soft rim light grazing her hair and cheekbone"),
+                    (f"gentle eye-level close-up of {sname}", f"{sname} in quiet contemplation, soft window illumination highlighting natural skin warmth and delicate micro-details"),
+                    (f"spontaneous POV moment framing {sname}", f"{sname} laughing softly in a natural unposed reaction, subtle catchlights and organic movement"),
+                    (f"cinematic shallow-focus close-up of {sname}", f"{sname} framed against a softly blurred background, expressive gaze and natural textile drape"),
+                    (f"intimate twilight close-up finale of {sname}", f"{sname} in peaceful evening light, authentic gentle smile, soft shadows and serene contentment"),
                 ]
             elif aesthetic_key == "iphone_selfie":
                 if any(k in f"{intent} {creative_guidance or ''}".lower() for k in ["dark", "flash"]):

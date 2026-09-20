@@ -343,4 +343,41 @@ async def test_director_single_call_unified_generation():
     assert "low-angle 35mm" in plan.shots[1].prompt.lower()
 
 
+@pytest.mark.anyio
+async def test_director_fallback_preserves_user_subject_and_ethnicity():
+    """Verify that when LLM fails, deterministic fallback faithfully honors user's specified ethnicity, skin, and framing without injecting Alina or cottage rags."""
+    mock_llm = AsyncMock(spec=OpenAICompatibleClient)
+    mock_llm.chat_completion.side_effect = RuntimeError("Provider unreachable")
+
+    engine = DirectorEngine(mock_llm)
+    user_prompt = "A very poor but unflawed beauty and gorgeous indian girl in her 20s, natural milky white skin, full round bust, hourglass curve, close-up shot, POV"
+
+    plan = await engine.plan_storyboard(
+        intent=user_prompt,
+        character=None,
+        shot_count=3,
+    )
+
+    assert len(plan.shots) == 3
+    # Check screenplay handshake
+    assert "Alina" not in plan.screenplay_handshake
+    assert "cottage" not in plan.screenplay_handshake.lower()
+    assert "Indian" in plan.screenplay_handshake
+    assert "milky-white skin" in plan.screenplay_handshake
+
+    for shot in plan.shots:
+        p_lower = shot.prompt.lower()
+        # Must NOT inject Alina or peasant cottage tropes
+        assert "alina" not in p_lower
+        assert "weathered timber cottage" not in p_lower
+        assert "straw pallet" not in p_lower
+        assert "peasant blouse with frayed edges" not in p_lower
+        assert "faded rustic skirt" not in p_lower
+        # MUST preserve Indian ethnicity, milky white skin, and close-up/POV framing
+        assert "indian" in p_lower
+        assert "milky-white" in p_lower
+        assert "pov" in p_lower or "close-up" in p_lower or "portrait" in p_lower
+
+
+
 
