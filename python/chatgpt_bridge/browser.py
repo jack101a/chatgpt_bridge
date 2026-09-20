@@ -107,13 +107,15 @@ class BrowserManager:
             ],
             no_viewport=True,
         )
-        # Close the initial blank tab that Playwright always opens on persistent context launch
+        # Only close excess tabs if more than one exists; closing the solitary tab kills the Chromium window!
         pages = self._context.pages
-        if pages and not pages[0].is_closed():
-            try:
-                await pages[0].close()
-            except Exception:
-                pass
+        if len(pages) > 1:
+            for p in pages[1:]:
+                if not p.is_closed():
+                    try:
+                        await p.close()
+                    except Exception:
+                        pass
 
 
     async def context(self):
