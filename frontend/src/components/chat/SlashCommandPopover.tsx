@@ -121,16 +121,13 @@ export const SlashCommandPopover: React.FC<SlashCommandPopoverProps> = ({
       {/* Popover Footer Shortcuts */}
       <div className="flex items-center justify-between px-3 py-1.5 border-t border-border/50 bg-muted/20 text-[10px] font-mono text-muted-foreground">
         <div className="flex items-center gap-2">
-          <span>↑↓ Navigate</span>
-          <span>•</span>
-          <span>↵ Apply</span>
-          <span>•</span>
-          <span>Esc Dismiss</span>
+          <span className="hidden sm:inline">↑↓ Navigate • ↵ Apply • Esc Dismiss</span>
+          <span className="sm:hidden text-emerald-600 dark:text-emerald-400 font-medium">Tap style to apply</span>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="hover:text-foreground hover:underline cursor-pointer"
+          className="hover:text-foreground hover:underline cursor-pointer px-2 py-0.5 rounded-md hover:bg-muted/80 transition-colors"
         >
           Close
         </button>

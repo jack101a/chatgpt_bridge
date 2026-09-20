@@ -136,7 +136,7 @@ def run_suite():
         print(f"✓ Saved screenshot: live_ux_test2_2_mobile_studio_mode.png")
 
         # 2.3 Tap Compact button on mobile
-        m_compact_btn = mobile_page.locator("button:has-text('Compact')")
+        m_compact_btn = mobile_page.locator("button:has-text('Compact')").first
         if m_compact_btn.is_visible():
             m_compact_btn.click()
             mobile_page.wait_for_timeout(400)

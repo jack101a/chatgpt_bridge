@@ -1097,8 +1097,9 @@ export const Composer: React.FC<ComposerProps> = ({
         />
 
         {/* ── Studio Mode Header & Variable Chips ── */}
+        {/* ── Studio Mode Header & Variable Chips ── */}
         {isStudioMode && !isDeltaMode && (
-          <div className="px-3 pt-2.5 pb-2 border-b border-border/60 bg-muted/30 flex flex-col gap-2 animate-in fade-in duration-150">
+          <div className="px-3 sm:px-4 pt-2.5 pb-2 border-b border-border/60 bg-muted/30 flex flex-col gap-2 animate-in fade-in duration-150">
             <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold text-[11.5px] border border-emerald-500/25 shadow-2xs">
@@ -1114,26 +1115,11 @@ export const Composer: React.FC<ComposerProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setIsSlashOpen(true);
-                    setSlashQuery('');
-                    setSlashConcept(promptText.trim());
-                    setSlashSelectedIndex(0);
-                  }}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-muted/80 hover:bg-muted text-foreground text-[11px] font-mono border border-border/60 transition-colors"
-                  title="Open Slash Commands (/) menu"
-                >
-                  <Terminal size={11} className="text-emerald-500" />
-                  <span>Slash (/)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
                     copyToClipboard(promptText);
                     setCopiedStudio(true);
                     setTimeout(() => setCopiedStudio(false), 1800);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-muted/80 hover:bg-muted text-foreground text-[11px] border border-border/60 transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-muted/80 hover:bg-muted text-foreground text-[11px] border border-border/60 transition-colors active:scale-95 cursor-pointer"
                   title="Copy entire prompt"
                 >
                   {copiedStudio ? (
@@ -1155,7 +1141,7 @@ export const Composer: React.FC<ComposerProps> = ({
                     setPromptText('');
                     if (textareaRef.current) textareaRef.current.style.height = 'auto';
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground text-[11px] border border-border/60 transition-colors"
+                  className="px-2.5 py-1 rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground text-[11px] border border-border/60 transition-colors active:scale-95 cursor-pointer"
                   title="Clear prompt"
                 >
                   Clear
@@ -1164,7 +1150,7 @@ export const Composer: React.FC<ComposerProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsStudioMode(false)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-medium transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-medium transition-colors active:scale-95 cursor-pointer"
                   title="Collapse to compact chatbox"
                 >
                   <Minimize2 size={11} />
@@ -1193,84 +1179,128 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
         )}
 
-        {/* ── Main Textarea Row ── */}
+        {/* ── Textarea & Action Bar Layout ── */}
         {!isDeltaMode ? (
-          <div className="flex items-end gap-2 px-3 sm:px-3.5 py-2">
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={promptText}
-              onChange={handleTextChange}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                referenceImage
-                  ? 'Describe modifications using this reference…'
-                  : activeCharacter
-                  ? `Describe a scene for ${activeCharacter.name}…`
-                  : 'Describe what you want to imagine (or type / for curated styles)…'
-              }
-              className={`flex-1 bg-transparent border-0 outline-none resize-none text-[16px] sm:text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans py-2 sm:py-1.5 ${
-                isStudioMode ? 'min-h-[260px] h-[340px] sm:h-[380px] max-h-[500px]' : 'max-h-[180px]'
-              }`}
-            />
+          <div className="flex flex-col">
+            {/* 1. Full-Width Textarea Container */}
+            <div className="w-full px-3.5 sm:px-4 pt-3 pb-1.5">
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                value={promptText}
+                onChange={handleTextChange}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  referenceImage
+                    ? 'Describe modifications using this reference…'
+                    : activeCharacter
+                    ? `Describe a scene for ${activeCharacter.name}…`
+                    : 'Describe what you want to imagine (or type / for curated styles)…'
+                }
+                className={`w-full block bg-transparent border-0 outline-none resize-none text-[16px] sm:text-[14px] leading-relaxed placeholder:text-muted-foreground text-foreground font-sans p-0 ${
+                  isStudioMode
+                    ? 'min-h-[240px] sm:min-h-[280px] max-h-[480px]'
+                    : 'min-h-[44px] max-h-[180px]'
+                }`}
+              />
+            </div>
 
-            {/* Studio Expand / Collapse Toggle Button */}
-            <button
-              type="button"
-              onClick={() => {
-                hapticImpact('light');
-                setIsStudioMode(!isStudioMode);
-              }}
-              className={`w-11 h-11 min-w-[44px] min-h-[44px] sm:w-10 sm:h-10 sm:min-w-[40px] sm:min-h-[40px] rounded-xl flex items-center justify-center shrink-0 transition-all border ${
-                isStudioMode
-                  ? 'bg-primary/15 text-primary border-primary/30 shadow-xs'
-                  : 'bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border-border shadow-2xs'
-              }`}
-              title={isStudioMode ? 'Collapse Studio Mode (⛶)' : 'Expand Studio Mode (⛶) for full prompt editing'}
-              aria-label="Toggle Studio Mode"
-            >
-              {isStudioMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
+            {/* 2. Sleek Bottom Action Toolbar */}
+            <div className="flex items-center justify-between px-3 sm:px-4 pb-2.5 pt-1.5 gap-2 border-t border-border/40">
+              {/* Left Group: Tools & Mode Toggles */}
+              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                {/* Studio Mode Toggle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    hapticImpact('light');
+                    setIsStudioMode(!isStudioMode);
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all border min-h-[36px] sm:min-h-[32px] cursor-pointer ${
+                    isStudioMode
+                      ? 'bg-primary/15 text-primary border-primary/30 shadow-xs'
+                      : 'bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border-border/60 shadow-2xs'
+                  }`}
+                  title={isStudioMode ? 'Collapse Studio Mode (⛶)' : 'Expand Studio Mode (⛶) for full prompt editing'}
+                  aria-label="Toggle Studio Mode"
+                >
+                  {isStudioMode ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                  <span className="text-[11px] hidden sm:inline">
+                    {isStudioMode ? 'Compact' : 'Studio'}
+                  </span>
+                </button>
 
-            {/* 1-Click Enhance / Make Safe Button */}
-            <button
-              type="button"
-              onClick={handleEnhance}
-              disabled={isGenerating || isEnhancing || !promptText.trim()}
-              className={`w-11 h-11 min-w-[44px] min-h-[44px] sm:w-10 sm:h-10 sm:min-w-[40px] sm:min-h-[40px] rounded-xl flex items-center justify-center shrink-0 transition-all border ${
-                safety.level === 'danger'
-                  ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border-amber-500/30 active:scale-90 shadow-sm'
-                  : promptText.trim()
-                  ? 'bg-muted hover:bg-muted/80 text-foreground border-border active:scale-90 shadow-2xs'
-                  : 'bg-muted text-muted-foreground/40 border-border/50 cursor-not-allowed'
-              }`}
-              title={
-                safety.level === 'danger'
-                  ? `🛡️ Make Safe: Swap filter triggers with safe-spicy euphemisms (${enhancerModel})`
-                  : `✨ Enhance: Polish into ChatGPT 2.5 photo prompt using ${enhancerModel}`
-              }
-              aria-label="Enhance prompt"
-            >
-              {isEnhancing ? (
-                <Loader2 size={17} className="animate-spin text-emerald-500" />
-              ) : (
-                <Wand2 size={17} className={safety.level === 'danger' ? 'text-amber-500' : 'text-primary'} />
-              )}
-            </button>
+                {/* Quick Slash Commands Trigger Pill */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    hapticImpact('light');
+                    setIsSlashOpen(!isSlashOpen);
+                    setSlashQuery('');
+                    setSlashConcept(promptText.trim());
+                    setSlashSelectedIndex(0);
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-mono transition-all border min-h-[36px] sm:min-h-[32px] cursor-pointer ${
+                    isSlashOpen
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                      : 'bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border-border/60 shadow-2xs'
+                  }`}
+                  title="Browse Curated Slash Techniques (/)"
+                  aria-label="Slash commands"
+                >
+                  <Terminal size={12} className="text-emerald-500" />
+                  <span className="text-[11px] font-semibold text-primary">/</span>
+                  <span className="text-[11px] font-sans text-muted-foreground hidden sm:inline">Styles</span>
+                </button>
+              </div>
 
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={isGenerating || !promptText.trim()}
-              className={`w-11 h-11 min-w-[44px] min-h-[44px] sm:w-10 sm:h-10 sm:min-w-[40px] sm:min-h-[40px] rounded-xl flex items-center justify-center shrink-0 transition-all ${
-                promptText.trim() && !isGenerating
-                  ? 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-90 shadow-md shadow-emerald-500/25'
-                  : 'bg-muted text-muted-foreground/50 cursor-not-allowed'
-              }`}
-              aria-label="Send prompt"
-            >
-              <ArrowUp size={18} strokeWidth={2.5} />
-            </button>
+              {/* Right Group: Enhance & Send Actions */}
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                {/* 1-Click Enhance / Make Safe */}
+                <button
+                  type="button"
+                  onClick={handleEnhance}
+                  disabled={isGenerating || isEnhancing || !promptText.trim()}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border min-h-[36px] sm:min-h-[32px] cursor-pointer ${
+                    safety.level === 'danger'
+                      ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border-amber-500/30 active:scale-95 shadow-sm'
+                      : promptText.trim()
+                      ? 'bg-muted/70 hover:bg-muted text-foreground border-border/70 active:scale-95 shadow-2xs'
+                      : 'bg-muted/40 text-muted-foreground/40 border-border/40 cursor-not-allowed'
+                  }`}
+                  title={
+                    safety.level === 'danger'
+                      ? `🛡️ Make Safe: Swap filter triggers with safe-spicy euphemisms (${enhancerModel})`
+                      : `✨ Enhance: Polish into ChatGPT 2.5 photo prompt using ${enhancerModel}`
+                  }
+                  aria-label="Enhance prompt"
+                >
+                  {isEnhancing ? (
+                    <Loader2 size={13} className="animate-spin text-emerald-500" />
+                  ) : (
+                    <Wand2 size={13} className={safety.level === 'danger' ? 'text-amber-500' : 'text-primary'} />
+                  )}
+                  <span className="text-[11px] hidden sm:inline">
+                    {safety.level === 'danger' ? 'Make Safe' : 'Enhance'}
+                  </span>
+                </button>
+
+                {/* Send Button */}
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={isGenerating || !promptText.trim()}
+                  className={`w-9 h-9 sm:w-8.5 sm:h-8.5 min-w-[36px] min-h-[36px] rounded-xl flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+                    promptText.trim() && !isGenerating
+                      ? 'bg-primary hover:bg-emerald-600 text-primary-foreground active:scale-90 shadow-md shadow-emerald-500/25'
+                      : 'bg-muted text-muted-foreground/40 cursor-not-allowed'
+                  }`}
+                  aria-label="Send prompt"
+                >
+                  <ArrowUp size={16} strokeWidth={2.5} />
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="p-3 space-y-2.5">
