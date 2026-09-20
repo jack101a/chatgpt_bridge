@@ -19,6 +19,7 @@ import {
   Search,
   RefreshCw,
   Eye,
+  MessageSquare,
 } from 'lucide-react';
 import { StoryboardShot, CharacterCard, DirectorState, AIProviderConfig } from '../../types';
 import { api } from '../../lib/api';
@@ -72,6 +73,13 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
   const [selectedAesthetic, setSelectedAesthetic] = useState<string>('auto');
   const [creativeGuidance, setCreativeGuidance] = useState('');
   const [selectedChar, setSelectedChar] = useState<CharacterCard | null>(activeCharacter);
+  const [targetThread, setTargetThread] = useState<'current' | 'new'>(activeConvId ? 'current' : 'new');
+
+  useEffect(() => {
+    setTargetThread(activeConvId ? 'current' : 'new');
+  }, [activeConvId]);
+
+  const effectiveConvId = targetThread === 'current' ? (activeConvId || undefined) : undefined;
 
   // Character selection dropdown inside modal
   const [isCharDropdownOpen, setIsCharDropdownOpen] = useState(false);
@@ -317,7 +325,7 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
             await api.executeStoryboard({
               shots: plan.shots,
               character_id: selectedChar ? selectedChar.id : 'freeform',
-              conversation_id: activeConvId || undefined,
+              conversation_id: effectiveConvId,
               screenplay_handshake: plan.screenplay_handshake || undefined,
             });
           } catch (err: any) {
@@ -350,7 +358,7 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
       await api.executeStoryboard({
         shots,
         character_id: selectedChar ? selectedChar.id : 'freeform',
-        conversation_id: activeConvId || undefined,
+        conversation_id: effectiveConvId,
         screenplay_handshake: screenplayHandshake || undefined,
       });
     } catch (err: any) {
@@ -438,6 +446,45 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
 
         {/* ── Scrollable Body ── */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 sm:space-y-5 pb-24 sm:pb-8">
+          {/* Target Thread Continuity Selector (Active Chat vs New Chat) */}
+          {activeConvId && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-gray-50/90 dark:bg-white/[0.03] border border-gray-200/80 dark:border-white/10 text-xs">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-3.5 h-3.5 text-primary shrink-0" />
+                <span className="font-semibold text-[#0d0d0d] dark:text-white">Target Chat:</span>
+                <span className="font-mono text-[11px] text-muted-foreground truncate max-w-[140px] sm:max-w-[220px]">
+                  {activeConvId.slice(0, 14)}…
+                </span>
+              </div>
+              <div className="flex items-center gap-1 bg-gray-200/60 dark:bg-white/10 p-0.5 rounded-lg shrink-0 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setTargetThread('current')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                    targetThread === 'current'
+                      ? 'bg-white dark:bg-zinc-800 text-foreground shadow-2xs font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Run storyboard shots inside your current active chat"
+                >
+                  Current Chat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTargetThread('new')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                    targetThread === 'new'
+                      ? 'bg-white dark:bg-zinc-800 text-foreground shadow-2xs font-semibold'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Start a fresh chat thread for this storyboard"
+                >
+                  ✦ New Chat
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Top Bar: Character Binding & AI Director Model Selector Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Character Lock Selector for Director */}
