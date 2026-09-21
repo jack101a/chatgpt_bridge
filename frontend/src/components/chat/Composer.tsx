@@ -23,6 +23,7 @@ import {
   Terminal,
   Brain,
   Paperclip,
+  Crosshair,
 } from 'lucide-react';
 import {
   ImageRequest,
@@ -34,6 +35,7 @@ import {
 } from '../../types';
 import { PromptLibraryTray } from '../director/PromptLibraryTray';
 import { DirectorModal } from '../director/DirectorModal';
+import { GuideModal } from '../director/GuideModal';
 import { SlashCommandPopover } from './SlashCommandPopover';
 import { compileRecurringCharacterPrompt } from '../../lib/characterLock';
 import { hapticImpact } from '../../lib/haptics';
@@ -74,6 +76,7 @@ export const Composer: React.FC<ComposerProps> = ({
   const [promptText, setPromptText] = useState('');
   const [showLibrary, setShowLibrary] = useState(false);
   const [isDirectorModalOpen, setIsDirectorModalOpen] = useState(false);
+  const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [isThinkingMode, setIsThinkingMode] = useState(false);
 
   // Uploaded image & drag-drop state
@@ -1170,6 +1173,19 @@ export const Composer: React.FC<ComposerProps> = ({
               type="button"
               onClick={() => {
                 hapticImpact('light');
+                setIsGuideModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/15 text-amber-600 dark:text-amber-400 text-xs font-semibold border border-amber-500/25 transition-all active:scale-95 shadow-2xs min-h-[34px] sm:min-h-[32px]"
+              title="POV Guide: Fixed angle shots, zero LLM"
+            >
+              <Crosshair size={13} />
+              <span className="hidden xs:inline sm:inline">Guide</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                hapticImpact('light');
                 setShowLibrary(!showLibrary);
               }}
               className={`hidden sm:flex p-2 rounded-xl transition-all min-h-[34px] min-w-[34px] sm:min-h-[32px] sm:min-w-[32px] items-center justify-center ${
@@ -1655,6 +1671,18 @@ export const Composer: React.FC<ComposerProps> = ({
       <DirectorModal
         isOpen={isDirectorModalOpen}
         onClose={() => setIsDirectorModalOpen(false)}
+        initialPrompt={promptText || deltaScene}
+        characters={characters}
+        activeCharacter={activeCharacter}
+        activeConvId={activeConvId}
+        onSelectCharacter={onSelectCharacter}
+        onThreadCreated={onThreadCreated}
+      />
+
+      {/* ── POV Guide Modal ── */}
+      <GuideModal
+        isOpen={isGuideModalOpen}
+        onClose={() => setIsGuideModalOpen(false)}
         initialPrompt={promptText || deltaScene}
         characters={characters}
         activeCharacter={activeCharacter}
