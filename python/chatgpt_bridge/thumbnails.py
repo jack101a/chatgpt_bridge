@@ -5,7 +5,10 @@ from __future__ import annotations
 import io
 import logging
 from pathlib import Path
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 log = logging.getLogger("chatgpt_bridge.thumbnails")
 
@@ -24,6 +27,13 @@ def generate_thumbnail(
     If dest_path is provided, writes the thumbnail to disk and returns the bytes.
     If dest_path is None, returns the bytes directly.
     """
+    if Image is None:
+        raw = source_path.read_bytes() if isinstance(source_path, Path) else source_path
+        if dest_path is not None:
+            dest_path = Path(dest_path)
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            dest_path.write_bytes(raw)
+        return raw
     if isinstance(source_path, Path):
         if not source_path.exists():
             raise FileNotFoundError(f"Source image does not exist: {source_path}")
