@@ -50,11 +50,11 @@ services:
     # Volume Mounts (Persistent Data)
     # -------------------------------------------------------------------------
     volumes:
-      # Named volume: managed by Docker, visible in Portainer UI
-      - chatgpt_bridge_data:/data
+      # Host bind-mount matching Portainer / homeserver configuration:
+      - ${CONFIG_PATH:-/srv/ajaxhs/config}/chatgpt-bridge:/data
       #
-      # Alternative: host bind-mount (easier for local dev / manual cookie copy)
-      # - ./chatgpt_bridge_data:/data
+      # Alternative: named volume (fallback if running in isolated docker env)
+      # - chatgpt_bridge_data:/data
 
     # -------------------------------------------------------------------------
     # Resource Limits & Reservations (Prevent Host OOM)
