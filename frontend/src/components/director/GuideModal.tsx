@@ -20,6 +20,7 @@ import {
   Layers,
   MessageSquare,
 } from 'lucide-react';
+import { AngleDiagram } from './AngleDiagram';
 import { CharacterCard, DirectorState, StoryboardShot } from '../../types';
 import { api } from '../../lib/api';
 import { DotMatrixLoader } from '../common/DotMatrixLoader';
@@ -477,24 +478,14 @@ export const GuideModal: React.FC<GuideModalProps> = ({
                       : 'border-gray-200/90 dark:border-white/10 hover:border-amber-500/50'
                   }`}
                 >
-                  {/* Real Photographic Reference Thumbnail */}
-                  <div className="relative aspect-4/3 w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900">
-                    <img
-                      src={angle.previewImage}
-                      alt={angle.label}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      loading="lazy"
-                      onError={(e) => {
-                        // Fallback placeholder if CDN thumbnail has network glitch
-                        (e.target as HTMLImageElement).src =
-                          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500&auto=format&fit=crop&q=80';
-                      }}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80" />
+                  {/* Cinematography Camera-Placement Diagram */}
+                  <div className="relative aspect-4/3 w-full overflow-hidden bg-[#0d0f14]">
+                    <AngleDiagram angleId={angle.id} className="w-full h-full" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
 
                     {/* Lens & Tag Badge */}
                     <div className="absolute top-2 left-2 flex items-center gap-1">
-                      <span className="px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[9px] font-mono font-bold text-white border border-white/20">
+                      <span className="px-1.5 py-0.5 rounded-md bg-black/70 backdrop-blur-md text-[9px] font-mono font-bold text-amber-400 border border-amber-500/30">
                         {angle.focalLength}
                       </span>
                     </div>
@@ -653,12 +644,10 @@ export const GuideModal: React.FC<GuideModalProps> = ({
                     {idx + 1}
                   </span>
 
-                  {/* Thumbnail */}
-                  <img
-                    src={item.previewImage}
-                    alt={item.label}
-                    className="w-10 h-10 rounded-lg object-cover border border-black/10 shrink-0"
-                  />
+                  {/* Cinematography Thumbnail */}
+                  <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-white/10">
+                    <AngleDiagram angleId={item.angleId} className="w-full h-full" />
+                  </div>
 
                   {/* Info */}
                   <div className="min-w-0 pr-1">
