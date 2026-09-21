@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -6,20 +6,32 @@ import {
   Eye,
   Trash2,
   Camera,
-  Loader2,
   CheckCircle2,
   AlertCircle,
   StopCircle,
-  User,
-  Lock,
-  ChevronDown,
-  Crosshair,
+  Search,
   RotateCcw,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  Bookmark,
+  Plus,
+  Edit3,
+  Layers,
+  MessageSquare,
 } from 'lucide-react';
 import { CharacterCard, DirectorState, StoryboardShot } from '../../types';
 import { api } from '../../lib/api';
 import { DotMatrixLoader } from '../common/DotMatrixLoader';
-import { GUIDE_ANGLES, GUIDE_TABS, GuideTab } from '../../lib/guidePresets';
+import {
+  GUIDE_ANGLES,
+  GUIDE_TABS,
+  DEFAULT_PIPELINES,
+  GuideAngle,
+  GuideTab,
+  GuidePipelineItem,
+  GuideSavedPipeline,
+} from '../../lib/guidePresets';
 
 interface GuideModalProps {
   isOpen: boolean;
@@ -32,45 +44,61 @@ interface GuideModalProps {
   onThreadCreated?: (convId: string) => void;
 }
 
+const STORAGE_SAVED_PIPELINES_KEY = 'bridge:saved-guide-pipelines';
+
 export const GuideModal: React.FC<GuideModalProps> = ({
   isOpen,
   onClose,
   initialPrompt = '',
-  characters = [],
   activeCharacter = null,
   activeConvId = null,
-  onSelectCharacter,
   onThreadCreated,
 }) => {
-  const [anchor, setAnchor] = useState('');
-  const [activeTab, setActiveTab] = useState<GuideTab>('camera');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [selectedChar, setSelectedChar] = useState<CharacterCard | null>(activeCharacter);
-  const [isCharDropdownOpen, setIsCharDropdownOpen] = useState(false);
-  const [targetThread, setTargetThread] = useState<'current' | 'new'>(activeConvId ? 'current' : 'new');
+  // Navigation & Filtering
+  const [activeTab, setActiveTab] = useState<GuideTab | 'all'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Execution
-  const [compiledShots, setCompiledShots] = useState<StoryboardShot[]>([]);
-  const [showReview, setShowReview] = useState(false);
+  // Pipeline Queue (The Sequence of Shots to Execute)
+  const [pipeline, setPipeline] = useState<GuidePipelineItem[]>([]);
+  const [savedPipelines, setSavedPipelines] = useState<GuideSavedPipeline[]>([]);
+  const [isSavingPipeline, setIsSavingPipeline] = useState(false);
+  const [newPipelineName, setNewPipelineName] = useState('');
+
+  // Execution & Context
+  const [targetThread, setTargetThread] = useState<'current' | 'new'>(activeConvId ? 'current' : 'new');
+  const [turnZeroPrompt, setTurnZeroPrompt] = useState(initialPrompt || '');
+  const [editingItemIdx, setEditingItemIdx] = useState<number | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+
+  // Execution status polling
   const [isExecuting, setIsExecuting] = useState(false);
   const [directorStatus, setDirectorStatus] = useState<DirectorState | null>(null);
   const [executingError, setExecutingError] = useState<string | null>(null);
 
   const effectiveConvId = targetThread === 'current' ? (activeConvId || undefined) : undefined;
+  const isPureDeltaMode = targetThread === 'current' && Boolean(activeConvId);
 
-  // Sync on open
+  // Load saved pipelines from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_SAVED_PIPELINES_KEY);
+      if (saved) {
+        setSavedPipelines(JSON.parse(saved));
+      }
+    } catch {}
+  }, []);
+
+  // Sync initial prompt & target thread on open
   useEffect(() => {
     if (isOpen) {
-      if (initialPrompt && initialPrompt !== anchor) setAnchor(initialPrompt);
-      setSelectedChar(activeCharacter);
+      if (initialPrompt && !turnZeroPrompt) {
+        setTurnZeroPrompt(initialPrompt);
+      }
+      setTargetThread(activeConvId ? 'current' : 'new');
     }
-  }, [isOpen, initialPrompt, activeCharacter]);
+  }, [isOpen, initialPrompt, activeConvId]);
 
-  useEffect(() => {
-    setTargetThread(activeConvId ? 'current' : 'new');
-  }, [activeConvId]);
-
-  // Poll execution status
+  // Status Polling during execution
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
     if (isExecuting) {
@@ -83,355 +111,637 @@ export const GuideModal: React.FC<GuideModalProps> = ({
             setIsExecuting(false);
             if (st.conversation_id) onThreadCreated?.(st.conversation_id);
           }
-        } catch {
-          // ignore poll errors
-        }
+        } catch {}
       };
       timer = setInterval(check, 2000);
       check();
     }
-    return () => { if (timer) clearInterval(timer); };
+    return () => {
+      if (timer) clearInterval(timer);
+    };
   }, [isExecuting, onThreadCreated]);
 
   if (!isOpen) return null;
 
-  const toggleAngle = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+  // Filtered angles
+  const filteredAngles = useMemo(() => {
+    return GUIDE_ANGLES.filter((a) => {
+      const matchesTab = activeTab === 'all' || a.tab === activeTab;
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        a.label.toLowerCase().includes(q) ||
+        a.desc.toLowerCase().includes(q) ||
+        a.focalLength.toLowerCase().includes(q) ||
+        a.tag.toLowerCase().includes(q);
+      return matchesTab && matchesSearch;
+    });
+  }, [activeTab, searchQuery]);
+
+  // Pipeline Management
+  const addToPipeline = (angle: GuideAngle) => {
+    const newItem: GuidePipelineItem = {
+      id: `${angle.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      angleId: angle.id,
+      label: angle.label,
+      emoji: angle.emoji,
+      tag: angle.tag,
+      previewImage: angle.previewImage,
+      tab: angle.tab,
+    };
+    setPipeline((prev) => [...prev, newItem]);
   };
 
-  // Compile shots locally — zero LLM
-  const compileShots = (): StoryboardShot[] => {
-    const base = anchor.trim();
-    return selectedIds.map((id) => {
-      const angle = GUIDE_ANGLES.find((a) => a.id === id)!;
-      const charPrefix = selectedChar
-        ? `Photorealistic photography of ${selectedChar.name}. Maintain locked face and body identity from Turn 0.\n`
-        : '';
+  const removeFromPipeline = (idx: number) => {
+    setPipeline((prev) => prev.filter((_, i) => i !== idx));
+    if (editingItemIdx === idx) setEditingItemIdx(null);
+  };
+
+  const movePipelineItem = (idx: number, direction: 'left' | 'right') => {
+    if (direction === 'left' && idx > 0) {
+      setPipeline((prev) => {
+        const next = [...prev];
+        const temp = next[idx - 1];
+        next[idx - 1] = next[idx];
+        next[idx] = temp;
+        return next;
+      });
+    } else if (direction === 'right' && idx < pipeline.length - 1) {
+      setPipeline((prev) => {
+        const next = [...prev];
+        const temp = next[idx + 1];
+        next[idx + 1] = next[idx];
+        next[idx] = temp;
+        return next;
+      });
+    }
+  };
+
+  const updatePipelineItemPrompt = (idx: number, customPrompt: string) => {
+    setPipeline((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], customPrompt };
+      return next;
+    });
+  };
+
+  const clearPipeline = () => {
+    setPipeline([]);
+    setEditingItemIdx(null);
+    setShowReviewModal(false);
+  };
+
+  // Preset loading & saving
+  const loadPipelinePreset = (preset: GuideSavedPipeline) => {
+    const items: GuidePipelineItem[] = [];
+    for (const angleId of preset.itemAngleIds) {
+      const angle = GUIDE_ANGLES.find((a) => a.id === angleId);
+      if (angle) {
+        items.push({
+          id: `${angle.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          angleId: angle.id,
+          label: angle.label,
+          emoji: angle.emoji,
+          tag: angle.tag,
+          previewImage: angle.previewImage,
+          tab: angle.tab,
+        });
+      }
+    }
+    setPipeline(items);
+  };
+
+  const handleSavePipeline = () => {
+    if (!newPipelineName.trim() || pipeline.length === 0) return;
+    const newSaved: GuideSavedPipeline = {
+      id: `custom_${Date.now()}`,
+      name: newPipelineName.trim(),
+      itemAngleIds: pipeline.map((p) => p.angleId),
+    };
+    const updated = [...savedPipelines, newSaved];
+    setSavedPipelines(updated);
+    try {
+      localStorage.setItem(STORAGE_SAVED_PIPELINES_KEY, JSON.stringify(updated));
+    } catch {}
+    setNewPipelineName('');
+    setIsSavingPipeline(false);
+  };
+
+  const handleDeleteSavedPipeline = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = savedPipelines.filter((p) => p.id !== id);
+    setSavedPipelines(updated);
+    try {
+      localStorage.setItem(STORAGE_SAVED_PIPELINES_KEY, JSON.stringify(updated));
+    } catch {}
+  };
+
+  // Compile final execution shots (PURE DELTAS, ZERO SUBJECT REPETITION)
+  const compileFinalShots = (): StoryboardShot[] => {
+    return pipeline.map((item, idx) => {
+      const deltaPrompt = item.customPrompt?.trim() || item.tag;
+
+      // In pure delta mode (active chat), NEVER append subject prompt!
+      // In new chat mode: Turn 0 sets the subject once with shot 0, then shots 1+ are pure deltas!
+      let promptToSend = deltaPrompt;
+      if (!isPureDeltaMode && idx === 0 && turnZeroPrompt.trim()) {
+        promptToSend = `${turnZeroPrompt.trim()}\n[CAMERA & PERSPECTIVE]: ${deltaPrompt}`;
+      }
+
       return {
-        description: `${angle.emoji} ${angle.label}`,
-        camera_pov: angle.tag,
-        prompt: `${charPrefix}${base}\n${angle.tag}`,
+        description: `Step ${idx + 1}: ${item.emoji} ${item.label}`,
+        camera_pov: item.tag,
+        prompt: promptToSend,
       };
     });
   };
 
-  const handleReview = () => {
-    if (!anchor.trim() || selectedIds.length === 0) return;
-    const shots = compileShots();
-    setCompiledShots(shots);
-    setShowReview(true);
-    setExecutingError(null);
-  };
-
-  const handleAutoLaunch = async () => {
-    if (!anchor.trim() || selectedIds.length === 0) return;
-    const shots = compileShots();
-    setCompiledShots(shots);
-    setShowReview(false);
-    setExecutingError(null);
+  // Launch pipeline
+  const executePipeline = async () => {
+    if (pipeline.length === 0 || isExecuting) return;
+    const shots = compileFinalShots();
     setIsExecuting(true);
+    setExecutingError(null);
+    setShowReviewModal(false);
+
     try {
       await api.executeStoryboard({
         shots,
-        character_id: selectedChar ? selectedChar.id : 'freeform',
+        character_id: activeCharacter ? activeCharacter.id : 'freeform',
         conversation_id: effectiveConvId,
       });
     } catch (err: any) {
-      setExecutingError(err.message || 'Failed to launch sequence');
-      setIsExecuting(false);
-    }
-  };
-
-  const handleRunFromReview = async () => {
-    if (compiledShots.length === 0 || isExecuting) return;
-    setIsExecuting(true);
-    setExecutingError(null);
-    setShowReview(false);
-    try {
-      await api.executeStoryboard({
-        shots: compiledShots,
-        character_id: selectedChar ? selectedChar.id : 'freeform',
-        conversation_id: effectiveConvId,
-      });
-    } catch (err: any) {
-      setExecutingError(err.message || 'Failed to dispatch sequence');
+      setExecutingError(err.message || 'Failed to dispatch pipeline');
       setIsExecuting(false);
     }
   };
 
   const handleCancel = async () => {
-    try { await api.cancelDirectorSequence(); } catch { /* ignore */ }
+    try {
+      await api.cancelDirectorSequence();
+    } catch {}
   };
-
-  const handleUpdateShot = (idx: number, val: string) => {
-    const updated = [...compiledShots];
-    updated[idx] = { ...updated[idx], prompt: val };
-    setCompiledShots(updated);
-  };
-
-  const handleDeleteShot = (idx: number) => {
-    const updated = compiledShots.filter((_, i) => i !== idx);
-    setCompiledShots(updated);
-    if (updated.length === 0) setShowReview(false);
-  };
-
-  const clearAll = () => {
-    setSelectedIds([]);
-    setCompiledShots([]);
-    setShowReview(false);
-    setExecutingError(null);
-  };
-
-  const tabAngles = GUIDE_ANGLES.filter((a) => a.tab === activeTab);
-  const canRun = anchor.trim().length > 0 && selectedIds.length > 0;
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-[999] flex sm:items-center sm:justify-center p-0 sm:p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[999] flex items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[90vh] bg-white dark:bg-[#141416] border-0 sm:border border-gray-200 dark:border-[#27272a] rounded-none sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-2 sm:zoom-in-95 duration-200"
+        className="relative w-full max-w-5xl h-[100dvh] sm:h-[92vh] bg-white dark:bg-[#121214] border-0 sm:border border-gray-200 dark:border-[#27272a] rounded-none sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-2 sm:zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* ── Header ── */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-100 dark:border-white/10 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
-              <Crosshair className="w-4 h-4 sm:w-5 sm:h-5" />
+        {/* ── Top Header ── */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-100 dark:border-white/10 shrink-0 bg-white/95 dark:bg-[#141416]/95">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+              <Camera className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-lg font-bold text-[#0d0d0d] dark:text-white">
-                  POV Guide
+                <h2 className="text-base sm:text-lg font-bold text-[#0d0d0d] dark:text-white">
+                  POV & Cinematography Studio
                 </h2>
-                <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-amber-500/15 text-amber-700 dark:text-amber-300 rounded-full border border-amber-500/30">
-                  Zero LLM
+                <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 rounded-full border border-amber-500/30 font-mono">
+                  Pure Deltas · Zero LLM
                 </span>
               </div>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                Fixed angles · Deterministic · No AI censorship
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-1">
+                Visual angle library with real photographic references · Build & dispatch deterministic shot sequences
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Target Thread Pill */}
+            {activeConvId && (
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-xs">
+                <MessageSquare className="w-3.5 h-3.5 text-amber-500" />
+                <span className="font-semibold text-gray-700 dark:text-gray-300">
+                  {targetThread === 'current' ? 'Current Chat' : 'New Chat'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTargetThread(targetThread === 'current' ? 'new' : 'current')}
+                  className="text-[10px] text-amber-600 dark:text-amber-400 hover:underline font-mono ml-1 cursor-pointer"
+                >
+                  (switch)
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 sm:p-2 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* ── Body ── */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 pb-24 sm:pb-6">
-
-          {/* Thread target */}
-          {activeConvId && (
-            <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-gray-50/90 dark:bg-white/[0.03] border border-gray-200/80 dark:border-white/10 text-xs">
-              <span className="font-semibold text-[#0d0d0d] dark:text-white">Target Chat:</span>
-              <div className="flex items-center gap-1 bg-gray-200/60 dark:bg-white/10 p-0.5 rounded-lg">
+        {/* ── Filter Bar: Categories, Search, Preset Selector ── */}
+        <div className="px-4 sm:px-6 py-2.5 border-b border-gray-100 dark:border-white/10 bg-gray-50/50 dark:bg-white/[0.02] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shrink-0">
+          {/* Category Tabs */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-thin">
+            <button
+              type="button"
+              onClick={() => setActiveTab('all')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all cursor-pointer ${
+                activeTab === 'all'
+                  ? 'bg-amber-500 text-white shadow-xs font-bold'
+                  : 'bg-white dark:bg-zinc-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-700 border border-gray-200/80 dark:border-white/10'
+              }`}
+            >
+              All Angles ({GUIDE_ANGLES.length})
+            </button>
+            {GUIDE_TABS.map((tab) => {
+              const count = GUIDE_ANGLES.filter((a) => a.tab === tab.id).length;
+              return (
                 <button
+                  key={tab.id}
                   type="button"
-                  onClick={() => setTargetThread('current')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                    targetThread === 'current'
-                      ? 'bg-white dark:bg-zinc-800 text-foreground shadow-2xs font-semibold'
-                      : 'text-muted-foreground hover:text-foreground'
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 flex items-center gap-1.5 transition-all cursor-pointer ${
+                    activeTab === tab.id
+                      ? 'bg-amber-500 text-white shadow-xs font-bold'
+                      : 'bg-white dark:bg-zinc-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-700 border border-gray-200/80 dark:border-white/10'
                   }`}
-                >Current Chat</button>
-                <button
-                  type="button"
-                  onClick={() => setTargetThread('new')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                    targetThread === 'new'
-                      ? 'bg-white dark:bg-zinc-800 text-foreground shadow-2xs font-semibold'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >✦ New Chat</button>
-              </div>
-            </div>
-          )}
-
-          {/* Character Lock */}
-          <div className="p-3.5 rounded-xl bg-gray-50/80 dark:bg-white/[0.02] border border-gray-200/80 dark:border-white/10">
-            <span className="text-xs font-semibold text-[#0d0d0d] dark:text-white flex items-center gap-1.5 mb-2">
-              <Lock className="w-3.5 h-3.5 text-amber-500" />
-              Character Lock
-            </span>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsCharDropdownOpen(!isCharDropdownOpen)}
-                className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                  selectedChar
-                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300'
-                    : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300'
-                }`}
-              >
-                <div className="flex items-center gap-2 truncate">
-                  {selectedChar?.avatar_image_id ? (
-                    <img
-                      src={`/images/${selectedChar.avatar_image_id}`}
-                      alt={selectedChar.name}
-                      className="w-5 h-5 rounded-full object-cover border border-amber-500/40 shrink-0"
-                    />
-                  ) : (
-                    <User className="w-4 h-4 text-amber-500 shrink-0" />
-                  )}
-                  <span className="truncate">{selectedChar ? selectedChar.name : '✦ No Character (Freeform)'}</span>
-                </div>
-                <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
-              </button>
-
-              {isCharDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full mt-1.5 rounded-xl bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 max-h-48 overflow-y-auto">
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedChar(null); onSelectCharacter?.(null); setIsCharDropdownOpen(false); }}
-                    className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 ${
-                      !selectedChar ? 'font-semibold text-amber-600 dark:text-amber-400' : 'text-zinc-700 dark:text-zinc-300'
-                    }`}
-                  >
-                    <span>✦ No Character (Freeform)</span>
-                    {!selectedChar && <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />}
-                  </button>
-                  {characters.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => { setSelectedChar(c); onSelectCharacter?.(c); setIsCharDropdownOpen(false); }}
-                      className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/60 ${
-                        selectedChar?.id === c.id
-                          ? 'font-semibold text-amber-600 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/20'
-                          : 'text-zinc-700 dark:text-zinc-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0 pr-2">
-                        {c.avatar_image_id ? (
-                          <img src={`/images/${c.avatar_image_id}`} alt={c.name} className="w-5 h-5 rounded-full object-cover border shrink-0" />
-                        ) : (
-                          <div className="w-5 h-5 rounded-full bg-amber-500/10 text-amber-700 text-[9px] font-bold flex items-center justify-center shrink-0">
-                            {c.name.slice(0, 2).toUpperCase()}
-                          </div>
-                        )}
-                        <span className="truncate">{c.name}</span>
-                      </div>
-                      {selectedChar?.id === c.id && <CheckCircle2 className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Anchor Prompt */}
-          <div>
-            <label className="block text-xs font-bold text-[#0d0d0d] dark:text-white mb-1.5 flex items-center justify-between">
-              <span>Anchor Prompt *</span>
-              <span className="text-[10px] text-gray-400 font-normal">Base character + scene description</span>
-            </label>
-            <textarea
-              rows={3}
-              value={anchor}
-              onChange={(e) => setAnchor(e.target.value)}
-              placeholder={
-                selectedChar
-                  ? `Describe ${selectedChar.name}'s appearance, outfit, and scene setting. Angles will be appended automatically.`
-                  : 'Describe your subject, outfit, and scene. Each selected angle will be appended as a separate image.'
-              }
-              className="w-full px-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-[#1a1a1d] border border-gray-200 dark:border-white/10 text-xs sm:text-sm text-[#0d0d0d] dark:text-white placeholder:text-gray-400 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 leading-relaxed resize-none"
-            />
-          </div>
-
-          {/* Angle Picker */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-bold text-[#0d0d0d] dark:text-white">
-                Select Angles
-                {selectedIds.length > 0 && (
-                  <span className="ml-2 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[10px] font-semibold">
-                    {selectedIds.length} shot{selectedIds.length !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </label>
-              {selectedIds.length > 0 && (
-                <button
-                  type="button"
-                  onClick={clearAll}
-                  className="text-[10px] text-gray-400 hover:text-red-500 flex items-center gap-1 transition-colors cursor-pointer"
                 >
-                  <RotateCcw className="w-3 h-3" />
-                  Clear all
+                  <span>{tab.emoji}</span>
+                  <span>{tab.label}</span>
+                  <span className="text-[10px] opacity-75 font-mono">({count})</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Search + Load Pre-Made Pipelines */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 sm:w-56">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search angles, lenses, POVs..."
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-amber-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-3 h-3" />
                 </button>
               )}
             </div>
 
-            {/* Tabs */}
-            <div className="flex items-center gap-1 mb-3 p-0.5 bg-gray-100/80 dark:bg-white/5 rounded-xl">
-              {GUIDE_TABS.map((tab) => {
-                const count = selectedIds.filter((id) =>
-                  GUIDE_ANGLES.find((a) => a.id === id)?.tab === tab.id
-                ).length;
-                return (
+            {/* Quick-Load Pipeline Dropdown */}
+            <div className="relative group">
+              <button
+                type="button"
+                className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5 hover:border-amber-500 transition-all cursor-pointer"
+                title="Load a pre-configured multi-angle pipeline"
+              >
+                <Layers className="w-3.5 h-3.5 text-amber-500" />
+                <span className="hidden sm:inline">Presets</span>
+              </button>
+
+              <div className="absolute right-0 top-full mt-1.5 w-72 rounded-2xl bg-white dark:bg-[#18181b] border border-gray-200 dark:border-zinc-800 shadow-2xl p-2 z-50 hidden group-hover:block animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-2 py-1 text-[10px] uppercase font-bold text-gray-400 font-mono tracking-wider">
+                  Default Coverage Pipelines
+                </div>
+                {DEFAULT_PIPELINES.map((preset) => (
                   <button
-                    key={tab.id}
+                    key={preset.id}
                     type="button"
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                      activeTab === tab.id
-                        ? 'bg-white dark:bg-zinc-800 text-[#0d0d0d] dark:text-white shadow-xs'
-                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-                    }`}
+                    onClick={() => loadPipelinePreset(preset)}
+                    className="w-full text-left p-2 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/25 transition-colors cursor-pointer"
                   >
-                    <span>{tab.emoji}</span>
-                    <span className="hidden xs:inline">{tab.label}</span>
-                    {count > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
-                        {count}
-                      </span>
-                    )}
+                    <div className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                      {preset.name}
+                    </div>
+                    <div className="text-[10px] text-gray-500 dark:text-gray-400 line-clamp-1 mt-0.5">
+                      {preset.description}
+                    </div>
                   </button>
-                );
-              })}
+                ))}
+
+                {savedPipelines.length > 0 && (
+                  <>
+                    <div className="px-2 py-1 mt-1 text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400 font-mono tracking-wider border-t border-gray-100 dark:border-zinc-800 pt-2">
+                      ✦ Your Saved Pipelines ({savedPipelines.length})
+                    </div>
+                    {savedPipelines.map((sp) => (
+                      <div
+                        key={sp.id}
+                        onClick={() => loadPipelinePreset(sp)}
+                        className="w-full text-left p-2 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-950/25 transition-colors cursor-pointer flex items-center justify-between group/item"
+                      >
+                        <div>
+                          <div className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                            {sp.name}
+                          </div>
+                          <div className="text-[10px] text-gray-400 font-mono">
+                            {sp.itemAngleIds.length} shots queued
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteSavedPipeline(sp.id, e)}
+                          className="p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover/item:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Main Library Body: Visual Angle Cards Grid ── */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
+            {filteredAngles.map((angle) => {
+              const inPipelineCount = pipeline.filter((p) => p.angleId === angle.id).length;
+              return (
+                <div
+                  key={angle.id}
+                  className={`group relative rounded-2xl border overflow-hidden flex flex-col bg-white dark:bg-[#18181b] transition-all hover:shadow-lg ${
+                    inPipelineCount > 0
+                      ? 'border-amber-500 ring-2 ring-amber-500/20 shadow-md'
+                      : 'border-gray-200/90 dark:border-white/10 hover:border-amber-500/50'
+                  }`}
+                >
+                  {/* Real Photographic Reference Thumbnail */}
+                  <div className="relative aspect-4/3 w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900">
+                    <img
+                      src={angle.previewImage}
+                      alt={angle.label}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                      onError={(e) => {
+                        // Fallback placeholder if CDN thumbnail has network glitch
+                        (e.target as HTMLImageElement).src =
+                          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500&auto=format&fit=crop&q=80';
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80" />
+
+                    {/* Lens & Tag Badge */}
+                    <div className="absolute top-2 left-2 flex items-center gap-1">
+                      <span className="px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[9px] font-mono font-bold text-white border border-white/20">
+                        {angle.focalLength}
+                      </span>
+                    </div>
+
+                    {/* In-Pipeline Badge */}
+                    {inPipelineCount > 0 && (
+                      <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-amber-500 text-white font-bold text-[10px] shadow-sm flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>{inPipelineCount}× in Pipeline</span>
+                      </div>
+                    )}
+
+                    {/* Title overlay on image */}
+                    <div className="absolute bottom-2 left-2 right-2">
+                      <div className="flex items-center gap-1.5 text-white font-bold text-xs drop-shadow-md">
+                        <span>{angle.emoji}</span>
+                        <span className="truncate">{angle.label}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card Description & Actions */}
+                  <div className="p-3 flex-1 flex flex-col justify-between gap-2">
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
+                      {angle.desc}
+                    </p>
+
+                    <div className="pt-1 flex items-center justify-between gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => addToPipeline(angle)}
+                        className={`w-full py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95 ${
+                          inPipelineCount > 0
+                            ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-xs'
+                            : 'bg-gray-100 hover:bg-amber-500 hover:text-white dark:bg-white/10 dark:hover:bg-amber-500 text-gray-800 dark:text-gray-200'
+                        }`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Shot</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {filteredAngles.length === 0 && (
+            <div className="py-16 text-center text-gray-400">
+              <Camera className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="text-sm font-semibold">No camera angles matched &quot;{searchQuery}&quot;</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setActiveTab('all');
+                }}
+                className="mt-2 text-xs text-amber-500 hover:underline"
+              >
+                Reset filters
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Persistent Pipeline Dock (Bottom Ribbon) ── */}
+        <div className="border-t border-gray-200 dark:border-white/10 bg-white/95 dark:bg-[#161619]/95 backdrop-blur-md shrink-0 p-3 sm:p-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] space-y-3">
+          {/* Pipeline Header & Controls */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-[#0d0d0d] dark:text-white flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                Active Shot Pipeline
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 font-mono text-[11px] font-bold">
+                {pipeline.length} Shot{pipeline.length !== 1 ? 's' : ''} Queued
+              </span>
+              {isPureDeltaMode ? (
+                <span className="hidden md:inline text-[11px] text-emerald-600 dark:text-emerald-400 font-medium ml-1">
+                  ● Pure Delta Mode (No subject prompt sent)
+                </span>
+              ) : (
+                <span className="hidden md:inline text-[11px] text-gray-400 font-medium ml-1">
+                  ● New Chat (Turn 0 Subject + Angle Deltas)
+                </span>
+              )}
             </div>
 
-            {/* Angle Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {tabAngles.map((angle) => {
-                const isSelected = selectedIds.includes(angle.id);
-                const order = selectedIds.indexOf(angle.id) + 1;
-                return (
-                  <button
-                    key={angle.id}
-                    type="button"
-                    onClick={() => toggleAngle(angle.id)}
-                    className={`relative text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-500 shadow-xs'
-                        : 'bg-gray-50/60 dark:bg-white/[0.02] border-gray-200/80 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20'
-                    }`}
-                  >
-                    {isSelected && (
-                      <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
-                        {order}
-                      </span>
-                    )}
-                    <div className="text-base mb-0.5">{angle.emoji}</div>
-                    <div className={`text-[11px] font-bold ${isSelected ? 'text-amber-800 dark:text-amber-200' : 'text-[#0d0d0d] dark:text-gray-200'}`}>
-                      {angle.label}
-                    </div>
-                    <p className="text-[9px] text-gray-400 dark:text-gray-500 mt-0.5 line-clamp-2 leading-tight font-mono">
-                      {angle.tag.split(',')[0]}…
-                    </p>
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-2">
+              {pipeline.length > 0 && !isSavingPipeline && (
+                <button
+                  type="button"
+                  onClick={() => setIsSavingPipeline(true)}
+                  className="text-[11px] font-semibold text-gray-500 hover:text-amber-500 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Bookmark className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Save Pipeline</span>
+                </button>
+              )}
+              {pipeline.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearPipeline}
+                  className="text-[11px] font-semibold text-gray-400 hover:text-red-500 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span className="hidden sm:inline">Clear</span>
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Error */}
+          {/* Inline Save Pipeline Dialog */}
+          {isSavingPipeline && (
+            <div className="flex items-center gap-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/25">
+              <input
+                type="text"
+                value={newPipelineName}
+                onChange={(e) => setNewPipelineName(e.target.value)}
+                placeholder="Give this custom pipeline a name (e.g. My 4-Angle Model Set)..."
+                className="flex-1 px-3 py-1 text-xs bg-white dark:bg-zinc-800 rounded-lg border border-amber-500/40 text-foreground outline-none"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={handleSavePipeline}
+                disabled={!newPipelineName.trim()}
+                className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSavingPipeline(false)}
+                className="p-1 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Pipeline Horizontal Scroll Strip */}
+          {pipeline.length > 0 ? (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+              {pipeline.map((item, idx) => (
+                <div
+                  key={item.id}
+                  className={`relative shrink-0 flex items-center gap-2.5 p-2 rounded-xl border bg-gray-50/80 dark:bg-white/[0.03] transition-all ${
+                    editingItemIdx === idx
+                      ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/40 dark:bg-amber-950/20'
+                      : 'border-gray-200 dark:border-white/10'
+                  }`}
+                >
+                  {/* Step Number Badge */}
+                  <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
+                    {idx + 1}
+                  </span>
+
+                  {/* Thumbnail */}
+                  <img
+                    src={item.previewImage}
+                    alt={item.label}
+                    className="w-10 h-10 rounded-lg object-cover border border-black/10 shrink-0"
+                  />
+
+                  {/* Info */}
+                  <div className="min-w-0 pr-1">
+                    <div className="text-xs font-bold text-gray-800 dark:text-gray-200 truncate max-w-[120px]">
+                      {item.label}
+                    </div>
+                    <div className="text-[10px] text-amber-600 dark:text-amber-400 font-mono truncate max-w-[120px]">
+                      {item.customPrompt ? '✦ Customized' : 'Pure Delta'}
+                    </div>
+                  </div>
+
+                  {/* Action Buttons: Move, Edit, Delete */}
+                  <div className="flex items-center gap-0.5 pl-1 border-l border-gray-200 dark:border-white/10">
+                    <button
+                      type="button"
+                      disabled={idx === 0}
+                      onClick={() => movePipelineItem(idx, 'left')}
+                      className="p-1 text-gray-400 hover:text-foreground disabled:opacity-30 cursor-pointer"
+                      title="Move shot earlier in sequence"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={idx === pipeline.length - 1}
+                      onClick={() => movePipelineItem(idx, 'right')}
+                      className="p-1 text-gray-400 hover:text-foreground disabled:opacity-30 cursor-pointer"
+                      title="Move shot later in sequence"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingItemIdx(editingItemIdx === idx ? null : idx)}
+                      className="p-1 text-gray-400 hover:text-amber-500 cursor-pointer"
+                      title="Edit prompt delta"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeFromPipeline(idx)}
+                      className="p-1 text-gray-400 hover:text-red-500 cursor-pointer"
+                      title="Remove shot from pipeline"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-3 px-4 rounded-xl bg-gray-50 dark:bg-white/[0.02] border border-dashed border-gray-200 dark:border-white/10 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
+              <Camera className="w-4 h-4 opacity-40" />
+              <span>Click &quot;+ Add Shot&quot; on any angle card above to build your multi-shot execution pipeline.</span>
+            </div>
+          )}
+
+          {/* Inline Editor for Selected Pipeline Step */}
+          {editingItemIdx !== null && pipeline[editingItemIdx] && (
+            <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/25 space-y-2 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                  Edit Shot {editingItemIdx + 1} Prompt Delta ({pipeline[editingItemIdx].label}):
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setEditingItemIdx(null)}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  Done
+                </button>
+              </div>
+              <textarea
+                rows={2}
+                value={pipeline[editingItemIdx].customPrompt ?? pipeline[editingItemIdx].tag}
+                onChange={(e) => updatePipelineItemPrompt(editingItemIdx, e.target.value)}
+                className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-800 border border-amber-500/30 text-xs font-mono text-foreground outline-none resize-none"
+              />
+            </div>
+          )}
+
+          {/* Error Message */}
           {executingError && (
             <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-xs text-red-600 dark:text-red-400 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -439,173 +749,130 @@ export const GuideModal: React.FC<GuideModalProps> = ({
             </div>
           )}
 
-          {/* Execution Progress */}
+          {/* Active Live Sequence Progress */}
           {isExecuting && (
-            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <DotMatrixLoader size="sm" variant="hex" speed={1.2} />
-                  <div>
-                    <div className="text-xs font-bold text-amber-800 dark:text-amber-300">
-                      {directorStatus?.status || 'POV Sequence Running…'}
-                    </div>
-                    <div className="text-[10px] font-mono text-amber-600 dark:text-amber-400">
-                      Shot {directorStatus?.current_shot || 0} of {directorStatus?.total_shots || compiledShots.length}
-                    </div>
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <DotMatrixLoader size="sm" variant="hex" speed={1.2} />
+                <div>
+                  <div className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                    {directorStatus?.status || 'Executing Multi-Angle Pipeline…'}
+                  </div>
+                  <div className="text-[10px] font-mono text-amber-600 dark:text-amber-400">
+                    Shot {directorStatus?.current_shot || 0} of {directorStatus?.total_shots || pipeline.length} · Turn-by-Turn Delivery
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-semibold flex items-center gap-1 active:scale-95 cursor-pointer"
-                >
-                  <StopCircle className="w-3.5 h-3.5" />
-                  Stop
-                </button>
               </div>
-              <div className="w-full bg-gray-200 dark:bg-white/10 rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.round(((directorStatus?.current_shot || 0) / (directorStatus?.total_shots || compiledShots.length)) * 100)}%` }}
-                />
-              </div>
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
+              >
+                <StopCircle className="w-3.5 h-3.5" />
+                Stop Pipeline
+              </button>
             </div>
           )}
 
-          {/* Shot Review */}
-          {showReview && compiledShots.length > 0 && !isExecuting && (
-            <div className="space-y-3 pt-2 border-t border-gray-100 dark:border-white/10">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Camera className="w-4 h-4 text-amber-500" />
-                  <span className="text-xs font-bold text-[#0d0d0d] dark:text-white">
-                    Review Compiled Shots ({compiledShots.length})
+          {/* Bottom Execution Bar */}
+          {!isExecuting && (
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <div className="text-[11px] text-gray-500 dark:text-gray-400 hidden sm:block">
+                {pipeline.length > 0 ? (
+                  <span>
+                    Ready to dispatch <strong>{pipeline.length} images</strong> sequentially with zero LLM hallucination.
                   </span>
-                </div>
-                <span className="text-[10px] text-gray-400">Edit before launching</span>
+                ) : (
+                  <span>Select at least 1 camera angle to unlock execution.</span>
+                )}
               </div>
 
-              <div className="space-y-2">
-                {compiledShots.map((shot, idx) => (
-                  <div key={idx} className="p-3 rounded-xl bg-gray-50 dark:bg-[#18181b] border border-gray-200 dark:border-white/10 space-y-1.5">
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowReviewModal(true)}
+                  disabled={pipeline.length === 0}
+                  className="px-3.5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 text-gray-700 dark:text-gray-300 text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-40 cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Review Prompts</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={executePipeline}
+                  disabled={pipeline.length === 0}
+                  className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs sm:text-sm font-bold flex items-center gap-2 shadow-md shadow-amber-500/20 active:scale-95 transition-all disabled:opacity-40 cursor-pointer"
+                >
+                  <Play className="w-4 h-4 fill-white" />
+                  <span>Execute Pipeline ({pipeline.length} Shots)</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Review Modal (Pre-Flight Inspection) ── */}
+        {showReviewModal && (
+          <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-[#18181b] border border-gray-200 dark:border-white/10 rounded-2xl p-5 max-w-lg w-full shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+              <div className="flex items-center justify-between border-b border-gray-100 dark:border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <h3 className="text-sm font-bold text-foreground">
+                    Review Pipeline Prompts ({pipeline.length} Shots)
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowReviewModal(false)}
+                  className="p-1 text-gray-400 hover:text-foreground"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+                {compileFinalShots().map((shot, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 rounded-xl bg-gray-50 dark:bg-zinc-850 border border-gray-200/80 dark:border-white/10 space-y-1.5"
+                  >
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 font-mono">
-                        Shot {idx + 1} · {shot.description}
+                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 font-mono">
+                        Shot {idx + 1} · {pipeline[idx]?.label}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteShot(idx)}
-                        className="p-1 text-gray-400 hover:text-red-500 rounded-md transition-colors cursor-pointer"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      <span className="text-[9px] font-mono text-gray-400">
+                        {shot.prompt.split(/\s+/).length} words
+                      </span>
                     </div>
-                    <textarea
-                      rows={3}
-                      value={shot.prompt}
-                      onChange={(e) => handleUpdateShot(idx, e.target.value)}
-                      className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#202024] border border-gray-200/80 dark:border-white/10 text-[11px] font-mono text-gray-700 dark:text-gray-300 outline-none focus:border-amber-500 resize-none leading-relaxed"
-                    />
+                    <div className="p-2 rounded-lg bg-white dark:bg-zinc-900 border border-gray-200/60 dark:border-white/5 font-mono text-[11px] text-gray-700 dark:text-gray-300 leading-relaxed break-words">
+                      {shot.prompt}
+                    </div>
                   </div>
                 ))}
               </div>
 
-              <button
-                type="button"
-                onClick={handleRunFromReview}
-                className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-md shadow-amber-500/20 active:scale-[0.99] transition-all cursor-pointer"
-              >
-                <Play className="w-4 h-4 fill-white" />
-                Run {compiledShots.length} Shot{compiledShots.length !== 1 ? 's' : ''} — Zero LLM
-              </button>
+              <div className="pt-2 border-t border-gray-100 dark:border-white/10 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setShowReviewModal(false)}
+                  className="px-3 py-1.5 rounded-xl text-xs text-gray-500 hover:text-foreground"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={executePipeline}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95"
+                >
+                  <Play className="w-3.5 h-3.5 fill-white" />
+                  <span>Launch Pipeline Now</span>
+                </button>
+              </div>
             </div>
-          )}
-
-          {/* Launch Controls */}
-          {!showReview && !isExecuting && (
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleAutoLaunch}
-                disabled={!canRun}
-                className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs ${
-                  canRun
-                    ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer active:scale-[0.99]'
-                    : 'bg-gray-100 dark:bg-white/5 text-gray-400 cursor-not-allowed'
-                }`}
-              >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                Auto-Launch ({selectedIds.length})
-              </button>
-              <button
-                type="button"
-                onClick={handleReview}
-                disabled={!canRun}
-                className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all border ${
-                  canRun
-                    ? 'bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-white/10 cursor-pointer active:scale-[0.99]'
-                    : 'bg-gray-100 dark:bg-white/5 text-gray-400 border-transparent cursor-not-allowed'
-                }`}
-              >
-                <Eye className="w-3.5 h-3.5" />
-                Review & Edit
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* ── Footer ── */}
-        <div className="px-4 sm:px-5 py-2.5 border-t border-gray-100 dark:border-white/10 bg-white/95 dark:bg-[#141416]/95 backdrop-blur-md shrink-0 flex items-center justify-between gap-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-white/10 dark:hover:bg-white/15 text-gray-700 dark:text-gray-300 text-xs font-semibold transition-all cursor-pointer"
-          >
-            Close
-          </button>
-          <div className="text-[10px] text-gray-400 font-mono">
-            {selectedIds.length > 0
-              ? `${selectedIds.length} angle${selectedIds.length !== 1 ? 's' : ''} selected · no LLM`
-              : 'Pick angles to generate shots'}
           </div>
-          {isExecuting ? (
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <StopCircle className="w-3.5 h-3.5" />
-              Stop
-            </button>
-          ) : showReview && compiledShots.length > 0 ? (
-            <button
-              type="button"
-              onClick={handleRunFromReview}
-              className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5 fill-white" />
-              Run {compiledShots.length}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleAutoLaunch}
-              disabled={!canRun}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
-                canRun
-                  ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer active:scale-95'
-                  : 'bg-gray-100 dark:bg-white/5 text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              {isExecuting ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Play className="w-3.5 h-3.5 fill-current" />
-              )}
-              Launch
-            </button>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
