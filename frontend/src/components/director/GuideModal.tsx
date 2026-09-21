@@ -121,8 +121,6 @@ export const GuideModal: React.FC<GuideModalProps> = ({
     };
   }, [isExecuting, onThreadCreated]);
 
-  if (!isOpen) return null;
-
   // Filtered angles
   const filteredAngles = useMemo(() => {
     return GUIDE_ANGLES.filter((a) => {
@@ -137,6 +135,8 @@ export const GuideModal: React.FC<GuideModalProps> = ({
       return matchesTab && matchesSearch;
     });
   }, [activeTab, searchQuery]);
+
+  if (!isOpen) return null;
 
   // Pipeline Management
   const addToPipeline = (angle: GuideAngle) => {

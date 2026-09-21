@@ -1531,6 +1531,21 @@ export const Composer: React.FC<ComposerProps> = ({
                   <span className="text-[11px] font-semibold hidden sm:inline">Director</span>
                 </button>
 
+                {/* 🎯 POV Guide Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    hapticImpact('light');
+                    setIsGuideModalOpen(true);
+                  }}
+                  className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-medium transition-all border min-h-[30px] sm:min-h-[32px] cursor-pointer bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30 active:scale-95 shadow-2xs"
+                  title="POV Guide: Fixed angle visual library & pipeline"
+                  aria-label="Open POV Guide Studio"
+                >
+                  <Crosshair size={13} className="text-amber-500" />
+                  <span className="text-[11px] font-semibold hidden sm:inline">Guide</span>
+                </button>
+
                 {/* 🧠 Thinking Mode Toggle */}
                 <button
                   type="button"
