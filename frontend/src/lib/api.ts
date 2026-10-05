@@ -41,13 +41,24 @@ import {
 } from '../types';
 
 export async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+      ...options,
+    });
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out while waiting for ChatGPT response. Please try again.');
+    }
+    if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
+      throw new Error('Network timeout or connection lost. The server took too long to respond.');
+    }
+    throw err;
+  }
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({ detail: res.statusText }));
     const msg = errorBody.error?.message || errorBody.detail || errorBody.message || res.statusText;

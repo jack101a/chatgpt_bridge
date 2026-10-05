@@ -1037,6 +1037,17 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                           <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-card border border-border text-muted-foreground uppercase shrink-0">
                             {planName}
                           </span>
+                          {acc.is_authenticated ? (
+                            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold border border-emerald-500/20 shrink-0">
+                              <CheckCircle2 size={10} />
+                              READY
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold border border-amber-500/20 shrink-0">
+                              <AlertCircle size={10} />
+                              EXPIRED
+                            </span>
+                          )}
                         </div>
                         <p className="text-[11px] text-muted-foreground font-mono truncate max-w-[170px] sm:max-w-[240px]">
                           {acc.email || acc.id}
@@ -1044,7 +1055,7 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                       </div>
                     </div>
 
-                    {/* Actions & Cooldown Status */}
+                    {/* Cooldown Status or Gen count */}
                     <div className="flex items-center gap-1.5 shrink-0">
                       {inCooldown ? (
                         <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono border border-amber-500/20">
@@ -1056,51 +1067,6 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                           {acc.total_generations} gens
                         </span>
                       )}
-
-                      <button
-                        type="button"
-                        onClick={() => handleOpenCookieModal(acc)}
-                        title={`Import or update cookies for ${acc.alias}`}
-                        className="p-1.5 rounded-full hover:bg-card border border-transparent hover:border-border text-muted-foreground hover:text-emerald-500 transition-all active:scale-95"
-                      >
-                        <Key size={12} />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRefreshQuota(acc.alias || acc.id)}
-                        disabled={isRefreshingThis}
-                        title="Check real-time rate limits & quotas from ChatGPT"
-                        className="p-1.5 rounded-full hover:bg-card border border-transparent hover:border-border text-muted-foreground hover:text-foreground transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        <RefreshCw
-                          size={12}
-                          className={isRefreshingThis ? 'animate-spin text-emerald-500' : ''}
-                        />
-                      </button>
-
-                      {!acc.is_active && (
-                        <button
-                          onClick={() => handleSwitchAccount(acc.alias)}
-                          className="px-2.5 py-1 rounded-full bg-card hover:bg-muted border border-border text-xs font-medium text-foreground active:scale-95 transition-all shadow-xs"
-                        >
-                          Switch
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteAccount(acc)}
-                        disabled={deletingAccountId === acc.id}
-                        title={`Delete or reset account ${acc.alias}`}
-                        className="p-1.5 rounded-full hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 text-muted-foreground hover:text-rose-500 transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        {deletingAccountId === acc.id ? (
-                          <Loader2 size={12} className="animate-spin text-rose-500" />
-                        ) : (
-                          <Trash2 size={12} />
-                        )}
-                      </button>
                     </div>
                   </div>
 
@@ -1169,9 +1135,83 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                       ) : null}
                     </div>
                   </div>
+
+                  {/* Account Action Bar */}
+                  <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-border/40">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCookieModal(acc)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card hover:bg-muted border border-border text-[11px] font-medium text-foreground transition-all active:scale-95 shadow-xs"
+                        title={`Import or update cookies for ${acc.alias}`}
+                      >
+                        <Key size={11} className="text-emerald-500" />
+                        <span>Update Cookies</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRefreshQuota(acc.alias || acc.id)}
+                        disabled={isRefreshingThis}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card hover:bg-muted border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground transition-all active:scale-95 disabled:opacity-50 shadow-xs"
+                        title="Verify session & refresh rate limits from ChatGPT"
+                      >
+                        <RefreshCw
+                          size={11}
+                          className={isRefreshingThis ? 'animate-spin text-emerald-500' : ''}
+                        />
+                        <span>Check Quota</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {!acc.is_active && (
+                        <button
+                          type="button"
+                          onClick={() => handleSwitchAccount(acc.alias)}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-medium transition-all active:scale-95 shadow-xs"
+                        >
+                          Switch
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAccount(acc)}
+                        disabled={deletingAccountId === acc.id}
+                        title={`Delete or reset account ${acc.alias}`}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 text-[11px] text-muted-foreground hover:text-rose-500 transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        {deletingAccountId === acc.id ? (
+                          <Loader2 size={11} className="animate-spin text-rose-500" />
+                        ) : (
+                          <Trash2 size={11} />
+                        )}
+                        <span>{acc.is_active && accounts.length === 1 ? 'Reset' : 'Delete'}</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               );
             })}
+
+            {/* Prominent Add Account Card Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setNewAccountAlias('');
+                setNewAccountCookies('');
+                setAddAccountError(null);
+                setAddAccountSuccess(null);
+                setShowAddAccountModal(true);
+              }}
+              className="w-full py-3 px-4 rounded-2xl border-2 border-dashed border-border hover:border-emerald-500/40 hover:bg-emerald-500/5 text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 transition-all flex items-center justify-center gap-2 text-xs font-semibold group active:scale-[0.99]"
+            >
+              <div className="w-6 h-6 rounded-full bg-muted group-hover:bg-emerald-500/20 text-muted-foreground group-hover:text-emerald-500 flex items-center justify-center transition-colors">
+                <Plus size={14} />
+              </div>
+              <span>+ Add New ChatGPT Account</span>
+            </button>
           </div>
         </div>
 

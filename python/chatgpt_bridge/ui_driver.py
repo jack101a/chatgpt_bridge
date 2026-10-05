@@ -12,7 +12,7 @@ import time
 log = logging.getLogger("chatgpt_bridge.ui_driver")
 
 from .browser import BrowserManager
-from .errors import AuthError, BridgeTimeoutError, GenerationDeniedError, ShapeChangedError
+from .errors import AuthError, BridgeError, BridgeTimeoutError, GenerationDeniedError, ShapeChangedError
 from .images import IMAGE_SELECTOR, save_image
 from .retry import (
     RetryConfig,
@@ -22,13 +22,24 @@ from .retry import (
 )
 from .session import SessionManager
 
-# Robust selectors, data-testid first.
+# Robust selectors, data-testid first with fallback to modern ChatGPT DOM shapes.
 COMPOSER_SELECTOR = (
-    '[data-testid="composer-text-input"], div[contenteditable="true"]'
+    '#pending-home-input, #pending-conversation-input, #prompt-textarea, '
+    'textarea[placeholder*="Ask"], [data-testid="composer-text-input"], div[contenteditable="true"]'
 )
-SEND_SELECTOR = '[data-testid="composer-send-button"]'
-TURN_SELECTOR = '[data-testid^="conversation-turn"]'
-ASSISTANT_SELECTOR = '[data-message-author-role="assistant"]'
+SEND_SELECTOR = (
+    '#composer-submit-button, button[data-testid="send-button"], button[data-testid="composer-send-button"], '
+    'button[aria-label*="Send"], button:has-text("Send")'
+)
+TURN_SELECTOR = '[data-chatgpt-search-unit-key], [data-content-search-unit-key], [data-testid^="conversation-turn"]'
+ASSISTANT_SELECTOR = (
+    '[data-markdown-text-style="assistant-message"], [data-chatgpt-search-unit-key*="assistant"], '
+    '[data-content-search-unit-key*="assistant"], [data-message-author-role="assistant"]'
+)
+USER_SELECTOR = (
+    '[data-markdown-text-style="user-message"], [data-chatgpt-search-unit-key*="user"], '
+    '[data-content-search-unit-key*="user"], [data-message-author-role="user"]'
+)
 
 # "Try again" button (transient dialog) and the Switch-model popover trigger.
 TRY_AGAIN_RE = re.compile(r"try again|retry|regenerate", re.IGNORECASE)
@@ -112,10 +123,14 @@ _ENSURE_PROJECT_JS = """async (projectName) => {
 }"""
 
 _DOM_TO_MD_JS = """() => {
-    const assistantNodes = document.querySelectorAll('[data-message-author-role="assistant"]');
+    const assistantNodes = document.querySelectorAll(
+        '[data-markdown-text-style="assistant-message"], [data-chatgpt-search-unit-key*="assistant"], [data-content-search-unit-key*="assistant"], [data-message-author-role="assistant"]'
+    );
     if (!assistantNodes.length) return '';
     const last = assistantNodes[assistantNodes.length - 1];
-    const root = last.querySelector('.markdown') || last;
+    const root = (last.getAttribute('data-markdown-text-style') === 'assistant-message')
+        ? last
+        : (last.querySelector('[data-markdown-text-style="assistant-message"], [class*="MarkdownRoot"], .markdown') || last);
 
     function nodeToMd(node) {
         if (!node) return '';
@@ -424,7 +439,7 @@ class UIDriver:
         prior_assistant_count = 0
         try:
             prior_text = await self._read_last_assistant(page)
-            prior_assistant_count = await page.evaluate("() => document.querySelectorAll('[data-message-author-role=\"assistant\"]').length")
+            prior_assistant_count = await page.locator(ASSISTANT_SELECTOR).count()
         except Exception:
             pass
 
@@ -602,19 +617,28 @@ class UIDriver:
                 # Retries 1-5: exact original prompt
                 # Retries 6-7: tweaked prompt (level 1)
                 # Retries 8-10: further refined prompt (level 2)
-                if retry_idx >= 8:
-                    current_prompt = (
-                        tweaked_prompt_2
-                        or tweaked_prompt
-                        or auto_tweak_prompt(prompt, level=2)
-                    )
-                elif retry_idx >= 6:
-                    current_prompt = (
-                        tweaked_prompt
-                        or auto_tweak_prompt(prompt, level=1)
-                    )
+                if tweaked_prompt:
+                    if retry_idx >= 8:
+                        current_prompt = (
+                            tweaked_prompt_2
+                            or tweaked_prompt
+                            or auto_tweak_prompt(prompt, level=2)
+                        )
+                    elif retry_idx >= 6:
+                        current_prompt = (
+                            tweaked_prompt
+                            or auto_tweak_prompt(prompt, level=1)
+                        )
+                    else:
+                        current_prompt = prompt
                 else:
-                    current_prompt = prompt
+                    # When no explicit tweaked_prompt was supplied:
+                    # If ChatGPT denied the previous attempt on policy/safety grounds,
+                    # soften immediately so we don't repeat the identical flagged prompt.
+                    if last_kind == "denial":
+                        current_prompt = auto_tweak_prompt(prompt, level=min(retry_idx, 2))
+                    else:
+                        current_prompt = prompt
 
                 log.info(
                     "Starting retry %d/%d (delay: %.1fs, prompt: %s...)",
@@ -637,9 +661,10 @@ class UIDriver:
                         pass
 
                 # Primary retry method: Edit message (pencil icon) -> Send
+                send_prompt = current_prompt if (retry_idx >= 6 or current_prompt != prompt) else None
                 retried = await self._edit_message_retry(
                     page,
-                    new_prompt=current_prompt if retry_idx >= 6 else None,
+                    new_prompt=send_prompt,
                 )
                 if not retried:
                     # Secondary: inline 'Try again' / 'Regenerate' button
@@ -710,6 +735,15 @@ class UIDriver:
                     raise GenerationDeniedError(
                         last_text[:200] or "deterministic denial",
                         kind="deterministic",
+                        conversation_id=cid,
+                    )
+
+                # If explicit content policy refusal persists after softened retries, stop fast to avoid browser timeout!
+                if last_kind == "denial" and retry_idx >= 2 and not tweaked_prompt:
+                    log.warning("Content policy refusal persists after softened retries; halting immediately.")
+                    raise GenerationDeniedError(
+                        f"ChatGPT policy refusal: {last_text.strip() or 'Prompt violates content guardrails'}",
+                        kind="denial",
                         conversation_id=cid,
                     )
             finally:
@@ -904,7 +938,7 @@ class UIDriver:
                     is_user = False
                     try:
                         role = await turn.get_attribute("data-message-author-role")
-                        if role == "user" or await turn.locator('[data-message-author-role="user"]').count() > 0:
+                        if role == "user" or await turn.locator(USER_SELECTOR).count() > 0:
                             is_user = True
                     except Exception:
                         pass
@@ -921,7 +955,7 @@ class UIDriver:
 
             # Fallback to assistant-scoped search across the page
             try:
-                assistant_turns = page.locator('[data-message-author-role="assistant"]')
+                assistant_turns = page.locator(ASSISTANT_SELECTOR)
                 a_count = await assistant_turns.count()
                 for t_idx in range(a_count - 1, -1, -1):
                     turn = assistant_turns.nth(t_idx)
@@ -944,7 +978,7 @@ class UIDriver:
                 try:
                     if hasattr(img, "evaluate"):
                         is_user_or_composer = await img.evaluate(
-                            "el => !!el.closest('[data-message-author-role=\"user\"], form, [data-testid=\"composer-text-input\"]')"
+                            "el => !!el.closest('[data-markdown-text-style=\"user-message\"], [data-chatgpt-search-unit-key*=\"user\"], [data-content-search-unit-key*=\"user\"], [data-message-author-role=\"user\"], form, [data-testid=\"composer-text-input\"], #pending-home-input, #pending-conversation-input')"
                         )
                         if is_user_or_composer:
                             continue
@@ -1266,9 +1300,13 @@ class UIDriver:
         await page.keyboard.press("Backspace")
         try:
             await page.evaluate("""() => {
-                const el = document.querySelector('[data-testid="composer-text-input"], div[contenteditable="true"]');
-                if (el && el.innerText.trim()) {
-                    el.innerHTML = '<p><br></p>';
+                const el = document.querySelector('#pending-home-input, #pending-conversation-input, #prompt-textarea, textarea[placeholder*="Ask"], [data-testid="composer-text-input"], div[contenteditable="true"]');
+                if (el) {
+                    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+                        el.value = '';
+                    } else {
+                        el.innerHTML = '<p><br></p>';
+                    }
                     el.dispatchEvent(new Event('input', { bubbles: true }));
                 }
             }""")
@@ -1359,15 +1397,19 @@ class UIDriver:
             except Exception as e:
                 log.warning("Failed to attach reference image(s) %s: %s", [str(p) for p in paths], e)
 
+        # Focus composer before typing
+        try:
+            await composer.focus()
+        except Exception:
+            pass
+
         # Use insert_text: keyboard.type() emits Enter keydown on newlines,
         # which triggers premature form submission in ChatGPT ProseMirror composer.
         await page.keyboard.insert_text(prompt)
         await asyncio.sleep(0.3)
         # In modern ChatGPT, the send button is #composer-submit-button / [data-testid="send-button"].
         # Wait briefly for React/ProseMirror to mark the button as enabled.
-        send_btn = page.locator(
-            '#composer-submit-button, button[data-testid="send-button"], button[data-testid="composer-send-button"], button[aria-label*="Send"]'
-        ).first
+        send_btn = page.locator(SEND_SELECTOR).first
         for _ in range(30):
             if await send_btn.count() > 0 and await send_btn.is_visible():
                 dis = await send_btn.get_attribute("disabled")
@@ -1426,9 +1468,7 @@ class UIDriver:
 
             curr_count = 0
             try:
-                curr_count = await page.evaluate(
-                    "() => document.querySelectorAll('[data-message-author-role=\"assistant\"]').length"
-                )
+                curr_count = await page.locator(ASSISTANT_SELECTOR).count()
             except Exception:
                 pass
 

@@ -89,6 +89,8 @@ class ChatGPT:
         self.on_stop_callbacks: list[Any] = []
 
     async def _is_session_alive_cached(self, max_age_s: float = 30.0) -> bool:
+        if self._started and self.browser._context is None:
+            return True
         now = time.monotonic()
         if (now - self._last_alive_check) < max_age_s:
             return self._last_alive_status
@@ -157,7 +159,7 @@ class ChatGPT:
                 else:
                     return
             else:
-                self._started = False
+                return
         await self.browser.start()
         self._touch_browser_activity()
         active_acc = self.account_manager.get_active_account()
@@ -333,34 +335,23 @@ class ChatGPT:
         try:
             ctx = await bm.context()
             await ctx.add_cookies(cookie_list)
-            page = await ctx.new_page()
+            page = ctx.pages[0] if ctx.pages else await ctx.new_page()
             user_info = {}
             try:
-                resp = await page.request.get(
-                    "https://chatgpt.com/api/auth/session",
-                    timeout=15_000,
-                )
-                if resp.status == 200:
-                    data = await resp.json()
-                    user_info = (data or {}).get("user") or {}
-            except Exception as direct_err:
-                log.debug("direct session check failed: %s", direct_err)
-
-            # If direct API check didn't return user, navigate to chatgpt.com to let Cloudflare/session settle
-            if not user_info:
-                try:
-                    await page.goto("https://chatgpt.com", wait_until="domcontentloaded", timeout=20_000)
-                    resp = await page.request.get(
-                        "https://chatgpt.com/api/auth/session",
-                        timeout=15_000,
-                    )
-                    if resp.status == 200:
-                        data = await resp.json()
-                        user_info = (data or {}).get("user") or {}
-                except Exception as nav_err:
-                    log.warning("navigation session check error: %s", nav_err)
-
-            await page.close()
+                await page.goto("https://chatgpt.com", wait_until="domcontentloaded", timeout=20_000)
+                data = await page.evaluate("""async () => {
+                    try {
+                        const r = await fetch("/api/auth/session");
+                        if (r.status === 200) {
+                            return await r.json();
+                        }
+                    } catch(e) {}
+                    return null;
+                }""")
+                if data and isinstance(data, dict):
+                    user_info = data.get("user") or {}
+            except Exception as nav_err:
+                log.warning("navigation session check error: %s", nav_err)
 
             if not user_info:
                 raise AuthError(
@@ -545,7 +536,10 @@ class ChatGPT:
                 cid = conversation_id or self._current_conversation_id
             if retry is None:
                 retries = max_retries if max_retries is not None else self.max_retries
-                retry = RetryConfig(max_tries=retries)
+                retry = RetryConfig(
+                    max_tries=retries,
+                    intervals=(1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 8.0, 10.0, 12.0, 15.0),
+                )
             kwargs: dict = {}
             if tweaked_prompt is not None:
                 kwargs["tweaked_prompt"] = tweaked_prompt

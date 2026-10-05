@@ -27,50 +27,79 @@ class SessionManager:
         self.browser = browser
         self._pending_import: list[dict] | None = None
 
-    async def is_alive(self) -> bool:
-        """Return True iff the session endpoint reports an authenticated user."""
+    async def _fetch_session_data(self) -> dict | None:
+        """Fetch session data from /api/auth/session.
+
+        Tries ctx.request first for speed, but falls back to in-page evaluation
+        because Cloudflare blocks raw Playwright request contexts (returning 403).
+        """
         ctx = await self.browser.context()
+        # 1. Fast direct request attempt
         try:
             resp = await ctx.request.get(
                 "https://chatgpt.com/api/auth/session",
-                timeout=15_000,
+                timeout=5_000,
             )
-            if resp.status != 200:
-                return False
-            data = await resp.json()
-            return bool(data and data.get("user"))
+            if resp.status == 200:
+                data = await resp.json()
+                if data and isinstance(data, dict) and data.get("user"):
+                    return data
         except Exception:
-            return False
+            pass
+
+        # 2. In-page evaluate fallback (passes Cloudflare browser challenges)
+        page = None
+        created_page = False
+        try:
+            pages = [p for p in ctx.pages if not p.is_closed()]
+            if pages:
+                page = pages[0]
+            else:
+                page = await ctx.new_page()
+                created_page = True
+
+            if "chatgpt.com" not in page.url:
+                await page.goto("https://chatgpt.com/", wait_until="domcontentloaded", timeout=20_000)
+
+            data = await page.evaluate("""async () => {
+                try {
+                    const r = await fetch("/api/auth/session");
+                    if (r.status === 200) {
+                        return await r.json();
+                    }
+                } catch (e) {}
+                return null;
+            }""")
+            if data and isinstance(data, dict):
+                return data
+        except Exception as exc:
+            log.debug("In-page session fetch fallback failed: %s", exc)
+        finally:
+            if created_page and page and not page.is_closed():
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+        return None
+
+    async def is_alive(self) -> bool:
+        """Return True iff the session endpoint reports an authenticated user."""
+        data = await self._fetch_session_data()
+        return bool(data and data.get("user"))
 
     async def get_user_info(self) -> dict:
         """Parse user profile information (email, name, id) from session."""
-        ctx = await self.browser.context()
-        try:
-            resp = await ctx.request.get(
-                "https://chatgpt.com/api/auth/session",
-                timeout=15_000,
-            )
-            if resp.status != 200:
-                return {}
-            data = await resp.json()
-            return (data or {}).get("user") or {}
-        except Exception:
-            return {}
+        data = await self._fetch_session_data()
+        return (data or {}).get("user") or {}
 
     async def get_access_token(self) -> str:
         """Parse the access token from the session endpoint JSON."""
-        ctx = await self.browser.context()
-        resp = await ctx.request.get(
-            "https://chatgpt.com/api/auth/session",
-            timeout=15_000,
-        )
-        if resp.status != 200:
+        data = await self._fetch_session_data()
+        if not data:
             raise AuthError(
-                f"session endpoint returned status {resp.status}; "
-                "re-login or refresh cookies."
+                "session endpoint unreachable or rejected by Cloudflare; re-login or refresh cookies."
             )
-        data = await resp.json()
-        token = (data or {}).get("accessToken")
+        token = data.get("accessToken")
         if not token:
             raise AuthError(
                 "session JSON missing accessToken; re-login or refresh cookies."

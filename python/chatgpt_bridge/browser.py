@@ -142,18 +142,10 @@ class BrowserManager:
         Raises :class:`AuthError` if the session endpoint is unreachable or
         reports an unauthenticated user.
         """
-        ctx = await self.context()
-        resp = await ctx.request.get(
-            "https://chatgpt.com/api/auth/session",
-            timeout=15_000,
-        )
-        if resp.status != 200:
-            raise AuthError(
-                "ChatGPT session check failed "
-                f"(status {resp.status}); re-login or refresh cookies."
-            )
-        data = await resp.json()
-        if not data or not data.get("user"):
+        from .session import SessionManager
+
+        sm = SessionManager(self)
+        if not await sm.is_alive():
             raise AuthError(
                 "ChatGPT session is not authenticated; "
                 "re-login or refresh cookies."

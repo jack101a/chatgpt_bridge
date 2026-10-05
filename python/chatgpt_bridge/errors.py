@@ -3,26 +3,30 @@
 from __future__ import annotations
 
 
-class AuthError(RuntimeError):
+class BridgeError(RuntimeError):
+    """Base exception for ChatGPT bridge errors."""
+
+
+class AuthError(BridgeError):
     """Session is invalid; user must re-login or refresh cookies."""
 
 
-class ShapeChangedError(RuntimeError):
+class ShapeChangedError(BridgeError):
     """The chatgpt.com HTTP/DOM shape drifted from what we expect.
 
     Internal signal that triggers the UI fallback path.
     """
 
 
-class BridgeTimeoutError(TimeoutError):
+class BridgeTimeoutError(BridgeError, TimeoutError):
     """An operation exceeded its configured time limit."""
 
 
-class DaemonUnreachableError(RuntimeError):
+class DaemonUnreachableError(BridgeError):
     """The local daemon could not be reached or spawned."""
 
 
-class GenerationDeniedError(RuntimeError):
+class GenerationDeniedError(BridgeError):
     """Image generation was denied or retries were exhausted."""
 
     def __init__(

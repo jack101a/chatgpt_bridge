@@ -195,8 +195,12 @@ def auto_tweak_prompt(prompt: str, level: int = 1) -> str:
     subs_level_1 = [
         (r"\bVERY POOR\b\*?", "humble rustic"),
         (r"\bthread wearing kinda poor\b", "wearing modest weathered threadbare cottage attire"),
+        (r"\b(?:uncontainable|huge|massive|large|heavy|full(?:\s+round)?)\s+bust\b", "shapely graceful feminine silhouette"),
         (r"\bultra full round busty figure\b", "full round shapely hourglass figure"),
         (r"\bbusty\b", "shapely feminine"),
+        (r"\bbust\b", "silhouette"),
+        (r"\b(?:milkiest|milky)\s+white\s+skin\b", "fair radiant porcelain complexion"),
+        (r"\bhourglass\s+curve\b", "classic elegant silhouette"),
         (r"\bPOV\b", "first-person eye-level perspective"),
         (r"\bunrealistic flawless beauty\b", "strikingly beautiful ethereal beauty"),
     ]
