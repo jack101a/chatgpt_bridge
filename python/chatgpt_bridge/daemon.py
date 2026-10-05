@@ -30,6 +30,7 @@ from .errors import (
     GenerationDeniedError,
     ShapeChangedError,
 )
+from .retry import auto_tweak_prompt
 from .storage_manager import (
     DEFAULT_QUOTA_MB,
     compute_directory_size,
@@ -3112,6 +3113,10 @@ _director_state: dict[str, Any] = {
     "status": "Idle",
     "last_error": None,
     "conversation_id": None,
+    "completed_shots": [],
+    "failed_shots": [],
+    "successful_count": 0,
+    "failed_count": 0,
 }
 
 
@@ -3131,6 +3136,10 @@ async def _execute_director_sequence(
     _director_state["status"] = "Initializing sequence..."
     _director_state["last_error"] = None
     _director_state["conversation_id"] = conversation_id
+    _director_state["completed_shots"] = []
+    _director_state["failed_shots"] = []
+    _director_state["successful_count"] = 0
+    _director_state["failed_count"] = 0
 
     mgr = _get_character_manager()
     char = None
@@ -3140,86 +3149,81 @@ async def _execute_director_sequence(
         char = mgr.get_active_character()
     conv_id = conversation_id
 
-    # ── 2-Stage Handshake Execution ──────────────────────────────────────────────
-    # Turn 0: Character Lock Identity Contract (Physical specification & 3 reference cards)
-    # Turn 1: Roleplay & Fictional World Contract (Plot, storyline, scenario, medium & safety sandbox)
-    contracts = _load_conversation_contracts()
-
-    # Turn 0: Establish Character Identity
-    if char:
-        is_primed = contracts.get(conv_id, {}).get("primed", False) if conv_id else False
-        if not is_primed:
-            _director_state["status"] = f"Turn 0: Character Identity Handshake for {char.name}..."
-            await ws_broadcast({
-                "type": "director_sequence_progress",
-                "shot_index": 0,
-                "total_shots": len(shots),
-                "status": _director_state["status"],
-                "conversation_id": conv_id,
-            })
-            try:
-                handshake_res = await character_handshake_endpoint(
-                    char.id,
-                    HandshakeRequest(
-                        conversation_id=conv_id,
-                        plot=None,  # Plot is cleanly handled in Turn 1 Roleplay Handshake
-                        roleplay_info=None,
-                        screenplay_handshake=None,
+    async def _run_handshakes(target_cid: str | None) -> str | None:
+        """Run Turn 0 Identity and Turn 1 Roleplay handshakes."""
+        c_id = target_cid
+        contracts = _load_conversation_contracts()
+        if char:
+            is_primed = contracts.get(c_id, {}).get("primed", False) if c_id else False
+            if not is_primed:
+                _director_state["status"] = f"Turn 0: Character Identity Handshake for {char.name}..."
+                await ws_broadcast({
+                    "type": "director_sequence_progress",
+                    "shot_index": 0,
+                    "total_shots": len(shots),
+                    "status": _director_state["status"],
+                    "conversation_id": c_id,
+                })
+                try:
+                    handshake_res = await character_handshake_endpoint(
+                        char.id,
+                        HandshakeRequest(
+                            conversation_id=c_id,
+                            plot=None,
+                            roleplay_info=None,
+                            screenplay_handshake=None,
+                        ),
                     )
-                )
-                if handshake_res and isinstance(handshake_res, dict) and handshake_res.get("conversation_id"):
-                    conv_id = handshake_res.get("conversation_id")
-                    _director_state["conversation_id"] = conv_id
-                    contracts = _load_conversation_contracts()
-            except Exception as e:
-                log.warning(f"Turn 0 character handshake warning during director sequence: {e}")
+                    if handshake_res and isinstance(handshake_res, dict) and handshake_res.get("conversation_id"):
+                        c_id = handshake_res.get("conversation_id")
+                        _director_state["conversation_id"] = c_id
+                except Exception as e:
+                    log.warning(f"Turn 0 character handshake warning during director sequence: {e}")
 
-    elif screenplay_handshake:
-        is_director_primed = contracts.get(conv_id, {}).get("director_primed", False) if conv_id else False
-        if not is_director_primed:
-            _director_state["status"] = "Turn 0: Protagonist Screenplay Handshake..."
-            await ws_broadcast({
-                "type": "director_sequence_progress",
-                "shot_index": 0,
-                "total_shots": len(shots),
-                "status": _director_state["status"],
-                "conversation_id": conv_id,
-            })
-            try:
-                async with _lock:
-                    core = _get_core()
-                    if conv_id is None:
-                        if hasattr(core, "new_chat"):
-                            res_nc = core.new_chat()
-                            if asyncio.iscoroutine(res_nc):
-                                await res_nc
-                    else:
-                        await _align_account_for_conversation(conv_id)
+        elif screenplay_handshake:
+            is_director_primed = contracts.get(c_id, {}).get("director_primed", False) if c_id else False
+            if not is_director_primed:
+                _director_state["status"] = "Turn 0: Protagonist Screenplay Handshake..."
+                await ws_broadcast({
+                    "type": "director_sequence_progress",
+                    "shot_index": 0,
+                    "total_shots": len(shots),
+                    "status": _director_state["status"],
+                    "conversation_id": c_id,
+                })
+                try:
+                    async with _lock:
+                        core = _get_core()
+                        if c_id is None:
+                            if hasattr(core, "new_chat"):
+                                res_nc = core.new_chat()
+                                if asyncio.iscoroutine(res_nc):
+                                    await res_nc
+                        else:
+                            await _align_account_for_conversation(c_id)
 
-                    turn0_res = await core.ask(
-                        screenplay_handshake,
-                        conversation_id=conv_id,
-                    )
-                    if isinstance(turn0_res, dict) and turn0_res.get("conversation_id"):
-                        conv_id = turn0_res["conversation_id"]
-                        _director_state["conversation_id"] = conv_id
-                        _save_conversation_contract(conv_id, {
-                            "director_primed": True,
-                            "mode": "freeform_director",
-                            "primed_at": time.time(),
-                            "screenplay_preview": screenplay_handshake[:160],
-                        })
-                        contracts = _load_conversation_contracts()
-            except Exception as e:
-                log.warning(f"Turn 0 director screenplay handshake warning: {e}")
+                        turn0_res = await core.ask(
+                            screenplay_handshake,
+                            conversation_id=c_id,
+                        )
+                        if isinstance(turn0_res, dict) and turn0_res.get("conversation_id"):
+                            c_id = turn0_res["conversation_id"]
+                            _director_state["conversation_id"] = c_id
+                            _save_conversation_contract(c_id, {
+                                "director_primed": True,
+                                "mode": "freeform_director",
+                                "primed_at": time.time(),
+                                "screenplay_preview": screenplay_handshake[:160],
+                            })
+                except Exception as e:
+                    log.warning(f"Turn 0 director screenplay handshake warning: {e}")
 
-    # Turn 1: Roleplay & Fictional World Handshake (Explaining fictional world, roleplay, plot, scenario)
-    if not _director_state["cancel_requested"]:
-        is_roleplay_primed = contracts.get(conv_id, {}).get("roleplay_primed", False) if conv_id else False
+        contracts = _load_conversation_contracts()
+        is_roleplay_primed = contracts.get(c_id, {}).get("roleplay_primed", False) if c_id else False
         effective_plot = plot or _director_state.get("intent") or "Artistic narrative sequence"
         effective_roleplay = roleplay_info or (char.roleplay_instructions if char else None) or "Creative storytelling roleplay"
 
-        if not is_roleplay_primed and conv_id:
+        if not is_roleplay_primed and c_id:
             protagonist_label = char.name if char else "the established protagonist"
             roleplay_contract = (
                 f"[DIRECTOR'S PRODUCTION CONTRACT: CREATIVE FICTIONAL ROLEPLAY & SCENARIO]\n"
@@ -3240,27 +3244,34 @@ async def _execute_director_sequence(
                 "shot_index": 0,
                 "total_shots": len(shots),
                 "status": _director_state["status"],
-                "conversation_id": conv_id,
+                "conversation_id": c_id,
             })
 
             try:
                 async with _lock:
                     core = _get_core()
-                    await _align_account_for_conversation(conv_id)
+                    await _align_account_for_conversation(c_id)
                     turn1_res = await core.ask(
                         roleplay_contract,
-                        conversation_id=conv_id,
+                        conversation_id=c_id,
                     )
                     if isinstance(turn1_res, dict) and turn1_res.get("conversation_id"):
-                        conv_id = turn1_res["conversation_id"]
-                        _director_state["conversation_id"] = conv_id
-                        _save_conversation_contract(conv_id, {
+                        c_id = turn1_res["conversation_id"]
+                        _director_state["conversation_id"] = c_id
+                        _save_conversation_contract(c_id, {
                             "roleplay_primed": True,
                             "roleplay_primed_at": time.time(),
                             "plot": effective_plot,
                         })
             except Exception as e:
                 log.warning(f"Turn 1 roleplay handshake warning: {e}")
+
+        return c_id
+
+    # Run initial handshakes
+    conv_id = await _run_handshakes(conv_id)
+    consecutive_denials = 0
+    prior_shot_failed = False
 
     try:
         for i, shot in enumerate(shots):
@@ -3274,6 +3285,24 @@ async def _execute_director_sequence(
                 })
                 break
 
+            # Anti-thread poisoning auto-recovery
+            if consecutive_denials >= 2:
+                log.warning(f"Consecutive denials reached {consecutive_denials}. Thread {conv_id} poisoned. Re-priming fresh thread...")
+                _director_state["status"] = "Thread poisoned by refusal. Refreshing clean conversation..."
+                await ws_broadcast({
+                    "type": "director_sequence_progress",
+                    "shot_index": i + 1,
+                    "total_shots": len(shots),
+                    "status": _director_state["status"],
+                })
+                try:
+                    conv_id = await _run_handshakes(None)
+                    _director_state["conversation_id"] = conv_id
+                    consecutive_denials = 0
+                    prior_shot_failed = False
+                except Exception as ex:
+                    log.error(f"Failed to refresh conversation thread: {ex}")
+
             _director_state["current_shot"] = i + 1
             _director_state["status"] = f"Generating shot {i + 1} of {len(shots)}..."
             await ws_broadcast({
@@ -3285,57 +3314,162 @@ async def _execute_director_sequence(
                 "conversation_id": conv_id,
             })
 
-            req = ImageRequest(
-                prompt=shot.prompt,
-                conversation_id=conv_id,
-                metadata={
-                    "director_shot": shot.model_dump(),
-                    "character_id": char.id if char else None,
-                },
-            )
+            # Anti-poisoning re-anchoring directive if prior shot failed in this thread
+            current_prompt = shot.prompt
+            if prior_shot_failed and conv_id:
+                current_prompt = (
+                    f"New camera angle. Please disregard the previous attempt. "
+                    f"Continuing the scene with the established protagonist from before, capture this camera perspective:\n"
+                    f"[CAMERA & PERSPECTIVE]: {shot.prompt}"
+                )
 
-            try:
-                res = await image(req)
-                if isinstance(res, JSONResponse):
-                    err_msg = "Generation failed"
-                    try:
-                        import json
-                        body = json.loads(res.body.decode()) if hasattr(res, "body") else {}
-                        err_msg = body.get("detail") or body.get("error") or str(body)
-                    except Exception:
-                        pass
-                    raise RuntimeError(f"Engine rejected shot {i + 1}: {err_msg}")
+            shot_success = False
+            last_shot_error = None
 
-                if isinstance(res, dict) and res.get("conversation_id"):
-                    conv_id = res["conversation_id"]
-                    _director_state["conversation_id"] = conv_id
-            except Exception as e:
-                log.error(f"Director sequence error on shot {i}: {e}", exc_info=True)
-                _director_state["last_error"] = str(e)
-                _director_state["status"] = f"Error: {e}"
-                await ws_broadcast({
-                    "type": "director_sequence_error",
+            # Attempt original prompt + 1 auto-softened retry on policy denial
+            for attempt in range(2):
+                if _director_state["cancel_requested"]:
+                    break
+
+                req = ImageRequest(
+                    prompt=current_prompt,
+                    conversation_id=conv_id,
+                    metadata={
+                        "director_shot": shot.model_dump(),
+                        "character_id": char.id if char else None,
+                        "shot_index": i + 1,
+                        "attempt": attempt + 1,
+                    },
+                )
+
+                try:
+                    res = await image(req)
+                    if isinstance(res, JSONResponse):
+                        err_msg = "Generation failed"
+                        err_type = "Unknown"
+                        try:
+                            import json
+                            body = json.loads(res.body.decode()) if hasattr(res, "body") else {}
+                            err_info = body.get("error")
+                            if isinstance(err_info, dict):
+                                err_type = err_info.get("type", "Unknown")
+                                err_msg = err_info.get("message", "Generation failed")
+                            else:
+                                err_msg = body.get("detail") or str(body)
+                        except Exception:
+                            pass
+
+                        is_denial = err_type == "GenerationDeniedError" or "policy" in err_msg.lower() or "denied" in err_msg.lower()
+                        if is_denial and attempt == 0:
+                            softened = auto_tweak_prompt(shot.prompt, level=1)
+                            if softened != shot.prompt:
+                                log.warning(f"Shot {i + 1} policy denial. Softening prompt and retrying: {softened[:60]}...")
+                                _director_state["status"] = f"Shot {i + 1} flagged by safety guardrails. Auto-softening and retrying..."
+                                await ws_broadcast({
+                                    "type": "director_sequence_progress",
+                                    "shot_index": i + 1,
+                                    "total_shots": len(shots),
+                                    "status": _director_state["status"],
+                                    "conversation_id": conv_id,
+                                })
+                                current_prompt = softened
+                                continue
+
+                        raise RuntimeError(f"Engine rejected shot {i + 1}: {err_msg}")
+
+                    if isinstance(res, dict):
+                        if res.get("conversation_id"):
+                            conv_id = res["conversation_id"]
+                            _director_state["conversation_id"] = conv_id
+
+                        completed_entry = {
+                            "shot_index": i + 1,
+                            "image_url": res.get("image_url"),
+                            "thumbnail_url": res.get("thumbnail_url"),
+                            "path": res.get("path"),
+                            "description": shot.description,
+                            "camera_pov": shot.camera_pov,
+                            "prompt": shot.prompt,
+                        }
+                        _director_state["completed_shots"].append(completed_entry)
+                        _director_state["successful_count"] += 1
+                        shot_success = True
+                        consecutive_denials = 0
+                        prior_shot_failed = False
+
+                        await ws_broadcast({
+                            "type": "director_shot_completed",
+                            "shot_index": i + 1,
+                            "total_shots": len(shots),
+                            "shot": completed_entry,
+                            "conversation_id": conv_id,
+                        })
+                        # Also broadcast generation_done so chat thread and viewer render immediately
+                        await ws_broadcast({
+                            "type": "generation_done",
+                            "image_url": res.get("image_url"),
+                            "thumbnail_url": res.get("thumbnail_url"),
+                            "conversation_id": conv_id,
+                            "prompt": shot.prompt,
+                        })
+                        break
+
+                except Exception as e:
+                    last_shot_error = str(e)
+                    log.warning(f"Shot {i + 1} attempt {attempt + 1} failed: {e}")
+                    if attempt == 0 and ("denied" in last_shot_error.lower() or "policy" in last_shot_error.lower()):
+                        softened = auto_tweak_prompt(shot.prompt, level=1)
+                        if softened != shot.prompt:
+                            current_prompt = softened
+                            continue
+                    break
+
+            if not shot_success and not _director_state["cancel_requested"]:
+                # Record failure, DO NOT BREAK, and continue to next shot!
+                consecutive_denials += 1
+                prior_shot_failed = True
+                failed_entry = {
                     "shot_index": i + 1,
-                    "error": str(e),
+                    "description": shot.description,
+                    "camera_pov": shot.camera_pov,
+                    "prompt": shot.prompt,
+                    "error": last_shot_error or "Unknown error",
+                }
+                _director_state["failed_shots"].append(failed_entry)
+                _director_state["failed_count"] += 1
+                _director_state["last_error"] = last_shot_error
+
+                log.error(f"Shot {i + 1} skipped due to failure: {last_shot_error}. Continuing sequence...")
+                await ws_broadcast({
+                    "type": "director_shot_failed",
+                    "shot_index": i + 1,
+                    "total_shots": len(shots),
+                    "error": last_shot_error,
+                    "failed_shot": failed_entry,
+                    "conversation_id": conv_id,
                 })
-                break
 
             if i < len(shots) - 1:
                 # Pace shots and check cancel request periodically
-                for _ in range(8):
+                for _ in range(6):
                     if _director_state["cancel_requested"]:
                         break
                     await asyncio.sleep(1)
 
-        if not _director_state["cancel_requested"] and not _director_state["last_error"]:
-            _director_state["status"] = "Complete"
+        # Sequence completion summary
+        if not _director_state["cancel_requested"]:
+            success_count = _director_state["successful_count"]
+            fail_count = _director_state["failed_count"]
+            _director_state["status"] = f"Complete: {success_count} succeeded, {fail_count} skipped"
             _director_state["current_shot"] = len(shots)
             await ws_broadcast({
                 "type": "director_sequence_progress",
-                "status": "Complete",
+                "status": _director_state["status"],
                 "shot_index": len(shots),
                 "total_shots": len(shots),
                 "conversation_id": conv_id,
+                "successful_count": success_count,
+                "failed_count": fail_count,
             })
     finally:
         _director_state["is_running"] = False

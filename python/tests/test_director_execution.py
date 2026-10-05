@@ -159,3 +159,60 @@ async def test_director_2_stage_handshake_with_character(client, monkeypatch):
 
     # Verify core conversation id stayed pinned to conv-nastya-99
     assert fake_core._current_conversation_id == "conv-nastya-99"
+
+
+@pytest.mark.anyio
+async def test_director_sequence_resiliency_on_shot_failure(client, monkeypatch):
+    """Verify that a failure or content denial on shot 2 does not kill remaining shots."""
+    mock_ws_broadcast = AsyncMock()
+    monkeypatch.setattr(daemon, "ws_broadcast", mock_ws_broadcast)
+
+    fake_core = _FakeCore()
+
+    # Shot 1 succeeds, Shot 2 throws GenerationDeniedError on both attempts, Shot 3 succeeds
+    attempt_counter = {"shot": 0}
+
+    async def mock_generate_image(prompt, **kwargs):
+        attempt_counter["shot"] += 1
+        if "failing shot" in prompt:
+            from chatgpt_bridge.errors import GenerationDeniedError
+            raise GenerationDeniedError("ChatGPT policy refusal: generation error", kind="denial")
+        return {"path": f"/tmp/shot_{attempt_counter['shot']}.png", "conversation_id": "conv-resilient"}
+
+    fake_core.generate_image = mock_generate_image
+    monkeypatch.setattr(daemon, "_get_core", lambda: fake_core)
+
+    req_data = {
+        "shots": [
+            {"description": "shot 1", "camera_pov": "eye-level", "prompt": "normal shot 1"},
+            {"description": "shot 2", "camera_pov": "intimate", "prompt": "failing shot 2 with tripwire"},
+            {"description": "shot 3", "camera_pov": "close-up", "prompt": "normal shot 3"},
+        ]
+    }
+
+    resp = client.post("/api/director/execute", json=req_data)
+    assert resp.status_code == 200
+
+    # Inspect status
+    st = daemon._director_state
+    assert st["successful_count"] == 2
+    assert st["failed_count"] == 1
+    assert len(st["completed_shots"]) == 2
+    assert len(st["failed_shots"]) == 1
+    assert st["completed_shots"][0]["shot_index"] == 1
+    assert st["completed_shots"][1]["shot_index"] == 3
+    assert st["failed_shots"][0]["shot_index"] == 2
+    assert "Complete: 2 succeeded, 1 skipped" in st["status"]
+
+
+def test_auto_tweak_tripwires():
+    """Verify auto_tweak_prompt strips known OpenAI guardrail tripwires."""
+    from chatgpt_bridge.retry import auto_tweak_prompt
+
+    raw = "under sheets, implied nudity, on all fours, from behind, shot between legs, torso only, no head"
+    softened = auto_tweak_prompt(raw, level=1)
+    assert "implied nudity" not in softened
+    assert "all fours" not in softened
+    assert "no head" not in softened
+    assert "torso only" not in softened
+

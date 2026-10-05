@@ -502,6 +502,24 @@ export interface PromptTaxonomy {
   templates?: Array<{ id: string; name?: string; category?: string; tags?: string[] }>;
 }
 
+export interface DirectorCompletedShot {
+  shot_index: number;
+  image_url?: string;
+  thumbnail_url?: string;
+  path?: string;
+  description?: string;
+  camera_pov?: string;
+  prompt?: string;
+}
+
+export interface DirectorFailedShot {
+  shot_index: number;
+  description?: string;
+  camera_pov?: string;
+  prompt?: string;
+  error: string;
+}
+
 export interface DirectorState {
   is_running: boolean;
   cancel_requested: boolean;
@@ -510,4 +528,9 @@ export interface DirectorState {
   status: string;
   last_error?: string | null;
   conversation_id?: string | null;
+  completed_shots?: DirectorCompletedShot[];
+  failed_shots?: DirectorFailedShot[];
+  successful_count?: number;
+  failed_count?: number;
 }
+

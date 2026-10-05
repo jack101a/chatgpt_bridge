@@ -747,8 +747,18 @@ export const GuideModal: React.FC<GuideModalProps> = ({
                   <div className="text-xs font-bold text-amber-800 dark:text-amber-300">
                     {directorStatus?.status || 'Executing Multi-Angle Pipeline…'}
                   </div>
-                  <div className="text-[10px] font-mono text-amber-600 dark:text-amber-400">
-                    Shot {directorStatus?.current_shot || 0} of {directorStatus?.total_shots || pipeline.length} · Turn-by-Turn Delivery
+                  <div className="text-[10px] font-mono text-amber-600 dark:text-amber-400 flex items-center gap-2 mt-0.5">
+                    <span>Shot {directorStatus?.current_shot || 0} of {directorStatus?.total_shots || pipeline.length}</span>
+                    {typeof directorStatus?.successful_count === 'number' && (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                        · {directorStatus.successful_count} generated
+                      </span>
+                    )}
+                    {Boolean(directorStatus?.failed_count) && (
+                      <span className="text-amber-600 dark:text-amber-300 font-semibold">
+                        · {directorStatus?.failed_count} skipped
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
