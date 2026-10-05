@@ -197,6 +197,72 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
   const [optimisticMaxChats, setOptimisticMaxChats] = useState<number | null>(null);
   const [refreshingQuotaId, setRefreshingQuotaId] = useState<string | null>(null);
 
+  // Add Account & Delete Account state
+  const [showAddAccountModal, setShowAddAccountModal] = useState(false);
+  const [newAccountAlias, setNewAccountAlias] = useState('');
+  const [newAccountCookies, setNewAccountCookies] = useState('');
+  const [addAccountError, setAddAccountError] = useState<string | null>(null);
+  const [addAccountSuccess, setAddAccountSuccess] = useState<string | null>(null);
+  const [isAddingAccount, setIsAddingAccount] = useState(false);
+  const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
+
+  const handleOpenCookieModal = (targetAccount?: Account | string) => {
+    const alias =
+      typeof targetAccount === 'string'
+        ? targetAccount
+        : targetAccount?.alias || targetAccount?.id || (accounts[0]?.alias || '');
+    setCookieAccount(alias);
+    setCookieJson('');
+    setCookieError(null);
+    setCookieSuccess(null);
+    setShowCookieModal(true);
+  };
+
+  const handleAddAccount = async () => {
+    const alias = newAccountAlias.trim();
+    if (!alias) {
+      setAddAccountError('Please enter an account name or alias.');
+      return;
+    }
+    setIsAddingAccount(true);
+    setAddAccountError(null);
+    try {
+      await api.addAccount(alias, newAccountCookies.trim() || undefined);
+      setAddAccountSuccess(`Account "${alias}" created successfully!`);
+      setTimeout(() => {
+        setShowAddAccountModal(false);
+        setNewAccountAlias('');
+        setNewAccountCookies('');
+        setAddAccountSuccess(null);
+        onRefreshAccounts();
+      }, 1200);
+    } catch (err: any) {
+      setAddAccountError(err.message || 'Failed to create account');
+    } finally {
+      setIsAddingAccount(false);
+    }
+  };
+
+  const handleDeleteAccount = async (acc: Account) => {
+    const name = acc.alias || acc.id;
+    if (
+      !window.confirm(
+        `Delete account "${name}"?\n\nIf this is the only account, its session data will be reset to a clean Primary state.`
+      )
+    ) {
+      return;
+    }
+    setDeletingAccountId(acc.id);
+    try {
+      await api.deleteAccount(acc.id);
+      onRefreshAccounts();
+    } catch (err: any) {
+      alert('Delete failed: ' + (err.message || String(err)));
+    } finally {
+      setDeletingAccountId(null);
+    }
+  };
+
   const handleRefreshQuota = async (accIdOrAlias: string) => {
     setRefreshingQuotaId(accIdOrAlias);
     try {
@@ -896,19 +962,36 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                 Accounts & Quota Limits
               </h3>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                const active = accounts.find((a) => a.is_active) || accounts[0];
-                if (active) handleRefreshQuota(active.alias || active.id);
-              }}
-              disabled={refreshingQuotaId !== null}
-              className="text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 font-medium transition-opacity disabled:opacity-50"
-              title="Refresh quota data directly from ChatGPT"
-            >
-              <RefreshCw size={11} className={refreshingQuotaId !== null ? 'animate-spin' : ''} />
-              <span>Refresh Quotas</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setNewAccountAlias('');
+                  setNewAccountCookies('');
+                  setAddAccountError(null);
+                  setAddAccountSuccess(null);
+                  setShowAddAccountModal(true);
+                }}
+                className="text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 font-medium transition-opacity"
+                title="Add a new ChatGPT account slot"
+              >
+                <Plus size={12} />
+                <span>Add Account</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const active = accounts.find((a) => a.is_active) || accounts[0];
+                  if (active) handleRefreshQuota(active.alias || active.id);
+                }}
+                disabled={refreshingQuotaId !== null}
+                className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 font-medium transition-opacity disabled:opacity-50"
+                title="Refresh quota data directly from ChatGPT"
+              >
+                <RefreshCw size={11} className={refreshingQuotaId !== null ? 'animate-spin' : ''} />
+                <span>Refresh Quotas</span>
+              </button>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -976,6 +1059,15 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
 
                       <button
                         type="button"
+                        onClick={() => handleOpenCookieModal(acc)}
+                        title={`Import or update cookies for ${acc.alias}`}
+                        className="p-1.5 rounded-full hover:bg-card border border-transparent hover:border-border text-muted-foreground hover:text-emerald-500 transition-all active:scale-95"
+                      >
+                        <Key size={12} />
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => handleRefreshQuota(acc.alias || acc.id)}
                         disabled={isRefreshingThis}
                         title="Check real-time rate limits & quotas from ChatGPT"
@@ -995,6 +1087,20 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                           Switch
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAccount(acc)}
+                        disabled={deletingAccountId === acc.id}
+                        title={`Delete or reset account ${acc.alias}`}
+                        className="p-1.5 rounded-full hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 text-muted-foreground hover:text-rose-500 transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        {deletingAccountId === acc.id ? (
+                          <Loader2 size={12} className="animate-spin text-rose-500" />
+                        ) : (
+                          <Trash2 size={12} />
+                        )}
+                      </button>
                     </div>
                   </div>
 
@@ -2147,14 +2253,32 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
             </button>
           </div>
 
-          {/* Import Cookies Action */}
-          <button
-            onClick={() => setShowCookieModal(true)}
-            className="w-full py-2.5 rounded-xl bg-muted hover:bg-muted/80 text-xs font-medium text-foreground flex items-center justify-center gap-2 transition-all active:scale-98 border border-border/50"
-          >
-            <Key size={14} />
-            Import cookies.json
-          </button>
+          {/* Account Actions Bar */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setNewAccountAlias('');
+                setNewAccountCookies('');
+                setAddAccountError(null);
+                setAddAccountSuccess(null);
+                setShowAddAccountModal(true);
+              }}
+              className="py-2.5 rounded-xl bg-card hover:bg-muted text-xs font-medium text-foreground flex items-center justify-center gap-1.5 transition-all active:scale-98 border border-border shadow-xs"
+            >
+              <Plus size={14} className="text-emerald-500" />
+              <span>Add Account</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleOpenCookieModal()}
+              className="py-2.5 rounded-xl bg-muted hover:bg-muted/80 text-xs font-medium text-foreground flex items-center justify-center gap-1.5 transition-all active:scale-98 border border-border/50"
+            >
+              <Key size={14} />
+              <span>Import Cookies</span>
+            </button>
+          </div>
         </div>
 
         {/* Security Notice */}
@@ -2163,21 +2287,108 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
           <span>Your account data is stored securely on this local machine only.</span>
         </div>
 
+        {/* Add Account Modal */}
+        {showAddAccountModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="w-full max-w-md bg-card text-card-foreground rounded-2xl p-5 border border-border space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                    <Plus size={15} />
+                  </div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Add ChatGPT Account
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddAccountModal(false)}
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Create an isolated account slot with its own profile, chat pool, and cookies.
+              </p>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-foreground">
+                  Account Name / Alias:
+                </label>
+                <input
+                  type="text"
+                  value={newAccountAlias}
+                  onChange={(e) => setNewAccountAlias(e.target.value)}
+                  placeholder="e.g. Work, Secondary, Ajax2"
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-xs text-foreground outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-foreground">
+                  Cookies (Optional):
+                </label>
+                <textarea
+                  rows={5}
+                  value={newAccountCookies}
+                  onChange={(e) => setNewAccountCookies(e.target.value)}
+                  placeholder='Paste Cookie-Editor export {"url": ..., "cookies": [...]}, cookie array, single cookie, or session token...'
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {addAccountError && <p className="text-xs text-destructive">{addAccountError}</p>}
+              {addAccountSuccess && <p className="text-xs text-emerald-500 font-medium">{addAccountSuccess}</p>}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddAccountModal(false)}
+                  className="px-4 py-2 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddAccount}
+                  disabled={isAddingAccount}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-500 active:scale-95 transition-all flex items-center gap-1.5"
+                >
+                  {isAddingAccount && <Loader2 size={12} className="animate-spin" />}
+                  <span>{isAddingAccount ? 'Creating…' : 'Create Account'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Cookie Import Modal (Child) */}
         {showCookieModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <div className="w-full max-w-md bg-card text-card-foreground rounded-2xl p-5 border border-border space-y-4 shadow-2xl">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground">
-                  Import Session Cookies
-                </h3>
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                    <Key size={14} />
+                  </div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Import Session Cookies
+                  </h3>
+                </div>
                 <button
+                  type="button"
                   onClick={() => setShowCookieModal(false)}
                   className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 >
                   <X size={16} />
                 </button>
               </div>
+
+              <p className="text-xs text-muted-foreground">
+                Paste cookies from Cookie-Editor (JSON), cookie array, single cookie, or raw session token.
+              </p>
 
               <div className="space-y-2">
                 <label className="text-xs font-medium text-foreground">
@@ -2186,11 +2397,11 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                 <select
                   value={cookieAccount}
                   onChange={(e) => setCookieAccount(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-xs text-foreground outline-none focus:border-primary"
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-xs text-foreground outline-none focus:border-emerald-500"
                 >
                   <option value="">Select an account…</option>
                   {accounts.map((acc) => (
-                    <option key={acc.id} value={acc.alias}>
+                    <option key={acc.id} value={acc.alias || acc.id}>
                       {acc.alias} ({acc.email || acc.id})
                     </option>
                   ))}
@@ -2199,14 +2410,14 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
 
               <div className="space-y-2">
                 <label className="text-xs font-medium text-foreground">
-                  Cookies JSON:
+                  Cookies (JSON, array, or token):
                 </label>
                 <textarea
                   rows={6}
                   value={cookieJson}
                   onChange={(e) => setCookieJson(e.target.value)}
-                  placeholder='[{"name": "__Secure-next-auth.session-token", "value": "..."}]'
-                  className="w-full px-3 py-2 rounded-lg bg-background border border-border font-mono text-xs text-foreground outline-none focus:border-primary"
+                  placeholder='Paste Cookie-Editor export {"url": ..., "cookies": [...]}, cookie array, single cookie, or session token...'
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border font-mono text-xs text-foreground outline-none focus:border-emerald-500"
                 />
               </div>
 
@@ -2215,17 +2426,20 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
+                  type="button"
                   onClick={() => setShowCookieModal(false)}
                   className="px-4 py-2 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted"
                 >
                   Cancel
                 </button>
                 <button
+                  type="button"
                   onClick={handleImportCookies}
                   disabled={isSubmitting}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-500 active:scale-95 transition-all"
+                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-500 active:scale-95 transition-all flex items-center gap-1.5"
                 >
-                  {isSubmitting ? 'Importing…' : 'Import'}
+                  {isSubmitting && <Loader2 size={12} className="animate-spin" />}
+                  <span>{isSubmitting ? 'Importing…' : 'Import'}</span>
                 </button>
               </div>
             </div>

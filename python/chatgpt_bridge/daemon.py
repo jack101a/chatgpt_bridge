@@ -1796,7 +1796,13 @@ async def api_import_cookies(body: CookieImport) -> dict:
             core._last_alive_check = 0.0
 
     await ws_broadcast({"type": "account_updated", "account": acc.alias or acc.id})
-    return {"ok": True, "account": acc.alias or acc.id, "cookie_count": len(cookie_list)}
+    return {
+        "ok": True,
+        "success": True,
+        "account": acc.alias or acc.id,
+        "cookie_count": len(cookie_list),
+        "cookies_imported": len(cookie_list),
+    }
 
 
 # ── Gallery API ──

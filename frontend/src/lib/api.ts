@@ -97,11 +97,27 @@ export const api = {
       body: JSON.stringify({ account }),
     }),
 
-  importCookies: (account: string, cookies_json: string): Promise<{ success: boolean; cookies_imported: number }> =>
-    fetchJson('/api/accounts/cookies', {
+  addAccount: (alias: string, cookies_json?: string): Promise<{ ok: boolean; id: string; alias: string; is_authenticated: boolean; cookie_count: number }> =>
+    fetchJson('/api/accounts/add', {
+      method: 'POST',
+      body: JSON.stringify({ alias, cookies_json: cookies_json || null }),
+    }),
+
+  deleteAccount: (accountId: string): Promise<{ ok: boolean; deleted_account_id: string; deleted_alias: string; active_account_id: string }> =>
+    fetchJson(`/api/accounts/${encodeURIComponent(accountId)}`, {
+      method: 'DELETE',
+    }),
+
+  importCookies: async (account: string, cookies_json: string): Promise<{ success: boolean; cookies_imported: number }> => {
+    const res = await fetchJson<{ ok?: boolean; success?: boolean; cookies_imported?: number; cookie_count?: number }>('/api/accounts/cookies', {
       method: 'POST',
       body: JSON.stringify({ account, cookies_json }),
-    }),
+    });
+    return {
+      success: res.ok ?? res.success ?? true,
+      cookies_imported: res.cookies_imported ?? res.cookie_count ?? 0,
+    };
+  },
 
   getAccountQuota: async (account?: string): Promise<AccountQuota | null> => {
     const url = account ? `/api/accounts/quota?account=${encodeURIComponent(account)}` : '/api/accounts/quota';
