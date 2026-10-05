@@ -1038,7 +1038,15 @@ select.input option{background:var(--bg)}
                       <p class="truncate" style="font-size:13px;font-weight:600" x-text="a.alias||a.id"></p>
                       <p class="truncate" style="font-size:11px;color:var(--t3);font-family:'Geist Mono',monospace" x-text="a.email||''"></p>
                     </div>
-                    <span style="font-size:11.5px;padding:3px 10px;border-radius:var(--r-pill);font-weight:500;white-space:nowrap" :style="acctPill(a).style" x-text="acctPill(a).label"></span>
+                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                      <span style="font-size:11.5px;padding:3px 10px;border-radius:var(--r-pill);font-weight:500;white-space:nowrap" :style="acctPill(a).style" x-text="acctPill(a).label"></span>
+                      <button @click.stop="deleteAccount(a)" class="btn-icon text-red-400 hover:text-red-300" title="Delete or Reset Account" style="width:26px;height:26px;padding:0;display:flex;align-items:center;justify-content:center;color:#ef4444;border-radius:6px">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6"></polyline>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                   <div class="grid grid-cols-3 gap-2 mb-3">
                     <template x-for="stat in acctStats(a)" :key="stat.k">
@@ -1048,17 +1056,28 @@ select.input option{background:var(--bg)}
                       </div>
                     </template>
                   </div>
-                  <button @click="switchTo(a)" :disabled="a.is_active" class="w-full py-2 rounded-lg text-[13px] font-medium"
-                    :class="a.is_active?'':'btn-ghost'"
-                    :style="a.is_active?'background:rgba(16,163,127,.1);border:1px solid rgba(16,163,127,.2);color:var(--a);cursor:default;border-radius:var(--r-md)':''"
-                    x-text="a.is_active?'● Active':'Switch to this account'"></button>
+                  <div class="flex items-center gap-2">
+                    <button @click="switchTo(a)" :disabled="a.is_active" class="flex-1 py-2 rounded-lg text-[13px] font-medium"
+                      :class="a.is_active?'':'btn-ghost'"
+                      :style="a.is_active?'background:rgba(16,163,127,.1);border:1px solid rgba(16,163,127,.2);color:var(--a);cursor:default;border-radius:var(--r-md)':''"
+                      x-text="a.is_active?'● Active':'Switch to this account'"></button>
+                    <button @click="openCookieModal(a)" class="btn-ghost py-2 px-3 text-[12.5px] font-medium" style="border-radius:var(--r-md)" title="Import or update cookies for this account">
+                      Cookies
+                    </button>
+                  </div>
                 </div>
               </template>
             </div>
-            <button @click="cookiesOpen=true" class="btn-ghost w-full mt-3" style="gap:6px">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Import cookies
-            </button>
+            <div class="flex gap-2 mt-3">
+              <button @click="addAccountOpen=true" class="btn-ghost flex-1" style="gap:6px">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Account
+              </button>
+              <button @click="openCookieModal()" class="btn-ghost flex-1" style="gap:6px">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Import Cookies
+              </button>
+            </div>
           </div>
 
           <!-- Notifications -->
@@ -1206,14 +1225,43 @@ select.input option{background:var(--bg)}
       </div>
     </div>
     <div style="padding:0 20px 24px;display:flex;flex-direction:column;gap:12px">
-      <p style="font-size:13px;color:var(--t2);line-height:1.6">Paste an exported <code style="background:var(--bg-sub);border:1px solid var(--border);padding:1px 6px;border-radius:4px;font-family:'Geist Mono',monospace">cookies.json</code> to refresh a session.</p>
+      <p style="font-size:13px;color:var(--t2);line-height:1.6">Paste cookies from Cookie-Editor (JSON), cookie array, single cookie, or raw session token.</p>
       <select x-model="ckForm.account" class="input w-full">
         <option value="">Select account…</option>
         <template x-for="a in accounts" :key="a.id"><option :value="a.alias||a.id" x-text="a.alias||a.id"></option></template>
       </select>
-      <textarea x-model="ckForm.json" rows="10" placeholder='[{"name":"__Secure-next-auth.session-token","value":"…"}]'
+      <textarea x-model="ckForm.json" rows="10" placeholder='Paste Cookie-Editor export {"url": ..., "cookies": [...]}, cookie array, or session token...'
         class="input w-full" style="resize:none;font-size:11.5px;font-family:'Geist Mono',monospace;padding:10px 12px"></textarea>
       <button @click="importCookies()" class="btn-primary w-full" style="padding:12px">Validate &amp; Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     ADD ACCOUNT DRAWER
+═══════════════════════════════════════════════════════ -->
+<div x-show="addAccountOpen" x-cloak>
+  <div class="drawer-backdrop" @click="addAccountOpen=false"></div>
+  <div class="drawer-panel">
+    <div style="padding:20px 20px 0">
+      <div class="sm:hidden" style="width:36px;height:4px;border-radius:2px;background:var(--border-md);margin:0 auto 18px"></div>
+      <div class="flex items-center justify-between" style="margin-bottom:16px">
+        <h3 style="font-size:16px;font-weight:600">Add ChatGPT Account</h3>
+        <button @click="addAccountOpen=false" class="btn-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+    </div>
+    <div style="padding:0 20px 24px;display:flex;flex-direction:column;gap:12px">
+      <p style="font-size:13px;color:var(--t2);line-height:1.6">Create an isolated account slot with its own chat pool and cookies.</p>
+      <div>
+        <label style="font-size:12px;font-weight:500;color:var(--t2);margin-bottom:4px;display:block">Account Name / Alias</label>
+        <input type="text" x-model="newAccountForm.alias" placeholder="e.g. Work, Secondary, Ajax2" class="input w-full" />
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:500;color:var(--t2);margin-bottom:4px;display:block">Cookies (Optional)</label>
+        <textarea x-model="newAccountForm.cookies" rows="6" placeholder='Paste Cookie-Editor JSON, cookie array, or session token (optional)...'
+          class="input w-full" style="resize:none;font-size:11.5px;font-family:'Geist Mono',monospace;padding:10px 12px"></textarea>
+      </div>
+      <button @click="addAccount()" class="btn-primary w-full" style="padding:12px">Create Account</button>
     </div>
   </div>
 </div>
@@ -1336,6 +1384,7 @@ function bridge() { return {
   // ── Settings/accounts ───────────────────────────
   accounts:[], telemetry:{}, settings:{},
   cookiesOpen:false, ckForm:{ account:'', json:'' },
+  addAccountOpen:false, newAccountForm:{ alias:'', cookies:'' },
 
   // ── Appearance ──────────────────────────────────
   appTheme:'light', appAccent:'green',
@@ -1835,13 +1884,43 @@ function bridge() { return {
       await Promise.all([this.loadAccounts(),this.loadTelemetry()]);
     } catch(e) { this.toast(e.message,'error'); }
   },
+  openCookieModal(a) {
+    this.ckForm.account = a ? (a.alias || a.id) : (this.accounts[0]?.alias || this.accounts[0]?.id || '');
+    this.cookiesOpen = true;
+  },
+  async addAccount() {
+    const alias = (this.newAccountForm.alias || '').trim();
+    if (!alias) return this.toast('Please enter an account name', 'warn');
+    try {
+      await this.api('/api/accounts/add', {
+        method: 'POST',
+        body: JSON.stringify({
+          alias: alias,
+          cookies_json: this.newAccountForm.cookies.trim() || null
+        })
+      });
+      this.toast(`Account "${alias}" created`, 'success');
+      this.addAccountOpen = false;
+      this.newAccountForm = { alias: '', cookies: '' };
+      await Promise.all([this.loadAccounts(), this.loadTelemetry()]);
+    } catch(e) { this.toast('Add account failed: ' + e.message, 'error'); }
+  },
+  async deleteAccount(a) {
+    const name = a.alias || a.id;
+    if (!confirm(`Delete account "${name}"?\n\nIf this is your only account, its session data will be reset to a clean Primary slot.`)) return;
+    try {
+      await this.api(`/api/accounts/${encodeURIComponent(a.id)}`, { method: 'DELETE' });
+      this.toast(`Account "${name}" deleted`, 'success');
+      await Promise.all([this.loadAccounts(), this.loadTelemetry()]);
+    } catch(e) { this.toast('Delete failed: ' + e.message, 'error'); }
+  },
   async importCookies() {
     if (!this.ckForm.account||!this.ckForm.json) return this.toast('Select account and paste cookies','error');
     try {
       await this.api('/api/accounts/cookies',{method:'POST',body:JSON.stringify({account:this.ckForm.account,cookies_json:this.ckForm.json})});
-      this.toast('Cookies imported','success');
+      this.toast('Cookies imported successfully!','success');
       this.cookiesOpen=false; this.ckForm={account:'',json:''};
-      await this.loadAccounts();
+      await Promise.all([this.loadAccounts(), this.loadTelemetry()]);
     } catch(e) { this.toast('Import failed: '+e.message,'error'); }
   },
 

@@ -48,9 +48,18 @@ def test_remove_account(tmp_path: Path):
     assert mgr.remove_account("Backup") is True
     assert len(mgr.list_accounts()) == 1
 
-    # Cannot remove the only remaining account
+    # Cannot remove the only remaining account without reset_if_last
     with pytest.raises(ValueError):
         mgr.remove_account("default")
+
+    # With reset_if_last=True, wipes session data and resets sole account
+    acc1 = mgr.get_active_account()
+    acc1.email = "test@chatgpt.com"
+    acc1.is_authenticated = True
+    assert mgr.remove_account("default", reset_if_last=True) is True
+    assert len(mgr.list_accounts()) == 1
+    assert mgr.get_active_account().is_authenticated is False
+    assert mgr.get_active_account().email == ""
 
 
 def test_rate_limit_tracking_and_strikes(tmp_path: Path):

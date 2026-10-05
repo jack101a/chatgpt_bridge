@@ -180,17 +180,58 @@ class AccountManager:
         self._save()
         return acc
 
-    def remove_account(self, id_or_alias: str) -> bool:
-        """Remove an account by ID or alias. Refuses to delete the last remaining account."""
-        if len(self.accounts) <= 1:
-            raise ValueError("Cannot delete the only remaining account")
+    def remove_account(self, id_or_alias: str, reset_if_last: bool = False) -> bool:
+        """Remove an account by ID or alias. Refuses to delete the last remaining account unless reset_if_last=True."""
         acc = self.find_account(id_or_alias)
         if not acc:
             return False
+
+        import shutil
+        if len(self.accounts) <= 1:
+            if not reset_if_last:
+                raise ValueError("Cannot delete the only remaining account")
+            # Clean files and reset sole account to clean default
+            if acc.profile_dir and Path(acc.profile_dir).exists():
+                shutil.rmtree(acc.profile_dir, ignore_errors=True)
+            if acc.cookies_file and Path(acc.cookies_file).exists():
+                try:
+                    Path(acc.cookies_file).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            if acc.chat_pool_file and Path(acc.chat_pool_file).exists():
+                try:
+                    Path(acc.chat_pool_file).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            acc.alias = "Primary"
+            acc.email = ""
+            acc.name = ""
+            acc.is_authenticated = False
+            acc.quota = None
+            acc.consecutive_rate_limits = 0
+            acc.rate_limited_until = None
+            acc.rate_limit_resets_at_str = ""
+            self.active_account_id = acc.id
+            self._save()
+            return True
+
+        # Clean all directories and files belonging to this account
+        if acc.profile_dir and Path(acc.profile_dir).exists():
+            shutil.rmtree(acc.profile_dir, ignore_errors=True)
+        if acc.cookies_file and Path(acc.cookies_file).exists():
+            try:
+                Path(acc.cookies_file).unlink(missing_ok=True)
+            except Exception:
+                pass
+        if acc.chat_pool_file and Path(acc.chat_pool_file).exists():
+            try:
+                Path(acc.chat_pool_file).unlink(missing_ok=True)
+            except Exception:
+                pass
         acc_dir = self.accounts_root / acc.id
         if acc_dir.exists():
-            import shutil
             shutil.rmtree(acc_dir, ignore_errors=True)
+
         del self.accounts[acc.id]
         if self.active_account_id == acc.id:
             self.active_account_id = next(iter(self.accounts))

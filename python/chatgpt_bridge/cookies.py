@@ -105,37 +105,82 @@ def _normalize_json_cookie(raw: dict) -> dict:
     return {**common, "domain": domain, "path": path}
 
 
-def _parse_json(text: str) -> list[dict]:
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise CookieFormatError(f"invalid JSON cookie file: {exc}") from exc
+def _clean_cookie_text(text: str) -> str:
+    """Strip markdown code fences (```json ... ```) or quotes ('...' / \"\"\") from pasted cookie text."""
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if len(lines) >= 2 and lines[-1].strip().startswith("```"):
+            stripped = "\n".join(lines[1:-1]).strip()
+        elif lines[0].startswith("```"):
+            stripped = "\n".join(lines[1:]).strip()
+    for quote in ("'''", '"""'):
+        if stripped.startswith(quote) and stripped.endswith(quote) and len(stripped) >= 6:
+            stripped = stripped[3:-3].strip()
+        elif stripped.startswith(quote):
+            stripped = stripped[3:].strip()
+        if stripped.endswith(quote):
+            stripped = stripped[:-3].strip()
+    return stripped.strip()
 
-    if isinstance(data, list):
-        cookies = data
-    elif isinstance(data, dict):
-        if isinstance(data.get("cookies"), list):
-            # Chrome-extension wrapper object {"url": ..., "cookies": [...]}.
-            cookies = data["cookies"]
-        elif isinstance(data.get("data"), list):
-            cookies = data["data"]
-        elif any(k == SESSION_COOKIE or k.startswith(f"{SESSION_COOKIE}.") for k in data.keys()):
+
+def _parse_json(text: str) -> list[dict]:
+    cleaned = _clean_cookie_text(text)
+    raw_items: list = []
+    try:
+        data = json.loads(cleaned)
+        raw_items = data if isinstance(data, list) else [data]
+    except json.JSONDecodeError:
+        # Fall back to decoding multiple JSON objects (NDJSON, comma-separated objects without brackets)
+        try:
+            decoder = json.JSONDecoder()
+            idx = 0
+            while idx < len(cleaned):
+                while idx < len(cleaned) and (cleaned[idx].isspace() or cleaned[idx] == ","):
+                    idx += 1
+                if idx >= len(cleaned):
+                    break
+                obj, end_idx = decoder.raw_decode(cleaned, idx)
+                if isinstance(obj, list):
+                    raw_items.extend(obj)
+                else:
+                    raw_items.append(obj)
+                idx = end_idx
+        except Exception as exc:
+            raise CookieFormatError(f"invalid JSON cookie file: {exc}") from exc
+
+    if not raw_items:
+        raise CookieFormatError("no cookie data found in JSON input")
+
+    cookies: list[dict] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        if isinstance(item.get("cookies"), list):
+            # Chrome-extension wrapper object {"url": ..., "cookies": [...]}
+            cookies.extend(item["cookies"])
+        elif isinstance(item.get("data"), list):
+            cookies.extend(item["data"])
+        elif "name" in item and "value" in item:
+            # Single cookie dictionary {"name": "...", "value": "...", ...}
+            cookies.append(item)
+        elif any(
+            k in (SESSION_COOKIE, "next-auth.session-token", "session-token")
+            or k.startswith(f"{SESSION_COOKIE}.")
+            or k.startswith("next-auth.session-token.")
+            for k in item.keys()
+        ):
             # Flat key-value dict {SESSION_COOKIE: "...", ...}
-            cookies = []
-            for k, v in data.items():
+            for k, v in item.items():
                 if isinstance(v, dict):
                     cookies.append({"name": k, **v})
                 elif isinstance(v, (str, int, float, bool)):
                     cookies.append({"name": k, "value": str(v)})
-        else:
-            raise CookieFormatError(
-                "JSON cookie file must be an array of cookies or a "
-                '{"url": ..., "cookies": [...]} wrapper object'
-            )
-    else:
+
+    if not cookies:
         raise CookieFormatError(
-            "JSON cookie file must be an array of cookies or a "
-            '{"url": ..., "cookies": [...]} wrapper object'
+            "JSON cookie file must contain cookie objects (with 'name' and 'value'), "
+            "an array of cookies, or a {'url': ..., 'cookies': [...]} wrapper object"
         )
 
     return [_normalize_json_cookie(item) for item in cookies]
@@ -206,12 +251,15 @@ def _parse_netscape(text: str) -> list[dict]:
 
 def parse_cookie_text(text: str) -> list[dict]:
     """Parse cookie text in JSON, Netscape, HTTP Header, or raw session token format."""
-    stripped = text.strip()
+    stripped = _clean_cookie_text(text)
     if not stripped:
         return []
-    # 1. JSON format (Cookie-Editor, EditThisCookie, Cookiebro, etc.)
+    # 1. JSON format (Cookie-Editor, EditThisCookie, Cookiebro, NDJSON, single cookie, etc.)
     if stripped.startswith(("{", "[")):
-        return _parse_json(stripped)
+        try:
+            return _parse_json(stripped)
+        except Exception:
+            pass
     # 2. Raw JWT session token (e.g. eyJhbGciOi...)
     if stripped.startswith("eyJ") and len(stripped) > 50 and "\t" not in stripped and "\n" not in stripped:
         return [_normalize_json_cookie({"name": SESSION_COOKIE, "value": stripped})]
@@ -233,12 +281,14 @@ def parse_cookie_text(text: str) -> list[dict]:
 
 def is_cookie_content(text: str) -> bool:
     """Check if a string appears to be exported ChatGPT session cookies or token."""
-    stripped = text.strip()
+    stripped = _clean_cookie_text(text)
     if not stripped:
         return False
     if "session-token" in stripped or "__Secure" in stripped:
         return True
-    if stripped.startswith("[") and ("name" in stripped or "domain" in stripped or "value" in stripped):
+    if stripped.startswith(("{", "[")) and (
+        "name" in stripped or "cookies" in stripped or "domain" in stripped or "value" in stripped
+    ):
         return True
     if "#HttpOnly_" in stripped or ("\tTRUE\t" in stripped or "\tFALSE\t" in stripped):
         return True
@@ -251,7 +301,7 @@ def is_cookie_content(text: str) -> bool:
 
 def looks_like_cookie_or_token(text: str) -> bool:
     """Check if text appears to be cookie data, tokens, or cookie file fragments."""
-    stripped = text.strip()
+    stripped = _clean_cookie_text(text)
     if not stripped:
         return False
     if is_cookie_content(stripped):
@@ -296,7 +346,12 @@ def cookies_valid(cookies: list[dict]) -> bool:
     now = time.time()
     for c in cookies:
         name = c.get("name", "")
-        if name == SESSION_COOKIE or name.startswith(f"{SESSION_COOKIE}."):
+        if (
+            name in (SESSION_COOKIE, "next-auth.session-token", "session-token")
+            or name.startswith(f"{SESSION_COOKIE}.")
+            or name.startswith("next-auth.session-token.")
+            or name.startswith("session-token.")
+        ):
             exp = c.get("expires", -1)
             if exp == -1 or exp > now:
                 return True

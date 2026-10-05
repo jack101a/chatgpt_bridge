@@ -293,14 +293,61 @@ def test_cookie_import_validation(test_env):
     )
     assert obj_resp.status_code == 400
 
-    # Valid cookie list
-    valid_cookies = json.dumps([{"name": "_puid", "value": "123", "domain": "chatgpt.com"}])
+    # Valid cookie list with session token
+    valid_cookies = json.dumps([{"name": "__Secure-next-auth.session-token", "value": "123", "domain": "chatgpt.com"}])
     ok_resp = client.post(
         "/api/accounts/cookies",
         json={"account": "Primary", "cookies_json": valid_cookies},
     )
     assert ok_resp.status_code == 200
     assert ok_resp.json()["ok"] is True
+
+    # Format A: Cookie-Editor wrapper {"url": ..., "cookies": [...]}
+    fmt_a = json.dumps({
+        "url": "https://chatgpt.com",
+        "cookies": [{"name": "__Secure-next-auth.session-token", "value": "token_a", "domain": "chatgpt.com"}]
+    })
+    resp_a = client.post("/api/accounts/cookies", json={"account": "Primary", "cookies_json": fmt_a})
+    assert resp_a.status_code == 200
+    assert resp_a.json()["ok"] is True
+
+    # Format B: Single cookie object with chunked token (.0)
+    fmt_b = json.dumps({"name": "__Secure-next-auth.session-token.0", "value": "token_b", "domain": "chatgpt.com"})
+    resp_b = client.post("/api/accounts/cookies", json={"account": "Primary", "cookies_json": fmt_b})
+    assert resp_b.status_code == 200
+    assert resp_b.json()["ok"] is True
+
+
+def test_account_add_and_delete_endpoints(test_env):
+    client = test_env["client"]
+    # 1. Add new account
+    add_res = client.post("/api/accounts/add", json={"alias": "Secondary Account"})
+    assert add_res.status_code == 200
+    data = add_res.json()
+    assert data["ok"] is True
+    acc_id = data["id"]
+    assert data["alias"] == "Secondary Account"
+
+    # 2. Check accounts list
+    list_res = client.get("/accounts")
+    assert list_res.status_code == 200
+    accs = list_res.json()["accounts"]
+    assert any(a["id"] == acc_id for a in accs)
+
+    # 3. Duplicate alias rejected
+    dup_res = client.post("/api/accounts/add", json={"alias": "Secondary Account"})
+    assert dup_res.status_code == 409
+
+    # 4. Delete account
+    del_res = client.delete(f"/api/accounts/{acc_id}")
+    assert del_res.status_code == 200
+    assert del_res.json()["ok"] is True
+    assert del_res.json()["deleted_account_id"] == acc_id
+
+    # 5. Verify deleted from list
+    list_res2 = client.get("/accounts")
+    accs2 = list_res2.json()["accounts"]
+    assert not any(a["id"] == acc_id for a in accs2)
 
 
 def test_websocket_connection_and_broadcast(test_env):

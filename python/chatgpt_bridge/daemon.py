@@ -88,6 +88,7 @@ from .body_dictionary import (
     randomize_body,
 )
 from .sanitizer import clean_and_enhance_prompt, wrap_verbatim_directive
+from .cookies import parse_cookie_text, cookies_valid
 try:
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 except Exception:  # pragma: no cover - playwright always present at runtime
@@ -447,6 +448,11 @@ class ChatSummary(BaseModel):
 class CookieImport(BaseModel):
     account: str
     cookies_json: str
+
+
+class AccountAddRequest(BaseModel):
+    alias: str
+    cookies_json: str | None = None
 
 
 class SettingsPatch(BaseModel):
@@ -1645,6 +1651,7 @@ async def refresh_account_quota(account: str | None = None) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+@app.post("/api/accounts/switch", tags=["Accounts"], summary="Switch Active ChatGPT Account")
 @app.post("/accounts/switch", include_in_schema=False)
 async def switch_account(req: SwitchAccountRequest) -> dict:
     """Switch the active account programmatically."""
@@ -1662,16 +1669,95 @@ async def switch_account(req: SwitchAccountRequest) -> dict:
             return _error_response(e)
 
 
-@app.post("/api/accounts/cookies", include_in_schema=False)
-async def api_import_cookies(body: CookieImport) -> dict:
-    """Import exported cookies JSON for a specific account."""
-    try:
-        parsed = json.loads(body.cookies_json)
-        if not isinstance(parsed, list):
-            raise ValueError("Cookies payload must be a JSON array of cookie objects")
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid cookies JSON: {exc}")
+@app.post("/api/accounts/add", tags=["Accounts"], summary="Add New ChatGPT Account")
+@app.post("/accounts/add", include_in_schema=False)
+async def api_add_account(body: AccountAddRequest) -> dict:
+    """Add a new account slot with isolated profile and chat pool."""
+    core = _get_core()
+    mgr = getattr(core, "account_manager", None)
+    if not mgr:
+        raise HTTPException(status_code=500, detail="Account manager not initialized")
 
+    alias = body.alias.strip()
+    if not alias:
+        raise HTTPException(status_code=400, detail="Account name/alias cannot be empty")
+
+    existing = mgr.find_account(alias)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Account '{alias}' already exists")
+
+    acc = mgr.add_account(alias)
+
+    cookie_count = 0
+    if body.cookies_json and body.cookies_json.strip():
+        try:
+            cookie_list = parse_cookie_text(body.cookies_json)
+            if cookie_list:
+                cookies_path = Path(acc.cookies_file)
+                cookies_path.parent.mkdir(parents=True, exist_ok=True)
+                cookies_path.write_text(json.dumps(cookie_list, indent=2), encoding="utf-8")
+                cookie_count = len(cookie_list)
+                if cookies_valid(cookie_list):
+                    acc.is_authenticated = True
+                    mgr._save()
+        except Exception as exc:
+            log.warning("Cookies supplied with account creation could not be parsed: %s", exc)
+
+    await ws_broadcast({"type": "account_added", "account": acc.alias or acc.id})
+    return {
+        "ok": True,
+        "id": acc.id,
+        "alias": acc.alias,
+        "is_authenticated": acc.is_authenticated,
+        "cookie_count": cookie_count,
+    }
+
+
+@app.delete("/api/accounts/{account_id}", tags=["Accounts"], summary="Delete or Reset ChatGPT Account")
+@app.post("/api/accounts/{account_id}/delete", include_in_schema=False)
+@app.post("/accounts/{account_id}/delete", include_in_schema=False)
+async def api_delete_account(account_id: str) -> dict:
+    """Delete an account (or reset its session/profile if it's the last remaining account)."""
+    core = _get_core()
+    mgr = getattr(core, "account_manager", None)
+    if not mgr:
+        raise HTTPException(status_code=500, detail="Account manager not initialized")
+
+    acc = mgr.find_account(account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail=f"Account '{account_id}' not found")
+
+    target_id = acc.id
+    target_alias = acc.alias
+    is_active = (mgr.active_account_id == target_id)
+
+    if is_active and core and getattr(core, "_started", False):
+        try:
+            await core.aclose()
+        except Exception as exc:
+            log.warning("Error stopping core browser for account deletion: %s", exc)
+
+    removed = mgr.remove_account(target_id, reset_if_last=True)
+    if not removed:
+        raise HTTPException(status_code=500, detail=f"Failed to delete account '{target_alias}'")
+
+    await ws_broadcast({
+        "type": "account_removed",
+        "account": target_alias,
+        "account_id": target_id,
+        "active_account": mgr.active_account_id,
+    })
+    return {
+        "ok": True,
+        "deleted_account_id": target_id,
+        "deleted_alias": target_alias,
+        "active_account_id": mgr.active_account_id,
+    }
+
+
+@app.post("/api/accounts/cookies", tags=["Accounts"], summary="Import Cookies for Account")
+async def api_import_cookies(body: CookieImport) -> dict:
+    """Import exported cookies (Cookie-Editor JSON, array, NDJSON, Netscape, or token) for an account."""
     core = _get_core()
     mgr = getattr(core, "account_manager", None)
     if not mgr:
@@ -1681,14 +1767,36 @@ async def api_import_cookies(body: CookieImport) -> dict:
     if not acc:
         raise HTTPException(status_code=404, detail=f"Account '{body.account}' not found")
 
+    try:
+        cookie_list = parse_cookie_text(body.cookies_json)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid cookies payload: {exc}")
+
+    if not cookie_list:
+        raise HTTPException(status_code=400, detail="No cookies detected in provided payload")
+
+    if not cookies_valid(cookie_list):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Provided cookies do not contain a valid, unexpired ChatGPT session-token "
+                "(__Secure-next-auth.session-token). Ensure you export cookies while logged into chatgpt.com."
+            ),
+        )
+
     cookies_path = Path(acc.cookies_file)
     cookies_path.parent.mkdir(parents=True, exist_ok=True)
-    cookies_path.write_text(body.cookies_json, encoding="utf-8")
+    cookies_path.write_text(json.dumps(cookie_list, indent=2), encoding="utf-8")
     acc.is_authenticated = True
     mgr._save()
 
+    if core and hasattr(core, "session"):
+        if mgr.active_account_id == acc.id:
+            core._last_alive_status = None
+            core._last_alive_check = 0.0
+
     await ws_broadcast({"type": "account_updated", "account": acc.alias or acc.id})
-    return {"ok": True, "account": acc.alias or acc.id}
+    return {"ok": True, "account": acc.alias or acc.id, "cookie_count": len(cookie_list)}
 
 
 # ── Gallery API ──

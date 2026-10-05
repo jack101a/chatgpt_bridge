@@ -392,3 +392,70 @@ def test_parse_raw_jwt_session_token():
     assert cookies[0]["name"] == SESSION_COOKIE
     assert cookies[0]["value"] == raw_jwt
     assert cookies_valid(cookies) is True
+
+
+def test_parse_single_cookie_object():
+    from chatgpt_bridge.cookies import parse_cookie_text, cookies_valid
+
+    # Single cookie object with chunked session token (.0)
+    single_raw = json.dumps({
+        "name": f"{SESSION_COOKIE}.0",
+        "value": "chunked_token_part_0",
+        "domain": ".chatgpt.com",
+        "path": "/",
+        "expires": -1,
+    })
+    cookies = parse_cookie_text(single_raw)
+    assert len(cookies) == 1
+    assert cookies[0]["name"] == f"{SESSION_COOKIE}.0"
+    assert cookies[0]["value"] == "chunked_token_part_0"
+    assert cookies_valid(cookies) is True
+
+
+def test_parse_ndjson_and_comma_separated_objects():
+    from chatgpt_bridge.cookies import parse_cookie_text, cookies_valid
+
+    # Multiple JSON objects on separate lines (NDJSON)
+    ndjson = f"""
+    {{"domain": ".chatgpt.com", "name": "oai-did", "value": "did_123"}}
+    {{"domain": ".chatgpt.com", "name": "{SESSION_COOKIE}", "value": "val_abc"}}
+    """
+    cookies = parse_cookie_text(ndjson)
+    assert len(cookies) == 2
+    assert cookies_valid(cookies) is True
+
+    # Comma-separated objects without outer array brackets
+    comma_sep = f"""
+    {{"domain": ".chatgpt.com", "name": "oai-did", "value": "did_123"}},
+    {{"domain": ".chatgpt.com", "name": "{SESSION_COOKIE}.0", "value": "part0"}},
+    {{"domain": ".chatgpt.com", "name": "{SESSION_COOKIE}.1", "value": "part1"}}
+    """
+    cookies_comma = parse_cookie_text(comma_sep)
+    assert len(cookies_comma) == 3
+    assert cookies_valid(cookies_comma) is True
+
+
+def test_parse_markdown_fences_and_docstring_quotes():
+    from chatgpt_bridge.cookies import parse_cookie_text, cookies_valid
+
+    # Wrapped in markdown code fence
+    fenced = f"""```json
+    [
+      {{"name": "{SESSION_COOKIE}", "value": "tok_in_fence", "domain": ".chatgpt.com"}}
+    ]
+    ```"""
+    cookies_fence = parse_cookie_text(fenced)
+    assert len(cookies_fence) == 1
+    assert cookies_fence[0]["value"] == "tok_in_fence"
+    assert cookies_valid(cookies_fence) is True
+
+    # Wrapped in triple quotes
+    quoted = f"""'''
+    {{"url": "https://chatgpt.com", "cookies": [
+      {{"name": "{SESSION_COOKIE}", "value": "tok_in_quotes", "domain": ".chatgpt.com"}}
+    ]}}
+    '''"""
+    cookies_quoted = parse_cookie_text(quoted)
+    assert len(cookies_quoted) == 1
+    assert cookies_quoted[0]["value"] == "tok_in_quotes"
+    assert cookies_valid(cookies_quoted) is True
