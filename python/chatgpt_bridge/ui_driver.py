@@ -12,7 +12,7 @@ import time
 log = logging.getLogger("chatgpt_bridge.ui_driver")
 
 from .browser import BrowserManager
-from .errors import BridgeTimeoutError, GenerationDeniedError, ShapeChangedError
+from .errors import AuthError, BridgeTimeoutError, GenerationDeniedError, ShapeChangedError
 from .images import IMAGE_SELECTOR, save_image
 from .retry import (
     RetryConfig,
@@ -36,6 +36,21 @@ SWITCH_MODEL_SELECTOR = 'button[aria-label="Switch model"]'
 LOADING_SELECTOR = '[data-testid="image-gen-loading-state"]'
 
 HOME_URL = "https://chatgpt.com/"
+
+_AUTH_CHECK_JS = """() => {
+    const loginBtn = document.querySelector('[data-testid="login-button"], a[href*="/auth/login"]');
+    const profileBtn = document.querySelector('[data-testid="profile-button"], [data-testid="accounts-profile-button"], button[aria-label*="Profile"]');
+    if (loginBtn && !profileBtn) {
+        return { isGuest: true, text: 'ChatGPT page is in guest mode (login button present, profile missing)' };
+    }
+    const dialogs = [...document.querySelectorAll('[role="dialog"]')].map(d => d.textContent || '').join(' ');
+    const alerts = [...document.querySelectorAll('[role="alert"], .text-token-text-error')].map(d => d.textContent || '').join(' ');
+    const combined = (dialogs + ' ' + alerts).trim();
+    if (combined && /log in (to|or)|sign up (to|or)|sign in (to|or)|session expired|must be logged in/i.test(combined)) {
+        return { isGuest: true, text: combined.slice(0, 300).trim() };
+    }
+    return { isGuest: false, text: '' };
+}"""
 
 _DIALOG_CHECK_JS = """() => {
     const dialogs = [...document.querySelectorAll('[role="dialog"]')].map(d => d.textContent || '').join(' ');
@@ -465,6 +480,24 @@ class UIDriver:
         except Exception:
             pass
 
+        # Set up fast network 401/403 response sentry
+        auth_error_event = asyncio.Event()
+        auth_error_msg = [""]
+
+        def _on_response(resp):
+            try:
+                url = resp.url
+                if ("chatgpt.com/backend-api/" in url or "chatgpt.com/api/auth/" in url) and resp.status in (401, 403):
+                    auth_error_msg[0] = f"Upstream rejected request ({resp.status} on {url})"
+                    auth_error_event.set()
+            except Exception:
+                pass
+
+        try:
+            page.on("response", _on_response)
+        except Exception:
+            pass
+
         # Attempt 1: Initial submission
         try:
             if image_paths is not None or image_path is not None:
@@ -484,6 +517,8 @@ class UIDriver:
                     auto_retry=False,
                     existing=initial_images,
                     min_turn_idx=turn_count_before,
+                    auth_error_event=auth_error_event,
+                    auth_error_msg=auth_error_msg,
                 )
             except TypeError:
                 try:
@@ -512,6 +547,12 @@ class UIDriver:
 
             last_kind = outcome["kind"]
             last_text = outcome.get("text", "")
+
+            # If auth required: STOP IMMEDIATELY! Do not retry.
+            if last_kind == "auth_required":
+                raise AuthError(
+                    last_text or "ChatGPT session expired or requires login. Please re-login or refresh cookies."
+                )
 
             # If rate limit: STOP IMMEDIATELY! Do not retry.
             if last_kind == "rate_limit":
@@ -617,6 +658,8 @@ class UIDriver:
                         auto_retry=False,
                         existing=initial_images,
                         min_turn_idx=turn_count_before,
+                        auth_error_event=auth_error_event,
+                        auth_error_msg=auth_error_msg,
                     )
                 except TypeError:
                     try:
@@ -647,6 +690,12 @@ class UIDriver:
 
                 last_kind = outcome["kind"]
                 last_text = outcome.get("text", "")
+
+                # If auth required: STOP IMMEDIATELY! Do not burn retries.
+                if last_kind == "auth_required":
+                    raise AuthError(
+                        last_text or "ChatGPT session expired or requires login. Please re-login or refresh cookies."
+                    )
 
                 # If rate limit: STOP IMMEDIATELY! Do not burn retries.
                 if last_kind == "rate_limit":
@@ -680,6 +729,8 @@ class UIDriver:
         auto_retry: bool = True,
         existing: set[str] | None = None,
         min_turn_idx: int = 0,
+        auth_error_event: asyncio.Event | None = None,
+        auth_error_msg: list[str] | None = None,
     ) -> dict:
         """Poll until a NEW image, a settled denial, or a retry button appears.
 
@@ -718,19 +769,30 @@ class UIDriver:
                 raise BridgeError("Browser page was closed during generation wait")
             elapsed = time.monotonic() - start_time
 
+            # Fast Auth / Guest Mode Check: Bail immediately within 1s if unauthenticated
+            if auth_error_event and auth_error_event.is_set():
+                err_text = auth_error_msg[0] if auth_error_msg else "401/403 unauthorized response detected"
+                log.warning("Fast auth failure detected via network: %s", err_text)
+                return {"kind": "auth_required", "text": err_text}
+
+            auth_dialog_err = await self._check_guest_or_auth_dialog(page)
+            if auth_dialog_err:
+                log.warning("Fast auth dialog/guest mode detected: %s", auth_dialog_err[:120])
+                return {"kind": "auth_required", "text": auth_dialog_err}
+
             # 0. Fast Rate Limit Dialog Check: Bail immediately within 1s on modal dialogs
             dialog_err = await self._check_rate_limit_dialog(page)
             if dialog_err:
                 log.warning("Fast rate limit dialog detected: %s", dialog_err[:120])
                 return {"kind": "rate_limit", "text": dialog_err}
 
-            # 1. Early Denial / Refusal Check: If assistant text has settled on a policy refusal or error,
+            # 1. Early Denial / Refusal Check: If assistant text has settled on a policy refusal, auth prompt, or error,
             # bail immediately even if a stop button or loading indicator is still lingering.
             text = await self._read_last_assistant(page)
             if text and text == last_text:
                 stable_polls += 1
                 kind = classify_response(text)
-                if kind in ("denial", "rate_limit", "deterministic", "generic_fail"):
+                if kind in ("auth_required", "denial", "rate_limit", "deterministic", "generic_fail"):
                     if stable_polls >= 2:
                         log.warning("Terminal assistant response detected (kind=%s): %s", kind, text[:120])
                         if auto_retry and kind == "denial" and not clicked_switch_model:
@@ -935,6 +997,20 @@ class UIDriver:
         except Exception:
             return False
         return False
+
+    async def _check_guest_or_auth_dialog(self, page) -> str | None:
+        """Check for guest mode markers or auth required dialogs.
+
+        Returns warning message if unauthenticated/guest state detected, otherwise None.
+        """
+        try:
+            if hasattr(page, "evaluate"):
+                info = await page.evaluate(_AUTH_CHECK_JS)
+                if isinstance(info, dict) and info.get("isGuest"):
+                    return info.get("text") or "guest mode detected"
+        except Exception:
+            pass
+        return None
 
     async def _check_rate_limit_dialog(self, page) -> str | None:
         """Check for active ChatGPT rate-limit modal dialogs or error banners.
@@ -1146,6 +1222,11 @@ class UIDriver:
         image_paths: list[str | Path] | None = None,
         thinking: bool = False,
     ) -> None:
+        # Check if page is in guest/unauthenticated state before interacting
+        guest_err = await self._check_guest_or_auth_dialog(page)
+        if guest_err:
+            raise AuthError(f"ChatGPT session expired: {guest_err}")
+
         # Wait for a VISIBLE composer. Using .first pins to the first match in
         # DOM order, which on /c/{id} is a hidden contenteditable skeleton div;
         # wait_for(state="visible") then hangs on that hidden element even
@@ -1159,6 +1240,9 @@ class UIDriver:
                 )
                 break
             except Exception:
+                guest_err = await self._check_guest_or_auth_dialog(page)
+                if guest_err:
+                    raise AuthError(f"ChatGPT session expired: {guest_err}")
                 if attempt == 0:
                     await page.reload(wait_until="domcontentloaded", timeout=60_000)
                     continue

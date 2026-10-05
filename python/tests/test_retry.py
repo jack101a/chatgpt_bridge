@@ -27,6 +27,33 @@ def test_denial():
     )
 
 
+def test_auth_required():
+    assert (
+        classify_response(
+            "I cannot generate images. Please log in or sign up to create images with DALL·E."
+        )
+        == "auth_required"
+    )
+    assert (
+        classify_response(
+            "You need to be logged in to create images. Please log in to continue."
+        )
+        == "auth_required"
+    )
+    assert (
+        classify_response(
+            "Session expired. Please log in again to use ChatGPT."
+        )
+        == "auth_required"
+    )
+    assert (
+        classify_response(
+            "Image generation requires an account. Please create an account to start."
+        )
+        == "auth_required"
+    )
+
+
 def test_deterministic_ip():
     assert (
         classify_response(

@@ -34,6 +34,17 @@ class _MockCore:
     async def switch_account(self, account: str) -> _DummyAccount:
         return _DummyAccount("acc_switched", account)
 
+    async def fetch_account_quota(self, account_id_or_alias: str | None = None, force_refresh: bool = False) -> dict:
+        acc = self.account_manager.get_active_account()
+        return {
+            "account_id": acc.id,
+            "alias": acc.alias,
+            "allowed": True,
+            "limit_reached": False,
+            "used_percent": 0.0,
+            "left_percent": 100.0,
+        }
+
 
 @pytest.fixture
 def test_env(tmp_path, monkeypatch):
@@ -333,3 +344,23 @@ def test_client_state_endpoints(test_env):
     assert data2["currentTab"] == "gallery"
     assert data2["activeConvId"] == "conv-1234"
     assert data2["viewerImageId"] == "img_test_567"
+
+
+def test_account_quota_endpoints(test_env):
+    client = test_env["client"]
+    # 1. GET /api/accounts/quota
+    res = client.get("/api/accounts/quota")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert "quota" in data
+    assert data["quota"]["allowed"] is True
+    assert data["quota"]["limit_reached"] is False
+
+    # 2. POST /api/accounts/quota/refresh
+    res_refresh = client.post("/api/accounts/quota/refresh")
+    assert res_refresh.status_code == 200
+    refresh_data = res_refresh.json()
+    assert refresh_data["ok"] is True
+    assert "quota" in refresh_data
+    assert refresh_data["quota"]["allowed"] is True

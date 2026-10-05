@@ -94,3 +94,51 @@ def test_import_cookie_file_missing_raises(tmp_path):
     mgr = SessionManager(browser)
     with pytest.raises(Exception):
         mgr.import_cookie_file(tmp_path / "nope.json")
+
+
+class _MockResponse:
+    def __init__(self, status: int, data: dict):
+        self.status = status
+        self._data = data
+
+    async def json(self):
+        return self._data
+
+
+class _MockRequestContext:
+    def __init__(self, status: int, data: dict):
+        self._status = status
+        self._data = data
+
+    async def get(self, url: str, timeout: int = 15000):
+        return _MockResponse(self._status, self._data)
+
+
+class _MockBrowserWithRequest:
+    def __init__(self, status: int, data: dict):
+        self.request = _MockRequestContext(status, data)
+
+    async def context(self):
+        return self
+
+
+@pytest.mark.anyio
+async def test_is_alive_returns_true_when_user_authenticated():
+    browser = _MockBrowserWithRequest(200, {"user": {"email": "user@chatgpt.com", "name": "User"}})
+    mgr = SessionManager(browser)
+    assert await mgr.is_alive() is True
+
+
+@pytest.mark.anyio
+async def test_is_alive_returns_false_when_empty_session_guest_mode():
+    # ChatGPT returns 200 with empty json {} when logged out
+    browser = _MockBrowserWithRequest(200, {})
+    mgr = SessionManager(browser)
+    assert await mgr.is_alive() is False
+
+
+@pytest.mark.anyio
+async def test_is_alive_returns_false_when_status_401_or_403():
+    browser = _MockBrowserWithRequest(401, {"error": "Unauthorized"})
+    mgr = SessionManager(browser)
+    assert await mgr.is_alive() is False

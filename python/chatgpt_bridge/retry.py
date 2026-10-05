@@ -36,6 +36,18 @@ DETERMINISTIC_RE = re.compile(
     r"intellectual property|trademark",
     re.IGNORECASE,
 )
+AUTH_REQUIRED_RE = re.compile(
+    r"log in (to|or)|sign in (to|or)|sign up (to|or)|"
+    r"please (log in|sign in|sign up)|"
+    r"create an account|"
+    r"must be logged in|"
+    r"not logged in|"
+    r"need to be logged in|"
+    r"session (expired|has expired|timed out|invalid)|"
+    r"authentication required|"
+    r"requires an account",
+    re.IGNORECASE,
+)
 GENERIC_FAIL_RE = re.compile(
     r"image generation failed|something went wrong|error", re.IGNORECASE
 )
@@ -46,6 +58,10 @@ DEFAULT_RETRY_INTERVALS = (5.0, 10.0, 15.0, 20.0, 25.0, 26.0, 27.0, 28.0, 29.0, 
 
 def classify_response(text: str) -> str:
     """Classify an assistant response during image generation."""
+    # Check auth requirement BEFORE refusal: refusal regex matches 'cannot generate',
+    # but prompts asking to log in/sign up must fail immediately as auth_required.
+    if AUTH_REQUIRED_RE.search(text):
+        return "auth_required"
     if DETERMINISTIC_RE.search(text):
         return "deterministic"
     # Check rate limit BEFORE refusal: refusal regex matches generic 'unable to generate',
