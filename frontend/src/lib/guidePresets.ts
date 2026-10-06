@@ -506,6 +506,33 @@ export const GUIDE_ANGLES: GuideAngle[] = [
 // Pre-made standard multi-shot pipelines users can load in 1 click
 export const DEFAULT_PIPELINES: GuideSavedPipeline[] = [
   {
+    id: 'preset_test_pipeline',
+    name: '🧪 Test Pipeline',
+    description: '20-shot full coverage: Eye Level, Low Angle, Profile, Rear, Frontal, Overhead, Ceiling POV, Mirror Selfie, Silhouette, Full Body, Cowboy, Bust, All Fours, and Intimate POVs.',
+    itemAngleIds: [
+      'eye_level',
+      'low_angle',
+      'full_profile',
+      'from_behind',
+      'frontal',
+      'overhead',
+      'slight_low',
+      'looking_back',
+      'ceiling_pov',
+      'floor_level_upward',
+      'mirror_selfie',
+      'silhouette',
+      'full_body',
+      'cowboy_shot',
+      'bust_shot',
+      'all_fours_side',
+      'all_fours_behind',
+      'overhead_lying',
+      'bedside_eye_level',
+      'arching_profile',
+    ],
+  },
+  {
     id: 'preset_essential_4',
     name: '📸 Essential 4-Shot Coverage',
     description: 'The industry-standard portfolio progression: Eye-Level ➔ Dynamic 3/4 ➔ Low Angle ➔ Close-Up Headshot.',

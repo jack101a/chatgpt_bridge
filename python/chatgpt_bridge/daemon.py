@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("chatgpt_bridge.daemon")
 
 from fastapi import BackgroundTasks, Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -30,7 +31,6 @@ from .errors import (
     GenerationDeniedError,
     ShapeChangedError,
 )
-from .retry import auto_tweak_prompt
 from .storage_manager import (
     DEFAULT_QUOTA_MB,
     compute_directory_size,
@@ -405,6 +405,7 @@ class ImageRequest(BaseModel):
         description="Optional multiple reference image IDs/filenames/URLs to attach simultaneously (Turn 0 Contract Handshake)",
     )
     client_id: str | None = Field(default=None, description="Optional client/project ID for continuity")
+    auto_switch: bool | None = Field(default=None, description="Override auto-switch on rate limit")
     metadata: dict | None = Field(default=None, description="Optional metadata to store with the image")
 
 
@@ -443,6 +444,8 @@ class ChatSummary(BaseModel):
     thumbnails: list[str]
     last_active: float
     last_prompt: str | None = None
+    initial_prompt: str | None = None
+    title: str | None = None
     account_used: str | None = None
 
 
@@ -651,6 +654,7 @@ class DirectorExecuteRequest(BaseModel):
     )
     plot: str | None = Field(default=None, description="Optional plot/scene arc for roleplay handshake")
     roleplay_info: str | None = Field(default=None, description="Optional roleplay instructions for roleplay handshake")
+    is_guide_mode: bool = Field(default=False, description="Whether this execution is Guide Mode (no Turn 0/1 handshakes)")
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -752,9 +756,15 @@ def _get_core() -> ChatGPT:
 
 
 def _error_response(exc: Exception) -> JSONResponse:
+    content: dict[str, Any] = {"error": {"type": type(exc).__name__, "message": str(exc)}}
+    if hasattr(exc, "kind"):
+        content["error"]["kind"] = exc.kind
+    if hasattr(exc, "rate_limit_info"):
+        content["error"]["rate_limit_info"] = exc.rate_limit_info
+    status_code = 429 if getattr(exc, "kind", None) == "rate_limit" else 502
     return JSONResponse(
-        status_code=502,
-        content={"error": {"type": type(exc).__name__, "message": str(exc)}},
+        status_code=status_code,
+        content=content,
     )
 
 
@@ -1224,11 +1234,15 @@ async def image(req: ImageRequest, request: Request = None) -> dict:
                 await ws_broadcast(data)
 
             kwargs["on_progress"] = progress_cb
+            if req.auto_switch is not None:
+                kwargs["auto_switch"] = req.auto_switch
             result = await _get_core().generate_image(
                 req.prompt, timeout_s=req.timeout_s, **kwargs
             )
+            if isinstance(result, JSONResponse):
+                return result
             # Add relative web image_url for easy frontend consumption
-            if "path" in result:
+            if isinstance(result, dict) and "path" in result:
                 p = Path(result["path"])
                 result["image_url"] = f"/images/{p.name}"
                 result["thumbnail_url"] = f"/thumbnails/{p.stem}.webp"
@@ -1604,6 +1618,7 @@ async def list_accounts() -> dict:
         {
             "id": a.id,
             "alias": a.alias,
+            "name": getattr(a, "name", ""),
             "email": a.email,
             "is_active": a.id == mgr.active_account_id,
             "is_authenticated": a.is_authenticated,
@@ -1645,11 +1660,30 @@ async def refresh_account_quota(account: str | None = None) -> dict:
     try:
         quota = await core.fetch_account_quota(account_id_or_alias=account, force_refresh=True)
         acc_name = account or core.account_manager.active_account_id
+        await ws_broadcast({"type": "account_updated", "account": acc_name})
         await ws_broadcast({"type": "account_quota_updated", "account": acc_name, "quota": quota})
         return {"ok": True, "quota": quota}
     except Exception as exc:
         log.warning("Failed to refresh account quota: %s", exc)
         return {"ok": False, "error": str(exc)}
+
+
+@app.post("/api/accounts/{account_id}/verify", tags=["Accounts"], summary="Live Verify Account Session Upstream")
+async def api_verify_account(account_id: str) -> dict:
+    """Live verify account session upstream against /api/auth/session and wham/usage."""
+    core = _get_core()
+    mgr = getattr(core, "account_manager", None)
+    if not mgr:
+        raise HTTPException(status_code=500, detail="Account manager not initialized")
+    acc = mgr.find_account(account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail=f"Account '{account_id}' not found")
+
+    res = await core.verify_account_session(acc.id)
+    await ws_broadcast({"type": "account_updated", "account": acc.alias or acc.id})
+    if getattr(acc, "quota", None):
+        await ws_broadcast({"type": "account_quota_updated", "account": acc.alias or acc.id, "quota": acc.quota})
+    return res
 
 
 @app.post("/api/accounts/switch", tags=["Accounts"], summary="Switch Active ChatGPT Account")
@@ -1788,7 +1822,22 @@ async def api_import_cookies(body: CookieImport) -> dict:
     cookies_path = Path(acc.cookies_file)
     cookies_path.parent.mkdir(parents=True, exist_ok=True)
     cookies_path.write_text(json.dumps(cookie_list, indent=2), encoding="utf-8")
-    acc.is_authenticated = True
+
+    # Perform live upstream verification to confirm if user is actually logged in
+    verify_res = {}
+    try:
+        if hasattr(core, "verify_account_session"):
+            verify_res = await core.verify_account_session(acc.id)
+            if verify_res.get("authenticated"):
+                acc.is_authenticated = True
+            else:
+                acc.is_authenticated = False
+        else:
+            acc.is_authenticated = True
+    except Exception as v_err:
+        log.warning("Verification error after importing cookies for %s: %s", acc.alias, v_err)
+        acc.is_authenticated = True
+
     mgr._save()
 
     if core and hasattr(core, "session"):
@@ -1797,12 +1846,20 @@ async def api_import_cookies(body: CookieImport) -> dict:
             core._last_alive_check = 0.0
 
     await ws_broadcast({"type": "account_updated", "account": acc.alias or acc.id})
+    if getattr(acc, "quota", None):
+        await ws_broadcast({"type": "account_quota_updated", "account": acc.alias or acc.id, "quota": acc.quota})
+
     return {
         "ok": True,
         "success": True,
+        "authenticated": acc.is_authenticated,
         "account": acc.alias or acc.id,
+        "email": acc.email,
+        "name": acc.name,
+        "plan_type": (acc.quota or {}).get("plan_type", "chatgpt_web"),
         "cookie_count": len(cookie_list),
         "cookies_imported": len(cookie_list),
+        "error": verify_res.get("error") if not acc.is_authenticated else None,
     }
 
 
@@ -2014,6 +2071,8 @@ async def api_chats() -> list[ChatSummary]:
         thumbs = [f"/images/{e['id']}.png" for e in imgs[:4] if "id" in e]
         last_active = imgs[0]["created_at"] if imgs else 0.0
         last_prompt = imgs[0].get("prompt") if imgs else None
+        initial_prompt = imgs[-1].get("prompt") if imgs else None
+        title = (initial_prompt or "").strip().split("\n")[0][:100] or None
         account_used = imgs[0].get("account_used") if imgs else None
         out.append(
             ChatSummary(
@@ -2022,6 +2081,8 @@ async def api_chats() -> list[ChatSummary]:
                 thumbnails=thumbs,
                 last_active=last_active,
                 last_prompt=last_prompt,
+                initial_prompt=initial_prompt,
+                title=title,
                 account_used=account_used,
             )
         )
@@ -2634,6 +2695,76 @@ async def post_ai_provider_model(provider_id: str, payload: AddCustomModelPayloa
     return {"ok": True, "provider_id": pid, "custom_models": custom, "added": model_name}
 
 
+@app.get("/api/debug/screenshot", include_in_schema=False)
+async def api_debug_screenshot(lane: str = "image", scroll: bool = True):
+    """Directly capture full page or scrolled viewport from Playwright page."""
+    try:
+        core = _get_core()
+        ui = core.ui
+        slot = ui._image_slot if lane == "image" else ui._chat_slots[0]
+        # Find the actual active page with content
+        context = await core.browser.context()
+        pages = context.pages
+        matching_page = None
+        for p in reversed(pages):
+            if not p.is_closed() and "chatgpt.com/c/" in p.url:
+                matching_page = p
+                break
+        page = matching_page or slot.get("page") or ui._active_page
+        if not page or page.is_closed():
+            if pages:
+                page = pages[-1]
+        if not page or page.is_closed():
+            return JSONResponse(status_code=404, content={"error": "No active page"})
+
+        if scroll:
+            try:
+                scroll_btn = page.locator('button[aria-label*="Scroll to bottom"], button:has([data-testid="scroll-to-bottom"])').last
+                if await scroll_btn.count() > 0 and await scroll_btn.is_visible():
+                    await scroll_btn.click()
+                await page.evaluate("""() => {
+                    window.scrollTo(0, document.body.scrollHeight);
+                    const containers = document.querySelectorAll('main, [class*="react-scroll-to-bottom"], div[tabindex="0"]');
+                    for (const c of containers) {
+                        if (c.scrollHeight > c.clientHeight) {
+                            c.scrollTop = c.scrollHeight;
+                        }
+                    }
+                }""")
+            except Exception:
+                pass
+
+        out_path = Path("/home/ubuntu/.gemini/antigravity-cli/brain/db75f58e-8edc-4f33-91e8-7bceddf2ad56/playwright_screenshot.png")
+        await page.screenshot(path=str(out_path), full_page=True)
+        cur_url = page.url
+        turns = await page.locator("article").count()
+        dom_summary = await page.evaluate("""() => {
+            const allImgs = Array.from(document.querySelectorAll('img')).map(img => ({
+                src: img.src ? img.src.substring(0, 80) : '',
+                alt: img.alt || '',
+                w: img.clientWidth,
+                h: img.clientHeight
+            }));
+            const articles = document.querySelectorAll('article').length;
+            const textSnippets = Array.from(document.querySelectorAll('p, h1, h2, div[data-message-author-role]')).slice(-5).map(el => el.textContent.substring(0, 100));
+            return {
+                imgCount: allImgs.length,
+                imgs: allImgs,
+                articles: articles,
+                recentText: textSnippets
+            };
+        }""")
+        return {
+            "ok": True,
+            "path": str(out_path),
+            "url": cur_url,
+            "turns": turns,
+            "dom": dom_summary,
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.delete("/api/ai/providers/{provider_id}/models/{model_name:path}", include_in_schema=False)
 async def delete_ai_provider_model(provider_id: str, model_name: str) -> dict:
     """Remove a custom model from a specific provider."""
@@ -2775,6 +2906,7 @@ class HandshakeRequest(BaseModel):
     plot: str | None = Field(default=None, description="Optional plot/scene arc to anchor in roleplay mode")
     roleplay_info: str | None = Field(default=None, description="Optional roleplay instructions or context")
     screenplay_handshake: str | None = Field(default=None, description="Optional director screenplay briefing")
+    auto_switch: bool | None = Field(default=None, description="Override auto-switch on rate limit")
 
 
 class BindConversationCharacterPayload(BaseModel):
@@ -2824,6 +2956,7 @@ async def character_handshake_endpoint(
                 plot=req.plot if req else None,
                 roleplay_info=req.roleplay_info if req else None,
                 screenplay_handshake=req.screenplay_handshake if req else None,
+                auto_switch=req.auto_switch if req else None,
             )
             cid = res.get("conversation_id")
             if cid:
@@ -3110,13 +3243,12 @@ _director_state: dict[str, Any] = {
     "cancel_requested": False,
     "current_shot": 0,
     "total_shots": 0,
+    "completed_shots": 0,
+    "failed_shots": 0,
+    "shot_results": [],
     "status": "Idle",
     "last_error": None,
     "conversation_id": None,
-    "completed_shots": [],
-    "failed_shots": [],
-    "successful_count": 0,
-    "failed_count": 0,
 }
 
 
@@ -3127,103 +3259,154 @@ async def _execute_director_sequence(
     screenplay_handshake: str | None = None,
     plot: str | None = None,
     roleplay_info: str | None = None,
+    is_guide_mode: bool = False,
 ):
     global _director_state
     _director_state["is_running"] = True
     _director_state["cancel_requested"] = False
     _director_state["total_shots"] = len(shots)
     _director_state["current_shot"] = 0
+    _director_state["completed_shots"] = 0
+    _director_state["failed_shots"] = 0
+    _director_state["shot_results"] = []
     _director_state["status"] = "Initializing sequence..."
     _director_state["last_error"] = None
     _director_state["conversation_id"] = conversation_id
-    _director_state["completed_shots"] = []
-    _director_state["failed_shots"] = []
-    _director_state["successful_count"] = 0
-    _director_state["failed_count"] = 0
 
     mgr = _get_character_manager()
     char = None
-    if character_id and character_id != "freeform":
-        char = mgr.get(character_id)
-    elif character_id != "freeform":
-        char = mgr.get_active_character()
+    if not is_guide_mode:
+        if character_id and character_id != "freeform":
+            char = mgr.get(character_id)
+        elif character_id != "freeform":
+            char = mgr.get_active_character()
     conv_id = conversation_id
 
-    async def _run_handshakes(target_cid: str | None) -> str | None:
-        """Run Turn 0 Identity and Turn 1 Roleplay handshakes."""
-        c_id = target_cid
-        contracts = _load_conversation_contracts()
-        if char:
-            is_primed = contracts.get(c_id, {}).get("primed", False) if c_id else False
-            if not is_primed:
-                _director_state["status"] = f"Turn 0: Character Identity Handshake for {char.name}..."
-                await ws_broadcast({
-                    "type": "director_sequence_progress",
-                    "shot_index": 0,
-                    "total_shots": len(shots),
-                    "status": _director_state["status"],
-                    "conversation_id": c_id,
-                })
-                try:
-                    handshake_res = await character_handshake_endpoint(
-                        char.id,
-                        HandshakeRequest(
-                            conversation_id=c_id,
-                            plot=None,
-                            roleplay_info=None,
-                            screenplay_handshake=None,
-                        ),
+    # ── 2-Stage Handshake Execution (Skipped in Guide Mode) ───────────────────────
+    # Turn 0: Character Lock Identity Contract (Physical specification & 3 reference cards)
+    # Turn 1: Roleplay & Fictional World Contract (Plot, storyline, scenario, medium & safety sandbox)
+    contracts = _load_conversation_contracts()
+
+    # Turn 0: Establish Character Identity
+    if not is_guide_mode and char:
+        is_primed = contracts.get(conv_id, {}).get("primed", False) if conv_id else False
+        if not is_primed:
+            _director_state["status"] = f"Turn 0: Character Identity Handshake for {char.name}..."
+            await ws_broadcast({
+                "type": "director_sequence_progress",
+                "shot_index": 0,
+                "total_shots": len(shots),
+                "status": _director_state["status"],
+                "conversation_id": conv_id,
+            })
+            try:
+                handshake_res = await character_handshake_endpoint(
+                    char.id,
+                    HandshakeRequest(
+                        conversation_id=conv_id,
+                        plot=None,  # Plot is cleanly handled in Turn 1 Roleplay Handshake
+                        roleplay_info=None,
+                        screenplay_handshake=None,
+                        auto_switch=False,
                     )
-                    if handshake_res and isinstance(handshake_res, dict) and handshake_res.get("conversation_id"):
-                        c_id = handshake_res.get("conversation_id")
-                        _director_state["conversation_id"] = c_id
-                except Exception as e:
-                    log.warning(f"Turn 0 character handshake warning during director sequence: {e}")
+                )
+                if isinstance(handshake_res, JSONResponse):
+                    err_msg = "Character handshake failed"
+                    err_kind = ""
+                    rate_limit_info = None
+                    try:
+                        import json
+                        body = json.loads(handshake_res.body.decode()) if hasattr(handshake_res, "body") else {}
+                        err_obj = body.get("error", {})
+                        if isinstance(err_obj, dict):
+                            err_msg = err_obj.get("message", str(body))
+                            err_kind = err_obj.get("kind", "")
+                            rate_limit_info = err_obj.get("rate_limit_info")
+                    except Exception:
+                        pass
+                    if handshake_res.status_code == 429 or err_kind == "rate_limit" or "rate limit" in str(err_msg).lower():
+                        reset_str = f" (resets at {rate_limit_info['resets_at_str']})" if rate_limit_info and rate_limit_info.get("resets_at_str") else ""
+                        _director_state["status"] = f"Rate limit reached{reset_str}. Sequence stopped."
+                        _director_state["last_error"] = err_msg
+                        await ws_broadcast({
+                            "type": "director_sequence_error",
+                            "error": _director_state["status"],
+                            "is_rate_limit": True,
+                        })
+                        return
 
-        elif screenplay_handshake:
-            is_director_primed = contracts.get(c_id, {}).get("director_primed", False) if c_id else False
-            if not is_director_primed:
-                _director_state["status"] = "Turn 0: Protagonist Screenplay Handshake..."
-                await ws_broadcast({
-                    "type": "director_sequence_progress",
-                    "shot_index": 0,
-                    "total_shots": len(shots),
-                    "status": _director_state["status"],
-                    "conversation_id": c_id,
-                })
-                try:
-                    async with _lock:
-                        core = _get_core()
-                        if c_id is None:
-                            if hasattr(core, "new_chat"):
-                                res_nc = core.new_chat()
-                                if asyncio.iscoroutine(res_nc):
-                                    await res_nc
-                        else:
-                            await _align_account_for_conversation(c_id)
+                if handshake_res and isinstance(handshake_res, dict) and handshake_res.get("conversation_id"):
+                    conv_id = handshake_res.get("conversation_id")
+                    _director_state["conversation_id"] = conv_id
+                    contracts = _load_conversation_contracts()
+            except Exception as e:
+                log.warning(f"Turn 0 character handshake warning during director sequence: {e}")
+                if getattr(e, "kind", None) == "rate_limit" or "rate limit" in str(e).lower():
+                    _director_state["status"] = f"Rate limit reached on Turn 0 handshake. Sequence stopped."
+                    _director_state["last_error"] = str(e)
+                    await ws_broadcast({
+                        "type": "director_sequence_error",
+                        "error": _director_state["status"],
+                        "is_rate_limit": True,
+                    })
+                    return
 
-                        turn0_res = await core.ask(
-                            screenplay_handshake,
-                            conversation_id=c_id,
-                        )
-                        if isinstance(turn0_res, dict) and turn0_res.get("conversation_id"):
-                            c_id = turn0_res["conversation_id"]
-                            _director_state["conversation_id"] = c_id
-                            _save_conversation_contract(c_id, {
-                                "director_primed": True,
-                                "mode": "freeform_director",
-                                "primed_at": time.time(),
-                                "screenplay_preview": screenplay_handshake[:160],
-                            })
-                except Exception as e:
-                    log.warning(f"Turn 0 director screenplay handshake warning: {e}")
+    elif not is_guide_mode and screenplay_handshake:
+        is_director_primed = contracts.get(conv_id, {}).get("director_primed", False) if conv_id else False
+        if not is_director_primed:
+            _director_state["status"] = "Turn 0: Protagonist Screenplay Handshake..."
+            await ws_broadcast({
+                "type": "director_sequence_progress",
+                "shot_index": 0,
+                "total_shots": len(shots),
+                "status": _director_state["status"],
+                "conversation_id": conv_id,
+            })
+            try:
+                async with _lock:
+                    core = _get_core()
+                    if conv_id is None:
+                        if hasattr(core, "new_chat"):
+                            res_nc = core.new_chat()
+                            if asyncio.iscoroutine(res_nc):
+                                await res_nc
+                    else:
+                        await _align_account_for_conversation(conv_id)
 
-        contracts = _load_conversation_contracts()
-        is_roleplay_primed = contracts.get(c_id, {}).get("roleplay_primed", False) if c_id else False
+                    turn0_res = await core.ask(
+                        screenplay_handshake,
+                        conversation_id=conv_id,
+                        auto_switch=False,
+                    )
+                    if isinstance(turn0_res, dict) and turn0_res.get("conversation_id"):
+                        conv_id = turn0_res["conversation_id"]
+                        _director_state["conversation_id"] = conv_id
+                        _save_conversation_contract(conv_id, {
+                            "director_primed": True,
+                            "mode": "freeform_director",
+                            "primed_at": time.time(),
+                            "screenplay_preview": screenplay_handshake[:160],
+                        })
+                        contracts = _load_conversation_contracts()
+            except Exception as e:
+                log.warning(f"Turn 0 director screenplay handshake warning: {e}")
+                if getattr(e, "kind", None) == "rate_limit" or "rate limit" in str(e).lower():
+                    _director_state["status"] = f"Rate limit reached on Turn 0 screenplay handshake. Sequence stopped."
+                    _director_state["last_error"] = str(e)
+                    await ws_broadcast({
+                        "type": "director_sequence_error",
+                        "error": _director_state["status"],
+                        "is_rate_limit": True,
+                    })
+                    return
+
+    # Turn 1: Roleplay & Fictional World Handshake (Explaining fictional world, roleplay, plot, scenario)
+    if not is_guide_mode and not _director_state["cancel_requested"]:
+        is_roleplay_primed = contracts.get(conv_id, {}).get("roleplay_primed", False) if conv_id else False
         effective_plot = plot or _director_state.get("intent") or "Artistic narrative sequence"
         effective_roleplay = roleplay_info or (char.roleplay_instructions if char else None) or "Creative storytelling roleplay"
 
-        if not is_roleplay_primed and c_id:
+        if not is_roleplay_primed and conv_id:
             protagonist_label = char.name if char else "the established protagonist"
             roleplay_contract = (
                 f"[DIRECTOR'S PRODUCTION CONTRACT: CREATIVE FICTIONAL ROLEPLAY & SCENARIO]\n"
@@ -3244,32 +3427,37 @@ async def _execute_director_sequence(
                 "shot_index": 0,
                 "total_shots": len(shots),
                 "status": _director_state["status"],
-                "conversation_id": c_id,
+                "conversation_id": conv_id,
             })
 
             try:
                 async with _lock:
                     core = _get_core()
-                    await _align_account_for_conversation(c_id)
+                    await _align_account_for_conversation(conv_id)
                     turn1_res = await core.ask(
                         roleplay_contract,
-                        conversation_id=c_id,
+                        conversation_id=conv_id,
+                        auto_switch=False,
                     )
                     if isinstance(turn1_res, dict) and turn1_res.get("conversation_id"):
-                        c_id = turn1_res["conversation_id"]
-                        _director_state["conversation_id"] = c_id
-                        _save_conversation_contract(c_id, {
+                        conv_id = turn1_res["conversation_id"]
+                        _director_state["conversation_id"] = conv_id
+                        _save_conversation_contract(conv_id, {
                             "roleplay_primed": True,
                             "roleplay_primed_at": time.time(),
                             "plot": effective_plot,
                         })
             except Exception as e:
                 log.warning(f"Turn 1 roleplay handshake warning: {e}")
-
-        return c_id
-
-    # Run initial handshakes
-    conv_id = await _run_handshakes(conv_id)
+                if getattr(e, "kind", None) == "rate_limit" or "rate limit" in str(e).lower():
+                    _director_state["status"] = f"Rate limit reached on Turn 1 roleplay handshake. Sequence stopped."
+                    _director_state["last_error"] = str(e)
+                    await ws_broadcast({
+                        "type": "director_sequence_error",
+                        "error": _director_state["status"],
+                        "is_rate_limit": True,
+                    })
+                    return
 
     try:
         for i, shot in enumerate(shots):
@@ -3279,6 +3467,8 @@ async def _execute_director_sequence(
                     "type": "director_sequence_progress",
                     "shot_index": i,
                     "total_shots": len(shots),
+                    "completed_shots": _director_state["completed_shots"],
+                    "failed_shots": _director_state["failed_shots"],
                     "status": "Cancelled",
                 })
                 break
@@ -3289,6 +3479,8 @@ async def _execute_director_sequence(
                 "type": "director_sequence_progress",
                 "shot_index": i + 1,
                 "total_shots": len(shots),
+                "completed_shots": _director_state["completed_shots"],
+                "failed_shots": _director_state["failed_shots"],
                 "status": _director_state["status"],
                 "shot": shot.model_dump(),
                 "conversation_id": conv_id,
@@ -3297,10 +3489,10 @@ async def _execute_director_sequence(
             req = ImageRequest(
                 prompt=shot.prompt,
                 conversation_id=conv_id,
+                auto_switch=False,
                 metadata={
                     "director_shot": shot.model_dump(),
                     "character_id": char.id if char else None,
-                    "shot_index": i + 1,
                 },
             )
 
@@ -3308,94 +3500,151 @@ async def _execute_director_sequence(
                 res = await image(req)
                 if isinstance(res, JSONResponse):
                     err_msg = "Generation failed"
+                    err_kind = ""
+                    rate_limit_info = None
                     try:
                         import json
                         body = json.loads(res.body.decode()) if hasattr(res, "body") else {}
-                        err_info = body.get("error")
-                        if isinstance(err_info, dict):
-                            err_msg = err_info.get("message", "Generation failed")
+                        err_obj = body.get("error", {})
+                        if isinstance(err_obj, dict):
+                            err_msg = err_obj.get("message", str(body))
+                            err_kind = err_obj.get("kind", "")
+                            rate_limit_info = err_obj.get("rate_limit_info")
                         else:
                             err_msg = body.get("detail") or str(body)
                     except Exception:
                         pass
-                    raise RuntimeError(f"Shot {i + 1} rejected: {err_msg}")
 
-                if isinstance(res, dict):
-                    if res.get("conversation_id"):
-                        conv_id = res["conversation_id"]
-                        _director_state["conversation_id"] = conv_id
+                    is_rate_limit = (
+                        res.status_code == 429
+                        or err_kind == "rate_limit"
+                        or "rate limit" in str(err_msg).lower()
+                    )
 
-                    completed_entry = {
-                        "shot_index": i + 1,
-                        "image_url": res.get("image_url"),
-                        "thumbnail_url": res.get("thumbnail_url"),
-                        "path": res.get("path"),
-                        "description": shot.description,
-                        "camera_pov": shot.camera_pov,
-                        "prompt": shot.prompt,
-                    }
-                    _director_state["completed_shots"].append(completed_entry)
-                    _director_state["successful_count"] += 1
+                    if is_rate_limit:
+                        _director_state["failed_shots"] += 1
+                        _director_state["last_error"] = err_msg
+                        reset_str = ""
+                        if rate_limit_info and rate_limit_info.get("resets_at_str"):
+                            reset_str = f" (resets at {rate_limit_info['resets_at_str']})"
+                        _director_state["status"] = f"Rate limit reached{reset_str}. Sequence stopped."
 
-                    await ws_broadcast({
-                        "type": "director_shot_completed",
-                        "shot_index": i + 1,
-                        "total_shots": len(shots),
-                        "shot": completed_entry,
-                        "conversation_id": conv_id,
-                    })
-                    await ws_broadcast({
-                        "type": "generation_done",
-                        "image_url": res.get("image_url"),
-                        "thumbnail_url": res.get("thumbnail_url"),
-                        "conversation_id": conv_id,
-                        "prompt": shot.prompt,
-                    })
+                        shot_entry = {
+                            "shot_index": i + 1,
+                            "status": "rate_limited",
+                            "error": err_msg,
+                        }
+                        _director_state["shot_results"].append(shot_entry)
 
-            except Exception as e:
-                err_str = str(e)
-                log.warning(f"Shot {i + 1} denied/failed after retries: {err_str}. Moving to next shot.")
-                failed_entry = {
+                        await ws_broadcast({
+                            "type": "director_shot_failed",
+                            "shot_index": i + 1,
+                            "total_shots": len(shots),
+                            "completed_shots": _director_state["completed_shots"],
+                            "failed_shots": _director_state["failed_shots"],
+                            "error": err_msg,
+                            "is_rate_limit": True,
+                        })
+                        await ws_broadcast({
+                            "type": "director_sequence_error",
+                            "shot_index": i + 1,
+                            "error": _director_state["status"],
+                            "is_rate_limit": True,
+                        })
+                        break
+
+                    raise RuntimeError(f"Engine rejected shot {i + 1}: {err_msg}")
+
+                if isinstance(res, dict) and res.get("conversation_id"):
+                    new_cid = res["conversation_id"]
+                    if new_cid != conv_id:
+                        log.info(f"Director sequence conversation moved to new thread {new_cid}")
+                    conv_id = new_cid
+                    _director_state["conversation_id"] = conv_id
+
+                _director_state["completed_shots"] += 1
+                shot_entry = {
                     "shot_index": i + 1,
-                    "description": shot.description,
-                    "camera_pov": shot.camera_pov,
-                    "prompt": shot.prompt,
-                    "error": err_str,
+                    "status": "completed",
+                    "path": res.get("path") if isinstance(res, dict) else None,
+                    "url": res.get("url") if isinstance(res, dict) else None,
+                    "thumbnail_url": res.get("thumbnail_url") if isinstance(res, dict) else None,
+                    "conversation_id": conv_id,
                 }
-                _director_state["failed_shots"].append(failed_entry)
-                _director_state["failed_count"] += 1
-                _director_state["last_error"] = err_str
+                _director_state["shot_results"].append(shot_entry)
+
+                await ws_broadcast({
+                    "type": "director_shot_completed",
+                    "shot_index": i + 1,
+                    "total_shots": len(shots),
+                    "completed_shots": _director_state["completed_shots"],
+                    "failed_shots": _director_state["failed_shots"],
+                    "result": shot_entry,
+                    "conversation_id": conv_id,
+                })
+            except Exception as e:
+                is_rate_limit = (
+                    getattr(e, "kind", None) == "rate_limit"
+                    or "rate limit" in str(e).lower()
+                )
+                log.error(f"Director sequence error on shot {i + 1}: {e}", exc_info=True)
+                _director_state["failed_shots"] += 1
+                _director_state["last_error"] = str(e)
+
+                shot_entry = {
+                    "shot_index": i + 1,
+                    "status": "rate_limited" if is_rate_limit else "failed",
+                    "error": str(e),
+                }
+                _director_state["shot_results"].append(shot_entry)
 
                 await ws_broadcast({
                     "type": "director_shot_failed",
                     "shot_index": i + 1,
                     "total_shots": len(shots),
-                    "error": err_str,
-                    "failed_shot": failed_entry,
-                    "conversation_id": conv_id,
+                    "completed_shots": _director_state["completed_shots"],
+                    "failed_shots": _director_state["failed_shots"],
+                    "error": str(e),
+                    "is_rate_limit": is_rate_limit,
                 })
+                await ws_broadcast({
+                    "type": "director_sequence_error",
+                    "shot_index": i + 1,
+                    "error": str(e),
+                    "is_rate_limit": is_rate_limit,
+                })
+                if is_rate_limit:
+                    _director_state["status"] = f"Rate limit reached. Sequence stopped: {e}"
+                    break
 
             if i < len(shots) - 1:
                 # Pace shots and check cancel request periodically
-                for _ in range(6):
+                for _ in range(8):
                     if _director_state["cancel_requested"]:
                         break
                     await asyncio.sleep(1)
 
-        # Sequence completion summary
         if not _director_state["cancel_requested"]:
-            success_count = _director_state["successful_count"]
-            fail_count = _director_state["failed_count"]
-            _director_state["status"] = f"Complete: {success_count} succeeded, {fail_count} skipped"
+            if "Rate limit reached" in str(_director_state["status"]):
+                pass
+            elif _director_state["failed_shots"] == 0:
+                _director_state["status"] = "Complete"
+            elif _director_state["completed_shots"] > 0:
+                _director_state["status"] = (
+                    f"Completed {_director_state['completed_shots']}/{len(shots)} shots "
+                    f"({_director_state['failed_shots']} failed)"
+                )
+            else:
+                _director_state["status"] = f"Failed: {_director_state['last_error'] or 'All shots failed'}"
             _director_state["current_shot"] = len(shots)
             await ws_broadcast({
                 "type": "director_sequence_progress",
                 "status": _director_state["status"],
                 "shot_index": len(shots),
                 "total_shots": len(shots),
+                "completed_shots": _director_state["completed_shots"],
+                "failed_shots": _director_state["failed_shots"],
                 "conversation_id": conv_id,
-                "successful_count": success_count,
-                "failed_count": fail_count,
             })
     finally:
         _director_state["is_running"] = False
@@ -3434,6 +3683,7 @@ async def api_director_execute(req: DirectorExecuteRequest, background_tasks: Ba
         screenplay_handshake=req.screenplay_handshake,
         plot=req.plot,
         roleplay_info=req.roleplay_info,
+        is_guide_mode=req.is_guide_mode,
     )
     return {"ok": True, "message": "Sequence execution started"}
 

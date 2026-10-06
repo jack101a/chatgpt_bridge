@@ -238,16 +238,13 @@ class ChatGPT:
         self._current_conversation_id = None
         return acc
 
-    async def fetch_account_quota(
+    async def verify_account_session(
         self,
         account_id_or_alias: str | None = None,
-        force_refresh: bool = False,
     ) -> dict:
-        """Fetch quota and limits for an account based on local reactive rate-limit tracking.
+        """Query upstream ChatGPT session (/api/auth/session & wham/usage) to verify login status and plan.
 
-        Note: OpenAI does not provide a proactive upstream endpoint for standard ChatGPT
-        image generation limits (wham/usage tracks Codex, not ChatGPT/DALL-E).
-        Quota status is tracked reactively via generation responses and rate limit errors.
+        Updates AccountInfo email, name, plan_type, and is_authenticated.
         """
         acc = (
             self.account_manager.find_account(account_id_or_alias)
@@ -257,15 +254,246 @@ class ChatGPT:
         if not acc:
             raise KeyError(f"Account not found: {account_id_or_alias}")
 
+        is_active = (self.account_manager.active_account_id == acc.id)
+        session_info: dict | None = None
+
+        # 1. If active account and browser context is live, check in active browser
+        if is_active and self._started and getattr(self.browser, "_context", None) is not None:
+            ctx = await self.browser.context()
+            page = None
+            created_page = False
+            try:
+                pages = [p for p in ctx.pages if not p.is_closed()]
+                if pages:
+                    page = pages[0]
+                else:
+                    page = await ctx.new_page()
+                    created_page = True
+
+                if "chatgpt.com" not in (page.url or ""):
+                    await page.goto("https://chatgpt.com/", wait_until="domcontentloaded", timeout=25000)
+
+                for _ in range(8):
+                    t = await page.title()
+                    if "Just a moment" not in t:
+                        break
+                    await asyncio.sleep(1)
+
+                eval_res = await page.evaluate("""async () => {
+                    let sess = null;
+                    let wham = null;
+                    try {
+                        const r = await fetch("/api/auth/session");
+                        if (r.status === 200) {
+                            sess = await r.json();
+                        }
+                    } catch(e) {}
+
+                    if (sess && sess.accessToken) {
+                        try {
+                            const wr = await fetch("https://chatgpt.com/backend-api/wham/usage", {
+                                headers: {"Authorization": "Bearer " + sess.accessToken}
+                            });
+                            if (wr.status === 200) {
+                                wham = await wr.json();
+                            }
+                        } catch(e) {}
+                    }
+                    return { sess, wham };
+                }""")
+                if eval_res and isinstance(eval_res, dict):
+                    session_info = eval_res
+            except Exception as e:
+                log.warning("Active browser session verification failed: %s", e)
+            finally:
+                if created_page and page and not page.is_closed():
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
+
+        # 2. If inactive account or browser was not started, verify via isolated context
+        if session_info is None or not (session_info.get("sess") or {}).get("user"):
+            cookie_path = Path(acc.cookies_file)
+            if not cookie_path.exists():
+                acc.is_authenticated = False
+                self.account_manager._save()
+                return {
+                    "ok": False,
+                    "authenticated": False,
+                    "account": acc.alias,
+                    "account_id": acc.id,
+                    "error": f"No cookies file found for account '{acc.alias}'",
+                }
+
+            try:
+                cookies = json.loads(cookie_path.read_text(encoding="utf-8"))
+            except Exception as c_err:
+                acc.is_authenticated = False
+                self.account_manager._save()
+                return {
+                    "ok": False,
+                    "authenticated": False,
+                    "account": acc.alias,
+                    "account_id": acc.id,
+                    "error": f"Failed to parse cookies for '{acc.alias}': {c_err}",
+                }
+
+            from .browser import BrowserManager
+            bm = BrowserManager(headless=self.headless, profile_dir=acc.profile_dir)
+            try:
+                ctx = await bm.context()
+                await ctx.add_cookies(cookies)
+                page = await ctx.new_page()
+                await page.goto("https://chatgpt.com/", wait_until="domcontentloaded", timeout=25000)
+                for _ in range(8):
+                    t = await page.title()
+                    if "Just a moment" not in t:
+                        break
+                    await asyncio.sleep(1)
+
+                eval_res = await page.evaluate("""async () => {
+                    let sess = null;
+                    let wham = null;
+                    try {
+                        const r = await fetch("/api/auth/session");
+                        if (r.status === 200) {
+                            sess = await r.json();
+                        }
+                    } catch(e) {}
+
+                    if (sess && sess.accessToken) {
+                        try {
+                            const wr = await fetch("https://chatgpt.com/backend-api/wham/usage", {
+                                headers: {"Authorization": "Bearer " + sess.accessToken}
+                            });
+                            if (wr.status === 200) {
+                                wham = await wr.json();
+                            }
+                        } catch(e) {}
+                    }
+                    return { sess, wham };
+                }""")
+                if eval_res and isinstance(eval_res, dict):
+                    session_info = eval_res
+            except Exception as e:
+                log.warning("Isolated browser session verification failed: %s", e)
+            finally:
+                await bm.stop()
+
+        sess = (session_info or {}).get("sess") or {}
+        wham = (session_info or {}).get("wham") or {}
+        user = sess.get("user") or {}
+
+        if user and (user.get("email") or user.get("id")):
+            email = user.get("email") or wham.get("email") or acc.email
+            name = user.get("name") or acc.name
+            account_data = sess.get("account") or {}
+            plan_type = (
+                account_data.get("planType")
+                or sess.get("accountPlanType")
+                or wham.get("plan_type")
+                or (acc.quota or {}).get("plan_type")
+                or "chatgpt_web"
+            )
+
+            acc.email = email
+            acc.name = name
+            acc.is_authenticated = True
+            if acc.quota:
+                acc.quota["email"] = email
+                acc.quota["plan_type"] = plan_type
+                acc.quota["fetched_at"] = time.time()
+            else:
+                acc.quota = {
+                    "account_id": acc.id,
+                    "alias": acc.alias,
+                    "email": email,
+                    "plan_type": plan_type,
+                    "allowed": True,
+                    "limit_reached": False,
+                    "used_percent": 0.0,
+                    "left_percent": 100.0,
+                    "reset_after_seconds": 0,
+                    "reset_at": None,
+                    "reset_at_str": "",
+                    "limit_window_seconds": 0,
+                    "secondary_used_percent": None,
+                    "secondary_left_percent": None,
+                    "secondary_reset_at_str": None,
+                    "credits_balance": None,
+                    "has_credits": False,
+                    "reset_credits_count": 0,
+                    "fetched_at": time.time(),
+                }
+            self.account_manager._save()
+
+            if is_active and self._started and getattr(self.browser, "_context", None) is not None:
+                cookie_path = Path(acc.cookies_file)
+                if cookie_path.exists():
+                    try:
+                        c_list = json.loads(cookie_path.read_text(encoding="utf-8"))
+                        await self.browser._context.add_cookies(c_list)
+                    except Exception:
+                        pass
+
+            return {
+                "ok": True,
+                "authenticated": True,
+                "account": acc.alias,
+                "account_id": acc.id,
+                "email": email,
+                "name": name,
+                "plan_type": plan_type,
+                "quota": acc.quota,
+            }
+        else:
+            acc.is_authenticated = False
+            self.account_manager._save()
+            return {
+                "ok": False,
+                "authenticated": False,
+                "account": acc.alias,
+                "account_id": acc.id,
+                "error": "ChatGPT session endpoint returned no active user or rejected session.",
+            }
+
+    async def fetch_account_quota(
+        self,
+        account_id_or_alias: str | None = None,
+        force_refresh: bool = False,
+    ) -> dict:
+        """Fetch quota and limits for an account.
+
+        When force_refresh is True, proactively queries ChatGPT upstream to confirm
+        session authentication and plan type.
+        """
+        acc = (
+            self.account_manager.find_account(account_id_or_alias)
+            if account_id_or_alias
+            else self.account_manager.get_active_account()
+        )
+        if not acc:
+            raise KeyError(f"Account not found: {account_id_or_alias}")
+
+        if force_refresh:
+            try:
+                verify_res = await self.verify_account_session(acc.id)
+                if not verify_res.get("authenticated"):
+                    acc.is_authenticated = False
+            except Exception as e:
+                log.warning("Upstream verification failed during force_refresh for %s: %s", acc.alias, e)
+
         now = time.time()
         is_limited = acc.is_rate_limited(now)
         rem_sec = int(acc.remaining_rate_limit_seconds(now))
+        plan_type = (acc.quota or {}).get("plan_type", "chatgpt_web")
 
         quota_data = {
             "account_id": acc.id,
             "alias": acc.alias,
             "email": acc.email,
-            "plan_type": "chatgpt_web",
+            "plan_type": plan_type,
             "allowed": not is_limited,
             "limit_reached": is_limited,
             "used_percent": 100.0 if is_limited else 0.0,
@@ -377,6 +605,7 @@ class ChatGPT:
         image_path: str | Path | None = None,
         image_paths: list[str | Path] | None = None,
         thinking: bool = False,
+        auto_switch: bool | None = None,
     ) -> dict:
         """Return ``{"text", "conversation_id"}``.
 
@@ -385,8 +614,9 @@ class ChatGPT:
         first; on :class:`ShapeChangedError`, when thinking is requested, or when images are attached falls back to the UI driver.
         """
         async with self._busy_guard():
+            effective_auto_switch = self.auto_switch if auto_switch is None else auto_switch
             switched_from: str | None = None
-            if self.auto_switch:
+            if effective_auto_switch:
                 switched = await self._check_proactive_switch()
                 if switched:
                     _, switched_from = switched
@@ -427,7 +657,7 @@ class ChatGPT:
                     result["switched_from"] = switched_from
                 return result
             except GenerationDeniedError as exc:
-                if exc.kind == "rate_limit" and self.auto_switch:
+                if exc.kind == "rate_limit" and effective_auto_switch:
                     info = parse_rate_limit_info(str(exc))
                     strikes, alt_acc = self.account_manager.record_rate_limit(
                         active_acc.id,
@@ -469,6 +699,7 @@ class ChatGPT:
         plot: str | None = None,
         roleplay_info: str | None = None,
         screenplay_handshake: str | None = None,
+        auto_switch: bool | None = None,
     ) -> dict:
         """Establish Turn 0 Character Identity Contract Handshake.
 
@@ -486,6 +717,7 @@ class ChatGPT:
             prompt,
             conversation_id=conversation_id,
             image_paths=paths,
+            auto_switch=auto_switch,
         )
         cid = res.get("conversation_id")
         return {
@@ -509,12 +741,14 @@ class ChatGPT:
         image_path: str | Path | None = None,
         image_paths: list[str | Path] | None = None,
         on_progress: Any | None = None,
+        auto_switch: bool | None = None,
     ) -> dict:
         """Generate an image via the UI, continuing the current conversation."""
         async with self._busy_guard():
             prompt = standardize_image_prompt(prompt)
+            effective_auto_switch = self.auto_switch if auto_switch is None else auto_switch
             switched_from: str | None = None
-            if self.auto_switch:
+            if effective_auto_switch:
                 switched = await self._check_proactive_switch()
                 if switched:
                     _, switched_from = switched
@@ -584,7 +818,7 @@ class ChatGPT:
                     setattr(exc, "alt_account", alt_acc)
                     setattr(exc, "rate_limit_info", info)
 
-                    if self.auto_switch and alt_acc:
+                    if effective_auto_switch and alt_acc:
                         log.warning(
                             "Account '%s' hit rate limit (%d strikes). Auto-switching to '%s' and retrying prompt...",
                             active_acc.alias,

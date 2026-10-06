@@ -67,9 +67,23 @@ class BrowserManager:
         width = int(os.environ.get("SCREEN_WIDTH", "1280"))
         height = int(os.environ.get("SCREEN_HEIGHT", "720"))
         effective_headless = self.headless
-        if not effective_headless and not os.environ.get("DISPLAY"):
-            log.warning("No $DISPLAY environment variable detected; falling back to headless=True")
-            effective_headless = True
+        if not effective_headless:
+            display = os.environ.get("DISPLAY")
+            if not display:
+                log.warning("No $DISPLAY environment variable detected; falling back to headless=True")
+                effective_headless = True
+            elif display.startswith(":"):
+                try:
+                    import socket
+                    disp_num = display.split(".")[0].lstrip(":")
+                    sock_path = f"/tmp/.X11-unix/X{disp_num}"
+                    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    s.settimeout(0.5)
+                    s.connect(sock_path)
+                    s.close()
+                except Exception as e:
+                    log.warning("DISPLAY=%s is set but X server socket is unreachable (%s); falling back to headless=True", display, e)
+                    effective_headless = True
 
         self._playwright = await async_playwright().start()
         self._context = await self._playwright.chromium.launch_persistent_context(

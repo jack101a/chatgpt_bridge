@@ -109,6 +109,7 @@ export interface TimelineSection {
 export interface Account {
   id: string;
   alias: string;
+  name?: string;
   email: string;
   is_active: boolean;
   is_authenticated: boolean;
@@ -180,6 +181,7 @@ export interface TelegramTestResult {
 export interface ChatThread {
   conversation_id: string;
   last_prompt: string;
+  initial_prompt?: string;
   last_active: number;
   turns: number;
   title?: string;
@@ -502,22 +504,14 @@ export interface PromptTaxonomy {
   templates?: Array<{ id: string; name?: string; category?: string; tags?: string[] }>;
 }
 
-export interface DirectorCompletedShot {
+export interface DirectorShotResult {
   shot_index: number;
-  image_url?: string;
-  thumbnail_url?: string;
-  path?: string;
-  description?: string;
-  camera_pov?: string;
-  prompt?: string;
-}
-
-export interface DirectorFailedShot {
-  shot_index: number;
-  description?: string;
-  camera_pov?: string;
-  prompt?: string;
-  error: string;
+  status: 'completed' | 'failed';
+  path?: string | null;
+  url?: string | null;
+  thumbnail_url?: string | null;
+  error?: string | null;
+  conversation_id?: string | null;
 }
 
 export interface DirectorState {
@@ -525,12 +519,11 @@ export interface DirectorState {
   cancel_requested: boolean;
   current_shot: number;
   total_shots: number;
+  completed_shots?: number;
+  failed_shots?: number;
+  shot_results?: DirectorShotResult[];
   status: string;
   last_error?: string | null;
   conversation_id?: string | null;
-  completed_shots?: DirectorCompletedShot[];
-  failed_shots?: DirectorFailedShot[];
-  successful_count?: number;
-  failed_count?: number;
 }
 

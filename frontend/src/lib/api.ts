@@ -119,15 +119,56 @@ export const api = {
       method: 'DELETE',
     }),
 
-  importCookies: async (account: string, cookies_json: string): Promise<{ success: boolean; cookies_imported: number }> => {
-    const res = await fetchJson<{ ok?: boolean; success?: boolean; cookies_imported?: number; cookie_count?: number }>('/api/accounts/cookies', {
+  importCookies: async (
+    account: string,
+    cookies_json: string
+  ): Promise<{
+    success: boolean;
+    cookies_imported: number;
+    authenticated?: boolean;
+    email?: string;
+    name?: string;
+    plan_type?: string;
+    error?: string;
+  }> => {
+    const res = await fetchJson<{
+      ok?: boolean;
+      success?: boolean;
+      cookies_imported?: number;
+      cookie_count?: number;
+      authenticated?: boolean;
+      email?: string;
+      name?: string;
+      plan_type?: string;
+      error?: string;
+    }>('/api/accounts/cookies', {
       method: 'POST',
       body: JSON.stringify({ account, cookies_json }),
     });
     return {
       success: res.ok ?? res.success ?? true,
       cookies_imported: res.cookies_imported ?? res.cookie_count ?? 0,
+      authenticated: res.authenticated,
+      email: res.email,
+      name: res.name,
+      plan_type: res.plan_type,
+      error: res.error,
     };
+  },
+
+  verifyAccount: async (
+    account: string
+  ): Promise<{
+    ok: boolean;
+    authenticated: boolean;
+    email?: string;
+    name?: string;
+    plan_type?: string;
+    error?: string;
+  }> => {
+    return fetchJson(`/api/accounts/${encodeURIComponent(account)}/verify`, {
+      method: 'POST',
+    });
   },
 
   getAccountQuota: async (account?: string): Promise<AccountQuota | null> => {
@@ -417,6 +458,7 @@ export const api = {
           character_id?: string;
           conversation_id?: string;
           screenplay_handshake?: string;
+          is_guide_mode?: boolean;
         }
       | StoryboardShot[]
   ): Promise<{ ok: boolean; message: string }> => {

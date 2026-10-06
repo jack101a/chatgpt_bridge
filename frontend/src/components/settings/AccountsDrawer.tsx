@@ -270,8 +270,8 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
         await onRefreshQuota(accIdOrAlias);
       } else {
         await api.refreshAccountQuota(accIdOrAlias);
-        onRefreshAccounts();
       }
+      onRefreshAccounts();
     } catch (err: any) {
       console.error('Failed to refresh account quota:', err);
     } finally {
@@ -432,13 +432,23 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
     setCookieError(null);
     try {
       const res = await api.importCookies(cookieAccount, cookieJson.trim());
-      setCookieSuccess(`Imported ${res.cookies_imported} cookies successfully!`);
+      if (res.authenticated) {
+        const info = res.name || res.email || cookieAccount;
+        const plan = res.plan_type ? ` · ${res.plan_type.toUpperCase()} plan` : '';
+        setCookieSuccess(`✓ Verified & Active: ${info}${plan} (${res.cookies_imported} cookies imported)`);
+      } else if (res.error) {
+        setCookieError(`Imported ${res.cookies_imported} cookies, but upstream verification failed: ${res.error}`);
+      } else {
+        setCookieSuccess(`Imported ${res.cookies_imported} cookies successfully!`);
+      }
       setTimeout(() => {
-        setShowCookieModal(false);
-        setCookieSuccess(null);
-        setCookieJson('');
+        if (res.authenticated) {
+          setShowCookieModal(false);
+          setCookieSuccess(null);
+          setCookieJson('');
+        }
         onRefreshAccounts();
-      }, 1500);
+      }, res.authenticated ? 1600 : 3500);
     } catch (err: any) {
       setCookieError(err.message || 'Failed to import cookies');
     } finally {
@@ -1040,17 +1050,17 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                           {acc.is_authenticated ? (
                             <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold border border-emerald-500/20 shrink-0">
                               <CheckCircle2 size={10} />
-                              READY
+                              LOGGED IN
                             </span>
                           ) : (
                             <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[9px] font-semibold border border-amber-500/20 shrink-0">
                               <AlertCircle size={10} />
-                              EXPIRED
+                              NOT LOGGED IN
                             </span>
                           )}
                         </div>
                         <p className="text-[11px] text-muted-foreground font-mono truncate max-w-[170px] sm:max-w-[240px]">
-                          {acc.email || acc.id}
+                          {acc.name ? `${acc.name} (${acc.email || acc.id})` : (acc.email || acc.id)}
                         </p>
                       </div>
                     </div>
@@ -1154,13 +1164,13 @@ export const AccountsDrawer: React.FC<AccountsDrawerProps> = ({
                         onClick={() => handleRefreshQuota(acc.alias || acc.id)}
                         disabled={isRefreshingThis}
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-card hover:bg-muted border border-border text-[11px] font-medium text-muted-foreground hover:text-foreground transition-all active:scale-95 disabled:opacity-50 shadow-xs"
-                        title="Verify session & refresh rate limits from ChatGPT"
+                        title="Live verify session identity & refresh limits from ChatGPT"
                       >
                         <RefreshCw
                           size={11}
                           className={isRefreshingThis ? 'animate-spin text-emerald-500' : ''}
                         />
-                        <span>Check Quota</span>
+                        <span>{isRefreshingThis ? 'Verifying…' : 'Verify & Quota'}</span>
                       </button>
                     </div>
 

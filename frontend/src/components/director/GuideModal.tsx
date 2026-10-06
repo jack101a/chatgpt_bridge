@@ -46,12 +46,11 @@ interface GuideModalProps {
 }
 
 const STORAGE_SAVED_PIPELINES_KEY = 'bridge:saved-guide-pipelines';
+const STORAGE_ACTIVE_PIPELINE_KEY = 'bridge:active-guide-pipeline';
 
 export const GuideModal: React.FC<GuideModalProps> = ({
   isOpen,
   onClose,
-  initialPrompt = '',
-  activeCharacter = null,
   activeConvId = null,
   onThreadCreated,
 }) => {
@@ -67,7 +66,6 @@ export const GuideModal: React.FC<GuideModalProps> = ({
 
   // Execution & Context
   const [targetThread, setTargetThread] = useState<'current' | 'new'>(activeConvId ? 'current' : 'new');
-  const [turnZeroPrompt, setTurnZeroPrompt] = useState(initialPrompt || '');
   const [editingItemIdx, setEditingItemIdx] = useState<number | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
 
@@ -79,25 +77,53 @@ export const GuideModal: React.FC<GuideModalProps> = ({
   const effectiveConvId = targetThread === 'current' ? (activeConvId || undefined) : undefined;
   const isPureDeltaMode = targetThread === 'current' && Boolean(activeConvId);
 
-  // Load saved pipelines from localStorage
+  // Load saved pipelines and restore active pipeline queue
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_SAVED_PIPELINES_KEY);
+      let parsedSaved: GuideSavedPipeline[] = [];
       if (saved) {
-        setSavedPipelines(JSON.parse(saved));
+        parsedSaved = JSON.parse(saved);
+      }
+      const testPreset = DEFAULT_PIPELINES.find((p) => p.id === 'preset_test_pipeline');
+      if (testPreset && !parsedSaved.some((p) => p.name.toLowerCase().includes('test'))) {
+        parsedSaved = [testPreset, ...parsedSaved];
+        localStorage.setItem(STORAGE_SAVED_PIPELINES_KEY, JSON.stringify(parsedSaved));
+      }
+      setSavedPipelines(parsedSaved);
+
+      // Restore active pipeline queue if saved, or initialize with Test Pipeline
+      const active = localStorage.getItem(STORAGE_ACTIVE_PIPELINE_KEY);
+      if (active) {
+        const parsedActive = JSON.parse(active);
+        if (Array.isArray(parsedActive) && parsedActive.length > 0) {
+          setPipeline(parsedActive);
+          return;
+        }
+      }
+      if (testPreset) {
+        loadPipelinePreset(testPreset);
       }
     } catch {}
   }, []);
 
-  // Sync initial prompt & target thread on open
+  // Persist active pipeline queue changes across modal opens and page refreshes
+  useEffect(() => {
+    try {
+      if (pipeline.length > 0) {
+        localStorage.setItem(STORAGE_ACTIVE_PIPELINE_KEY, JSON.stringify(pipeline));
+      } else {
+        localStorage.removeItem(STORAGE_ACTIVE_PIPELINE_KEY);
+      }
+    } catch {}
+  }, [pipeline]);
+
+  // Sync target thread on open
   useEffect(() => {
     if (isOpen) {
-      if (initialPrompt && !turnZeroPrompt) {
-        setTurnZeroPrompt(initialPrompt);
-      }
       setTargetThread(activeConvId ? 'current' : 'new');
     }
-  }, [isOpen, initialPrompt, activeConvId]);
+  }, [isOpen, activeConvId]);
 
   // Status Polling during execution
   useEffect(() => {
@@ -242,17 +268,10 @@ export const GuideModal: React.FC<GuideModalProps> = ({
     return pipeline.map((item, idx) => {
       const deltaPrompt = item.customPrompt?.trim() || item.tag;
 
-      // In pure delta mode (active chat), NEVER append subject prompt!
-      // In new chat mode: Turn 0 sets the subject once with shot 0, then shots 1+ are pure deltas!
-      let promptToSend = deltaPrompt;
-      if (!isPureDeltaMode && idx === 0 && turnZeroPrompt.trim()) {
-        promptToSend = `${turnZeroPrompt.trim()}\n[CAMERA & PERSPECTIVE]: ${deltaPrompt}`;
-      }
-
       return {
         description: `Step ${idx + 1}: ${item.emoji} ${item.label}`,
         camera_pov: item.tag,
-        prompt: promptToSend,
+        prompt: deltaPrompt,
       };
     });
   };
@@ -268,8 +287,9 @@ export const GuideModal: React.FC<GuideModalProps> = ({
     try {
       await api.executeStoryboard({
         shots,
-        character_id: activeCharacter ? activeCharacter.id : 'freeform',
+        character_id: 'freeform',
         conversation_id: effectiveConvId,
+        is_guide_mode: true,
       });
     } catch (err: any) {
       setExecutingError(err.message || 'Failed to dispatch pipeline');
@@ -747,18 +767,10 @@ export const GuideModal: React.FC<GuideModalProps> = ({
                   <div className="text-xs font-bold text-amber-800 dark:text-amber-300">
                     {directorStatus?.status || 'Executing Multi-Angle Pipeline…'}
                   </div>
-                  <div className="text-[10px] font-mono text-amber-600 dark:text-amber-400 flex items-center gap-2 mt-0.5">
-                    <span>Shot {directorStatus?.current_shot || 0} of {directorStatus?.total_shots || pipeline.length}</span>
-                    {typeof directorStatus?.successful_count === 'number' && (
-                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                        · {directorStatus.successful_count} generated
-                      </span>
-                    )}
-                    {Boolean(directorStatus?.failed_count) && (
-                      <span className="text-amber-600 dark:text-amber-300 font-semibold">
-                        · {directorStatus?.failed_count} skipped
-                      </span>
-                    )}
+                  <div className="text-[10px] font-mono text-amber-600 dark:text-amber-400">
+                    Shot {directorStatus?.current_shot || 0} of {directorStatus?.total_shots || pipeline.length}
+                    {typeof directorStatus?.completed_shots === 'number' && ` · ${directorStatus.completed_shots} completed`}
+                    {Boolean(directorStatus?.failed_shots && directorStatus.failed_shots > 0) && ` (${directorStatus?.failed_shots} failed)`}
                   </div>
                 </div>
               </div>
@@ -770,6 +782,27 @@ export const GuideModal: React.FC<GuideModalProps> = ({
                 <StopCircle className="w-3.5 h-3.5" />
                 Stop Pipeline
               </button>
+            </div>
+          )}
+
+          {/* Sequence Result Banner (when finished) */}
+          {!isExecuting && directorStatus && directorStatus.total_shots > 0 && directorStatus.status !== 'Idle' && (
+            <div
+              className={`p-2.5 rounded-xl text-xs flex items-center justify-between gap-2 border ${
+                directorStatus.failed_shots && directorStatus.failed_shots > 0
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
+                  : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span>{directorStatus.failed_shots && directorStatus.failed_shots > 0 ? '⚠️' : '✅'}</span>
+                <span className="font-semibold">{directorStatus.status}</span>
+              </div>
+              {directorStatus.last_error && (
+                <span className="text-[10px] opacity-80 font-mono truncate max-w-xs" title={directorStatus.last_error}>
+                  {directorStatus.last_error}
+                </span>
+              )}
             </div>
           )}
 

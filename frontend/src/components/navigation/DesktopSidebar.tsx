@@ -473,7 +473,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                   <div className="flex-1 min-w-0 pr-2">
                     <div className="flex items-center gap-1.5">
                       <span className="truncate flex-1">
-                        {t.title || t.last_prompt || 'Untitled thread'}
+                        {t.title || t.initial_prompt || t.last_prompt || 'Untitled thread'}
                       </span>
                       {t.account_used && (
                         <span

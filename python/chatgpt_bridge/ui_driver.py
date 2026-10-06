@@ -31,7 +31,7 @@ SEND_SELECTOR = (
     '#composer-submit-button, button[data-testid="send-button"], button[data-testid="composer-send-button"], '
     'button[aria-label*="Send"], button:has-text("Send")'
 )
-TURN_SELECTOR = '[data-chatgpt-search-unit-key], [data-content-search-unit-key], [data-testid^="conversation-turn"]'
+TURN_SELECTOR = 'article, [data-message-author-role], [data-chatgpt-search-unit-key], [data-content-search-unit-key], [data-testid^="conversation-turn"]'
 ASSISTANT_SELECTOR = (
     '[data-markdown-text-style="assistant-message"], [data-chatgpt-search-unit-key*="assistant"], '
     '[data-content-search-unit-key*="assistant"], [data-message-author-role="assistant"]'
@@ -535,15 +535,25 @@ class UIDriver:
                     auth_error_event=auth_error_event,
                     auth_error_msg=auth_error_msg,
                 )
+            except BridgeTimeoutError as te:
+                log.warning("Initial attempt timed out after %ds: %s; entering retry engine...", timeout_s, te)
+                outcome = {"kind": "timeout", "text": str(te)}
             except TypeError:
                 try:
                     outcome = await self._wait_for_outcome(
                         page, timeout_s, auto_retry=False, existing=initial_images
                     )
+                except BridgeTimeoutError as te:
+                    log.warning("Initial attempt timed out: %s; entering retry engine...", te)
+                    outcome = {"kind": "timeout", "text": str(te)}
                 except TypeError:
-                    outcome = await self._wait_for_outcome(
-                        page, timeout_s, auto_retry=False
-                    )
+                    try:
+                        outcome = await self._wait_for_outcome(
+                            page, timeout_s, auto_retry=False
+                        )
+                    except BridgeTimeoutError as te:
+                        log.warning("Initial attempt timed out: %s; entering retry engine...", te)
+                        outcome = {"kind": "timeout", "text": str(te)}
             if not cid:
                 cid = await self._current_conversation_id(page)
                 self._active_cid = cid
@@ -584,9 +594,8 @@ class UIDriver:
                     kind="deterministic",
                     conversation_id=cid,
                 )
-        finally:
-            if page != self._active_page:
-                await page.close()
+        except Exception:
+            raise
 
         # Retries 1 to max_tries (default 10 retries)
         for retry_idx in range(1, cfg.max_tries + 1):
@@ -614,31 +623,14 @@ class UIDriver:
                         "conversation_id": cid,
                     }
 
-                # Retries 1-5: exact original prompt
-                # Retries 6-7: tweaked prompt (level 1)
-                # Retries 8-10: further refined prompt (level 2)
-                if tweaked_prompt:
-                    if retry_idx >= 8:
-                        current_prompt = (
-                            tweaked_prompt_2
-                            or tweaked_prompt
-                            or auto_tweak_prompt(prompt, level=2)
-                        )
-                    elif retry_idx >= 6:
-                        current_prompt = (
-                            tweaked_prompt
-                            or auto_tweak_prompt(prompt, level=1)
-                        )
-                    else:
-                        current_prompt = prompt
+                # Keep the exact prompt across all retries without mutating fixed prompts.
+                # Only use tweaked_prompt if explicitly supplied by caller.
+                if retry_idx >= 8 and tweaked_prompt_2:
+                    current_prompt = tweaked_prompt_2
+                elif retry_idx >= 6 and (tweaked_prompt or tweaked_prompt_2):
+                    current_prompt = tweaked_prompt or tweaked_prompt_2
                 else:
-                    # When no explicit tweaked_prompt was supplied:
-                    # If ChatGPT denied the previous attempt on policy/safety grounds,
-                    # soften immediately so we don't repeat the identical flagged prompt.
-                    if last_kind == "denial":
-                        current_prompt = auto_tweak_prompt(prompt, level=min(retry_idx, 2))
-                    else:
-                        current_prompt = prompt
+                    current_prompt = prompt
 
                 log.info(
                     "Starting retry %d/%d (delay: %.1fs, prompt: %s...)",
@@ -660,15 +652,21 @@ class UIDriver:
                     except Exception:
                         pass
 
-                # Primary retry method: Edit message (pencil icon) -> Send
-                send_prompt = current_prompt if (retry_idx >= 6 or current_prompt != prompt) else None
-                retried = await self._edit_message_retry(
-                    page,
-                    new_prompt=send_prompt,
-                )
-                if not retried:
-                    # Secondary: inline 'Try again' / 'Regenerate' button
+                # Primary retry method:
+                retried = False
+                if current_prompt == prompt:
                     retried = await self._click_try_again(page)
+
+                if not retried:
+                    send_prompt = current_prompt if current_prompt != prompt else None
+                    retried = await self._edit_message_retry(
+                        page,
+                        new_prompt=send_prompt,
+                    )
+
+                if not retried and current_prompt != prompt:
+                    retried = await self._click_try_again(page)
+
                 if not retried:
                     # Tertiary: submit to composer
                     if image_paths is not None or image_path is not None:
@@ -686,15 +684,25 @@ class UIDriver:
                         auth_error_event=auth_error_event,
                         auth_error_msg=auth_error_msg,
                     )
+                except BridgeTimeoutError as te:
+                    log.warning("Retry %d timed out after %ds: %s", retry_idx, timeout_s, te)
+                    outcome = {"kind": "timeout", "text": str(te)}
                 except TypeError:
                     try:
                         outcome = await self._wait_for_outcome(
                             page, timeout_s, auto_retry=False, existing=initial_images
                         )
+                    except BridgeTimeoutError as te:
+                        log.warning("Retry %d timed out: %s", retry_idx, te)
+                        outcome = {"kind": "timeout", "text": str(te)}
                     except TypeError:
-                        outcome = await self._wait_for_outcome(
-                            page, timeout_s, auto_retry=False
-                        )
+                        try:
+                            outcome = await self._wait_for_outcome(
+                                page, timeout_s, auto_retry=False
+                            )
+                        except BridgeTimeoutError as te:
+                            log.warning("Retry %d timed out: %s", retry_idx, te)
+                            outcome = {"kind": "timeout", "text": str(te)}
                 if not cid:
                     cid = await self._current_conversation_id(page)
                     self._active_cid = cid
@@ -737,18 +745,8 @@ class UIDriver:
                         kind="deterministic",
                         conversation_id=cid,
                     )
-
-                # If explicit content policy refusal persists after softened retries, stop fast to avoid browser timeout!
-                if last_kind == "denial" and retry_idx >= 2 and not tweaked_prompt:
-                    log.warning("Content policy refusal persists after softened retries; halting immediately.")
-                    raise GenerationDeniedError(
-                        f"ChatGPT policy refusal: {last_text.strip() or 'Prompt violates content guardrails'}",
-                        kind="denial",
-                        conversation_id=cid,
-                    )
-            finally:
-                if page != self._active_page:
-                    await page.close()
+            except Exception:
+                raise
 
         raise GenerationDeniedError(
             f"image denied after {cfg.max_tries} retries (last: {last_kind})",
@@ -820,8 +818,52 @@ class UIDriver:
                 log.warning("Fast rate limit dialog detected: %s", dialog_err[:120])
                 return {"kind": "rate_limit", "text": dialog_err}
 
-            # 1. Early Denial / Refusal Check: If assistant text has settled on a policy refusal, auth prompt, or error,
-            # bail immediately even if a stop button or loading indicator is still lingering.
+            # Auto-scroll to bottom so new images below fold enter viewport & render
+            try:
+                scroll_btn = page.locator('button[aria-label*="Scroll to bottom"], button:has([data-testid="scroll-to-bottom"])').last
+                if await scroll_btn.count() > 0 and await scroll_btn.is_visible():
+                    await scroll_btn.click()
+                else:
+                    await page.evaluate("""() => {
+                        window.scrollTo(0, document.body.scrollHeight);
+                        const containers = document.querySelectorAll('main, [class*="react-scroll-to-bottom"], div[tabindex="0"]');
+                        for (const c of containers) {
+                            if (c.scrollHeight > c.clientHeight) {
+                                c.scrollTop = c.scrollHeight;
+                            }
+                        }
+                    }""")
+            except Exception:
+                pass
+
+            # 1. Check for a new image FIRST!
+            # If a new image appeared in the DOM that was not present before prompt submission,
+            # return it immediately regardless of any lingering loading flags.
+            src = await self._find_new_image_src(
+                page, existing_ids, min_turn_idx=min_turn_idx
+            )
+            if src:
+                fid = _extract_file_id(src)
+                log.info(
+                    "New image detected in DOM: id=%s (elapsed: %.1fs) -> returning immediately",
+                    fid,
+                    elapsed,
+                )
+                return {"kind": "image", "src": src}
+
+            # 2. Generation in progress? Check active transient loading indicators
+            loading = await self._is_loading(page)
+            if loading:
+                if not saw_loading:
+                    saw_loading = True
+                    log.info("Active generation indicator detected (stop button/streaming). Waiting for DALL-E...")
+                elif time.monotonic() - last_log_time >= 5.0:
+                    last_log_time = time.monotonic()
+                    log.info("DALL-E generation still in progress... (%.1fs elapsed)", elapsed)
+                await asyncio.sleep(0.5)
+                continue
+
+            # 3. Assistant text check (settled response, only when generation is not loading):
             text = await self._read_last_assistant(page)
             if text and text == last_text:
                 stable_polls += 1
@@ -841,41 +883,6 @@ class UIDriver:
             elif text:
                 last_text = text
                 stable_polls = 0
-
-            # 2. Check for a new image FIRST before blocking on loading indicators
-            src = await self._find_new_image_src(
-                page, existing_ids, min_turn_idx=min_turn_idx
-            )
-            if src:
-                fid = _extract_file_id(src)
-                # Gate: If elapsed < 3.0s and we never observed any loading indicator,
-                # this cannot be a freshly generated DALL-E image. It's a DOM hydration artifact.
-                if elapsed < 3.0 and not saw_loading:
-                    log.debug(
-                        "Ignoring pre-existing DOM image id=%s during initial hydration (elapsed: %.1fs)",
-                        fid,
-                        elapsed,
-                    )
-                    existing_ids.add(fid)
-                else:
-                    log.info(
-                        "New image detected in DOM: id=%s (elapsed: %.1fs) -> returning immediately",
-                        fid,
-                        elapsed,
-                    )
-                    return {"kind": "image", "src": src}
-
-            # 3. Generation in progress?
-            loading = await self._is_loading(page)
-            if loading:
-                if not saw_loading:
-                    saw_loading = True
-                    log.info("Active generation indicator detected (stop button/tool call). Waiting for DALL-E...")
-                elif time.monotonic() - last_log_time >= 5.0:
-                    last_log_time = time.monotonic()
-                    log.info("DALL-E generation still in progress... (%.1fs elapsed)", elapsed)
-                await asyncio.sleep(0.5)
-                continue
 
             # 4. If no loading and text is settled without image, check timeout
             min_wait = min(25.0, timeout_s * 0.8)
@@ -898,12 +905,7 @@ class UIDriver:
         )
 
     async def _existing_image_ids(self, page) -> set[str]:
-        """Return the set of image ``id`` fields (``file_XXX``) in the DOM.
-
-        The estuary ``src`` carries a unique ``id=file_XXX`` per generation,
-        unlike ``alt`` which ChatGPT can reuse for similar prompts. We key on
-        the ``id`` because it is guaranteed unique per generated image.
-        """
+        """Return the set of image IDs and src URLs in the DOM."""
         ids: set[str] = set(getattr(self, "_delivered_image_ids", set()))
         try:
             locator = page.locator(IMAGE_SELECTOR)
@@ -913,6 +915,8 @@ class UIDriver:
                 fid = _extract_file_id(src)
                 if fid:
                     ids.add(fid)
+                if src:
+                    ids.add(src)
         except Exception:
             pass
         return ids
@@ -928,43 +932,66 @@ class UIDriver:
         """
         delivered = getattr(self, "_delivered_image_ids", set())
         try:
-            turns = page.locator(TURN_SELECTOR)
-            turn_count = await turns.count()
-            if turn_count > 0 and turn_count > min_turn_idx:
-                for t_idx in range(turn_count - 1, max(-1, min_turn_idx - 1), -1):
-                    turn = turns.nth(t_idx)
-                    # Generated images only come from assistant turns!
-                    # User turns contain uploaded reference images.
-                    is_user = False
+            # Modern ChatGPT renders generated images inside [data-testid="generated-image-preview"]
+            # or with alt starting with "Generated image" or containing estuary / files / blob.
+            # Check for these directly in the DOM.
+            gen_imgs = page.locator(
+                '[data-testid="generated-image-preview"] img, '
+                'img[alt*="Generated image"], '
+                'img[src*="backend-api/estuary/content"], '
+                'img[src*="chatgpt.com/backend-api/files/"], '
+                'img[src^="blob:https://chatgpt.com/"]'
+            )
+            gen_count = await gen_imgs.count()
+            if gen_count > 0:
+                for i in range(gen_count - 1, -1, -1):
+                    img = gen_imgs.nth(i)
                     try:
-                        role = await turn.get_attribute("data-message-author-role")
-                        if role == "user" or await turn.locator(USER_SELECTOR).count() > 0:
-                            is_user = True
+                        # Ensure this is not an uploaded reference image inside user turn or composer
+                        is_user = await img.evaluate(
+                            "el => !!el.closest('[data-markdown-text-style=\"user-message\"], [data-message-author-role=\"user\"], form, [data-testid=\"composer-text-input\"], #pending-home-input, #pending-conversation-input')"
+                        )
+                        if is_user:
+                            continue
                     except Exception:
                         pass
-                    if is_user:
+                    src = await img.get_attribute("src") or ""
+                    if not src or "avatar" in src or "auth0" in src:
                         continue
+                    fid = _extract_file_id(src)
+                    if (
+                        fid
+                        and fid not in existing
+                        and fid not in delivered
+                        and src not in existing
+                        and src not in delivered
+                    ):
+                        return src
 
-                    imgs = turn.locator(IMAGE_SELECTOR)
-                    img_count = await imgs.count()
-                    for i in range(img_count - 1, -1, -1):
-                        src = await imgs.nth(i).get_attribute("src") or ""
-                        fid = _extract_file_id(src)
-                        if fid and fid not in existing and fid not in delivered:
-                            return src
+            # If min_turn_idx > 0, do NOT search older turns
+            if min_turn_idx > 0:
+                return None
 
-            # Fallback to assistant-scoped search across the page
+            # Fallback to assistant-scoped search across the page (only when min_turn_idx == 0)
             try:
                 assistant_turns = page.locator(ASSISTANT_SELECTOR)
                 a_count = await assistant_turns.count()
                 for t_idx in range(a_count - 1, -1, -1):
                     turn = assistant_turns.nth(t_idx)
-                    imgs = turn.locator(IMAGE_SELECTOR)
+                    imgs = turn.locator("img")
                     img_count = await imgs.count()
                     for i in range(img_count - 1, -1, -1):
                         src = await imgs.nth(i).get_attribute("src") or ""
+                        if not src or "avatar" in src or "auth0" in src:
+                            continue
                         fid = _extract_file_id(src)
-                        if fid and fid not in existing and fid not in delivered:
+                        if (
+                            fid
+                            and fid not in existing
+                            and fid not in delivered
+                            and src not in existing
+                            and src not in delivered
+                        ):
                             return src
             except Exception:
                 pass
@@ -986,7 +1013,13 @@ class UIDriver:
                     pass
                 src = await img.get_attribute("src") or ""
                 fid = _extract_file_id(src)
-                if fid and fid not in existing and fid not in delivered:
+                if (
+                    fid
+                    and fid not in existing
+                    and fid not in delivered
+                    and src not in existing
+                    and src not in delivered
+                ):
                     return src
             return None
         except Exception:
@@ -1000,34 +1033,19 @@ class UIDriver:
             # 2. Check Stop button (present during any active generation in modern ChatGPT)
             stop_btn = page.locator(
                 'button[data-testid="stop-button"], '
-                'button[aria-label*="Stop generating"], '
-                'button[aria-label*="Stop streaming"], '
-                'button[aria-label*="Stop"]'
+                'button[aria-label="Stop generating"], '
+                'button[aria-label="Stop streaming"]'
             )
             if await stop_btn.count() > 0:
                 for i in range(min(await stop_btn.count(), 2)):
                     if await stop_btn.nth(i).is_visible():
                         return True
-            # 3. Check streaming / active loading indicators (only truly transient states)
-            indicators = page.locator(
-                '.result-streaming, '
-                '[aria-busy="true"], '
-                '[data-testid*="loading"]'
-            )
+            # 3. Check streaming (only truly transient states)
+            indicators = page.locator('.result-streaming')
             if await indicators.count() > 0:
-                for i in range(min(await indicators.count(), 3)):
+                for i in range(min(await indicators.count(), 2)):
                     if await indicators.nth(i).is_visible():
                         return True
-            # 4. Check text indicator in the last turn
-            turns = page.locator(TURN_SELECTOR)
-            if await turns.count() > 0:
-                turn_text = await turns.last.inner_text()
-                if re.search(
-                    r"creating image|generating image|generating\.\.\.|thinking\.\.\.",
-                    turn_text,
-                    re.IGNORECASE,
-                ):
-                    return True
         except Exception:
             return False
         return False
@@ -1139,22 +1157,26 @@ class UIDriver:
                     await btn.click()
             await asyncio.sleep(0.5)
 
-            if new_prompt:
-                # Target textarea or contenteditable edit box
-                edit_input = page.locator(
-                    'textarea, [data-testid="composer-text-input"], div[contenteditable="true"]'
-                ).last
-                if await edit_input.count() > 0:
-                    await edit_input.click()
+            edit_input = page.locator(
+                'textarea, [data-testid="composer-text-input"], div[contenteditable="true"]'
+            ).last
+            if await edit_input.count() > 0:
+                await edit_input.click()
+                if new_prompt:
                     await page.keyboard.press("ControlOrMeta+A")
                     await page.keyboard.press("Backspace")
                     await asyncio.sleep(0.1)
                     await page.keyboard.insert_text(new_prompt)
                     await asyncio.sleep(0.2)
+                else:
+                    await page.keyboard.press("End")
+                    await page.keyboard.insert_text(" ")
+                    await page.keyboard.press("Backspace")
+                    await asyncio.sleep(0.1)
 
             send = page.locator(
-                '#composer-submit-button, button[data-testid="send-button"], button:has-text("Send"), button:has-text("Save"), button[aria-label*="Send"]'
-            ).first
+                'button:has-text("Save & Submit"), button:has-text("Save and Submit"), button:has-text("Send"), button:has-text("Save"), #composer-submit-button, button[data-testid="send-button"]'
+            ).last
             for _ in range(15):
                 if await send.count() > 0 and await send.is_visible():
                     dis = await send.get_attribute("disabled")
@@ -1162,15 +1184,34 @@ class UIDriver:
                     if dis is None and aria_dis != "true":
                         break
                 await asyncio.sleep(0.1)
+
+            clicked = False
             if await send.count() > 0 and await send.is_visible():
-                try:
-                    await send.click()
-                except Exception:
-                    await page.keyboard.press("Enter")
-                return True
-            # Fallback to Enter key inside edit box
-            await page.keyboard.press("Enter")
-            return True
+                dis = await send.get_attribute("disabled")
+                aria_dis = await send.get_attribute("aria-disabled")
+                if dis is None and aria_dis != "true":
+                    try:
+                        await send.click()
+                        clicked = True
+                    except Exception:
+                        pass
+
+            if not clicked:
+                await page.keyboard.press("Enter")
+
+            # Verify submission: check if edit_input is gone or stop button appears
+            for _ in range(10):
+                await asyncio.sleep(0.2)
+                stop = page.locator(STOP_BUTTON_SELECTOR)
+                if await stop.count() > 0 and await stop.is_visible():
+                    return True
+                if await edit_input.count() == 0 or not await edit_input.is_visible():
+                    return True
+
+            # If still open, close via Escape so page is not stuck
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.2)
+            return False
         except Exception:
             pass
         return False
@@ -1260,6 +1301,12 @@ class UIDriver:
         guest_err = await self._check_guest_or_auth_dialog(page)
         if guest_err:
             raise AuthError(f"ChatGPT session expired: {guest_err}")
+
+        # Ensure any ongoing prior generation has settled before submitting
+        for _ in range(120):  # up to 60s
+            if not await self._is_loading(page):
+                break
+            await asyncio.sleep(0.5)
 
         # Wait for a VISIBLE composer. Using .first pins to the first match in
         # DOM order, which on /c/{id} is a hidden contenteditable skeleton div;

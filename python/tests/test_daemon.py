@@ -183,6 +183,8 @@ def test_list_and_switch_accounts_endpoints(monkeypatch):
         def is_rate_limited(self):
             return False
 
+    from unittest.mock import AsyncMock
+
     class _MockAccountManager:
         def __init__(self):
             self.active_account_id = "acc_1"
@@ -190,6 +192,12 @@ def test_list_and_switch_accounts_endpoints(monkeypatch):
                 "acc_1": _MockAccount("acc_1", "Primary"),
                 "acc_2": _MockAccount("acc_2", "Secondary"),
             }
+
+        def find_account(self, aid_or_alias):
+            for acc in self.accounts.values():
+                if acc.id == aid_or_alias or acc.alias == aid_or_alias:
+                    return acc
+            return None
 
     class _MockCore:
         def __init__(self):
@@ -223,6 +231,21 @@ def test_list_and_switch_accounts_endpoints(monkeypatch):
     # 3. POST /accounts/switch to invalid account
     fail_resp = client.post("/accounts/switch", json={"account": "NonExistent"})
     assert fail_resp.status_code == 404
+
+    # 4. POST /api/accounts/acc_1/verify
+    core.verify_account_session = AsyncMock(return_value={
+        "ok": True,
+        "authenticated": True,
+        "account": "Primary",
+        "account_id": "acc_1",
+        "email": "test@openai.com",
+        "name": "Test User",
+        "plan_type": "plus",
+    })
+    verify_resp = client.post("/api/accounts/acc_1/verify")
+    assert verify_resp.status_code == 200
+    assert verify_resp.json()["authenticated"] is True
+    assert verify_resp.json()["email"] == "test@openai.com"
 
 
     resp_404 = client.get("/images/nonexistent.png")

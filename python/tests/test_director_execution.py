@@ -75,12 +75,191 @@ async def test_director_execute_sequence(client, monkeypatch):
     call1 = mock_generate.call_args_list[0]
     call2 = mock_generate.call_args_list[1]
     
-    # We check the conversation_id logic.
+    # We verify that prompts are passed verbatim without any unwanted wrappers
     assert call1[0][0] == "prompt 1"
     assert call2[0][0] == "prompt 2"
     
     conv_id = call2[1].get("conversation_id")
     assert conv_id is not None, "Should reuse conversation ID for visual continuity"
+
+    # Verify state tracking
+    status_resp = client.get("/api/director/status")
+    status_data = status_resp.json()
+    assert status_data["completed_shots"] == 2
+    assert status_data["failed_shots"] == 0
+    assert len(status_data["shot_results"]) == 2
+    assert status_data["status"] == "Complete"
+
+
+@pytest.mark.anyio
+async def test_director_shot_failure_recovery(client, monkeypatch):
+    """Edge Case: When shot 2 fails out of 4, the sequence must NOT abort.
+    It must record the failure, broadcast director_shot_failed, and continue to shots 3 and 4.
+    """
+    mock_ws_broadcast = AsyncMock()
+    monkeypatch.setattr(daemon, "ws_broadcast", mock_ws_broadcast)
+
+    call_index = 0
+    async def mock_generate_with_failure(prompt, **kwargs):
+        nonlocal call_index
+        call_index += 1
+        if call_index == 2:
+            # Simulate rejection on shot 2
+            from fastapi.responses import JSONResponse
+            import json
+            return JSONResponse(
+                status_code=502,
+                content={"detail": "image denied after 10 retries (last: no_image)"}
+            )
+        return {"path": f"/tmp/shot_{call_index}.png", "conversation_id": "test-conv-continue"}
+
+    fake_core = _FakeCore()
+    fake_core.generate_image = mock_generate_with_failure
+    monkeypatch.setattr(daemon, "_get_core", lambda: fake_core)
+
+    req_data = {
+        "shots": [
+            {"description": "shot 1", "camera_pov": "eye level", "prompt": "shot 1"},
+            {"description": "shot 2", "camera_pov": "low angle", "prompt": "shot 2"},
+            {"description": "shot 3", "camera_pov": "high angle", "prompt": "shot 3"},
+            {"description": "shot 4", "camera_pov": "macro", "prompt": "shot 4"},
+        ]
+    }
+
+    resp = client.post("/api/director/execute", json=req_data)
+    assert resp.status_code == 200
+
+    # Verify all 4 shots were attempted
+    assert call_index == 4
+
+    # Verify status reflects 3 completed, 1 failed
+    status_resp = client.get("/api/director/status")
+    st = status_resp.json()
+    assert st["completed_shots"] == 3
+    assert st["failed_shots"] == 1
+    assert len(st["shot_results"]) == 4
+    assert st["shot_results"][1]["status"] == "failed"
+    assert "no_image" in st["shot_results"][1]["error"]
+    assert st["status"] == "Completed 3/4 shots (1 failed)"
+
+    # Verify WS broadcasts included failure and completions
+    calls = mock_ws_broadcast.call_args_list
+    types = [c[0][0].get("type") for c in calls]
+    assert "director_shot_failed" in types
+    assert "director_shot_completed" in types
+
+
+@pytest.mark.anyio
+async def test_director_runs_all_shots_without_aborting_on_failures(client, monkeypatch):
+    """When shots fail due to general denials/refusals, the sequence must NOT abort early.
+    All shots in the sequence must be attempted.
+    """
+    mock_ws_broadcast = AsyncMock()
+    monkeypatch.setattr(daemon, "ws_broadcast", mock_ws_broadcast)
+
+    call_index = 0
+    async def mock_generate_all_fail(prompt, **kwargs):
+        nonlocal call_index
+        call_index += 1
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=502, content={"detail": "image denied after 10 retries (content_policy)"})
+
+    fake_core = _FakeCore()
+    fake_core.generate_image = mock_generate_all_fail
+    monkeypatch.setattr(daemon, "_get_core", lambda: fake_core)
+
+    req_data = {
+        "shots": [
+            {"description": f"shot {i}", "camera_pov": "pov", "prompt": f"shot {i}"}
+            for i in range(1, 6)
+        ]
+    }
+
+    resp = client.post("/api/director/execute", json=req_data)
+    assert resp.status_code == 200
+
+    # All 5 shots must be attempted
+    assert call_index == 5
+
+    status_resp = client.get("/api/director/status")
+    st = status_resp.json()
+    assert st["completed_shots"] == 0
+    assert st["failed_shots"] == 5
+    assert len(st["shot_results"]) == 5
+
+
+@pytest.mark.anyio
+async def test_director_aborts_immediately_on_rate_limit(client, monkeypatch):
+    """When a rate limit is encountered (429), the sequence must halt immediately
+    to preserve character and thread consistency on the active account, without attempting remaining shots or switching accounts.
+    """
+    mock_ws_broadcast = AsyncMock()
+    monkeypatch.setattr(daemon, "ws_broadcast", mock_ws_broadcast)
+
+    call_index = 0
+    async def mock_generate_rl(prompt, **kwargs):
+        nonlocal call_index
+        call_index += 1
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": {
+                    "type": "GenerationDeniedError",
+                    "kind": "rate_limit",
+                    "message": "You've reached our limit of 40 messages per 3 hours.",
+                    "rate_limit_info": {"resets_at_str": "3:15 PM"},
+                }
+            },
+        )
+
+    fake_core = _FakeCore()
+    fake_core.generate_image = mock_generate_rl
+    monkeypatch.setattr(daemon, "_get_core", lambda: fake_core)
+
+    req_data = {
+        "shots": [
+            {"description": f"shot {i}", "camera_pov": "pov", "prompt": f"shot {i}"}
+            for i in range(1, 6)
+        ]
+    }
+
+    resp = client.post("/api/director/execute", json=req_data)
+    assert resp.status_code == 200
+
+    # Must abort on shot 1, NOT call all 5 times
+    assert call_index == 1
+
+    status_resp = client.get("/api/director/status")
+    st = status_resp.json()
+    assert st["completed_shots"] == 0
+    assert st["failed_shots"] == 1
+    assert "Rate limit reached" in st["status"]
+    assert "resets at 3:15 PM" in st["status"]
+    assert len(st["shot_results"]) == 1
+    assert st["shot_results"][0]["status"] == "rate_limited"
+
+
+@pytest.mark.anyio
+async def test_director_raw_prompt_passed_verbatim(client, monkeypatch):
+    """Raw prompts and camera tags must be passed completely verbatim to ChatGPT without any injected wrappers."""
+    mock_generate = AsyncMock(return_value={"path": "/tmp/test.png", "conversation_id": "test-conv-123"})
+    fake_core = _FakeCore()
+    fake_core.generate_image = mock_generate
+    monkeypatch.setattr(daemon, "_get_core", lambda: fake_core)
+
+    raw_camera_prompt = "low angle shot, camera placed below looking up, dramatic upward perspective"
+    req_data = {
+        "shots": [
+            {"description": "shot 1", "camera_pov": "low angle", "prompt": raw_camera_prompt}
+        ]
+    }
+
+    resp = client.post("/api/director/execute", json=req_data)
+    assert resp.status_code == 200
+
+    sent_prompt = mock_generate.call_args_list[0][0][0]
+    assert sent_prompt == raw_camera_prompt
 
 
 @pytest.mark.anyio
@@ -162,45 +341,45 @@ async def test_director_2_stage_handshake_with_character(client, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_director_sequence_resiliency_on_shot_failure(client, monkeypatch):
-    """Verify that a failure or content denial on shot 2 does not kill remaining shots."""
+async def test_guide_mode_bypasses_all_handshakes(client, monkeypatch):
+    """Guide Mode must NEVER execute Turn 0 or Turn 1 handshakes.
+    It must directly execute the camera/POV prompt deltas without character reference cards or roleplay contracts.
+    """
     mock_ws_broadcast = AsyncMock()
     monkeypatch.setattr(daemon, "ws_broadcast", mock_ws_broadcast)
 
     fake_core = _FakeCore()
+    ask_calls = []
 
-    # Shot 1 succeeds, Shot 2 throws GenerationDeniedError on both attempts, Shot 3 succeeds
-    attempt_counter = {"shot": 0}
+    async def fake_ask(prompt, **kwargs):
+        ask_calls.append(prompt)
+        return {"text": "ok", "conversation_id": "conv-guide-1"}
 
-    async def mock_generate_image(prompt, **kwargs):
-        attempt_counter["shot"] += 1
-        if "failing shot" in prompt:
-            from chatgpt_bridge.errors import GenerationDeniedError
-            raise GenerationDeniedError("ChatGPT policy refusal: generation error", kind="denial")
-        return {"path": f"/tmp/shot_{attempt_counter['shot']}.png", "conversation_id": "conv-resilient"}
+    fake_core.ask = fake_ask
 
-    fake_core.generate_image = mock_generate_image
+    mock_generate = AsyncMock(return_value={"path": "/tmp/guide.png", "conversation_id": "conv-guide-1"})
+    fake_core.generate_image = mock_generate
     monkeypatch.setattr(daemon, "_get_core", lambda: fake_core)
 
     req_data = {
+        "is_guide_mode": True,
+        "character_id": "c-test-char",
+        "conversation_id": "conv-existing-123",
         "shots": [
-            {"description": "shot 1", "camera_pov": "eye-level", "prompt": "normal shot 1"},
-            {"description": "shot 2", "camera_pov": "intimate", "prompt": "failing shot 2 with tripwire"},
-            {"description": "shot 3", "camera_pov": "close-up", "prompt": "normal shot 3"},
-        ]
+            {"description": "shot 1", "camera_pov": "extreme close-up", "prompt": "macro detail of eyelashes and iris, 85mm"},
+            {"description": "shot 2", "camera_pov": "medium profile", "prompt": "side profile, 50mm, natural ambient light"},
+        ],
     }
 
     resp = client.post("/api/director/execute", json=req_data)
     assert resp.status_code == 200
 
-    # Inspect status
-    st = daemon._director_state
-    assert st["successful_count"] == 2
-    assert st["failed_count"] == 1
-    assert len(st["completed_shots"]) == 2
-    assert len(st["failed_shots"]) == 1
-    assert st["completed_shots"][0]["shot_index"] == 1
-    assert st["completed_shots"][1]["shot_index"] == 3
-    assert st["failed_shots"][0]["shot_index"] == 2
-    assert "Complete: 2 succeeded, 1 skipped" in st["status"]
+    # Ensure core.ask was NEVER called (no Turn 0 or Turn 1 handshakes!)
+    assert len(ask_calls) == 0
+
+    # Ensure shots were generated directly with pure deltas
+    assert mock_generate.call_count == 2
+    assert mock_generate.call_args_list[0][0][0] == "macro detail of eyelashes and iris, 85mm"
+    assert mock_generate.call_args_list[1][0][0] == "side profile, 50mm, natural ambient light"
+
 

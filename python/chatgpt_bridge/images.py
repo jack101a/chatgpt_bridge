@@ -15,8 +15,11 @@ IMAGE_SELECTOR = (
     'img[alt^="Generated image"], '
     'img[src*="backend-api/estuary/content"], '
     'img[src*="oaiusercontent"], '
+    'img[src^="blob:"], '
+    'img[src*="chatgpt.com"], '
     'img[src^="data:"]'
 )
+
 
 
 async def wait_for_image(page, timeout_s: int = 180) -> str:

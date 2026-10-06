@@ -1096,6 +1096,8 @@ export const DirectorModal: React.FC<DirectorModalProps> = ({
                   <div className="flex justify-between text-[10px] text-gray-500 font-mono">
                     <span>
                       Shot {directorStatus?.current_shot || 0} of {directorStatus?.total_shots || shots.length}
+                      {typeof directorStatus?.completed_shots === 'number' && ` (${directorStatus.completed_shots} ok)`}
+                      {Boolean(directorStatus?.failed_shots && directorStatus.failed_shots > 0) && ` (${directorStatus?.failed_shots} failed)`}
                     </span>
                     <span>Turn-by-turn ChatGPT automation</span>
                   </div>
