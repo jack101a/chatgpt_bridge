@@ -3270,8 +3270,6 @@ async def _execute_director_sequence(
 
     # Run initial handshakes
     conv_id = await _run_handshakes(conv_id)
-    consecutive_denials = 0
-    prior_shot_failed = False
 
     try:
         for i, shot in enumerate(shots):
@@ -3285,24 +3283,6 @@ async def _execute_director_sequence(
                 })
                 break
 
-            # Anti-thread poisoning auto-recovery
-            if consecutive_denials >= 2:
-                log.warning(f"Consecutive denials reached {consecutive_denials}. Thread {conv_id} poisoned. Re-priming fresh thread...")
-                _director_state["status"] = "Thread poisoned by refusal. Refreshing clean conversation..."
-                await ws_broadcast({
-                    "type": "director_sequence_progress",
-                    "shot_index": i + 1,
-                    "total_shots": len(shots),
-                    "status": _director_state["status"],
-                })
-                try:
-                    conv_id = await _run_handshakes(None)
-                    _director_state["conversation_id"] = conv_id
-                    consecutive_denials = 0
-                    prior_shot_failed = False
-                except Exception as ex:
-                    log.error(f"Failed to refresh conversation thread: {ex}")
-
             _director_state["current_shot"] = i + 1
             _director_state["status"] = f"Generating shot {i + 1} of {len(shots)}..."
             await ws_broadcast({
@@ -3314,137 +3294,83 @@ async def _execute_director_sequence(
                 "conversation_id": conv_id,
             })
 
-            # Anti-poisoning re-anchoring directive if prior shot failed in this thread
-            current_prompt = shot.prompt
-            if prior_shot_failed and conv_id:
-                current_prompt = (
-                    f"New camera angle. Please disregard the previous attempt. "
-                    f"Continuing the scene with the established protagonist from before, capture this camera perspective:\n"
-                    f"[CAMERA & PERSPECTIVE]: {shot.prompt}"
-                )
+            req = ImageRequest(
+                prompt=shot.prompt,
+                conversation_id=conv_id,
+                metadata={
+                    "director_shot": shot.model_dump(),
+                    "character_id": char.id if char else None,
+                    "shot_index": i + 1,
+                },
+            )
 
-            shot_success = False
-            last_shot_error = None
+            try:
+                res = await image(req)
+                if isinstance(res, JSONResponse):
+                    err_msg = "Generation failed"
+                    try:
+                        import json
+                        body = json.loads(res.body.decode()) if hasattr(res, "body") else {}
+                        err_info = body.get("error")
+                        if isinstance(err_info, dict):
+                            err_msg = err_info.get("message", "Generation failed")
+                        else:
+                            err_msg = body.get("detail") or str(body)
+                    except Exception:
+                        pass
+                    raise RuntimeError(f"Shot {i + 1} rejected: {err_msg}")
 
-            # Attempt original prompt + 1 auto-softened retry on policy denial
-            for attempt in range(2):
-                if _director_state["cancel_requested"]:
-                    break
+                if isinstance(res, dict):
+                    if res.get("conversation_id"):
+                        conv_id = res["conversation_id"]
+                        _director_state["conversation_id"] = conv_id
 
-                req = ImageRequest(
-                    prompt=current_prompt,
-                    conversation_id=conv_id,
-                    metadata={
-                        "director_shot": shot.model_dump(),
-                        "character_id": char.id if char else None,
+                    completed_entry = {
                         "shot_index": i + 1,
-                        "attempt": attempt + 1,
-                    },
-                )
+                        "image_url": res.get("image_url"),
+                        "thumbnail_url": res.get("thumbnail_url"),
+                        "path": res.get("path"),
+                        "description": shot.description,
+                        "camera_pov": shot.camera_pov,
+                        "prompt": shot.prompt,
+                    }
+                    _director_state["completed_shots"].append(completed_entry)
+                    _director_state["successful_count"] += 1
 
-                try:
-                    res = await image(req)
-                    if isinstance(res, JSONResponse):
-                        err_msg = "Generation failed"
-                        err_type = "Unknown"
-                        try:
-                            import json
-                            body = json.loads(res.body.decode()) if hasattr(res, "body") else {}
-                            err_info = body.get("error")
-                            if isinstance(err_info, dict):
-                                err_type = err_info.get("type", "Unknown")
-                                err_msg = err_info.get("message", "Generation failed")
-                            else:
-                                err_msg = body.get("detail") or str(body)
-                        except Exception:
-                            pass
+                    await ws_broadcast({
+                        "type": "director_shot_completed",
+                        "shot_index": i + 1,
+                        "total_shots": len(shots),
+                        "shot": completed_entry,
+                        "conversation_id": conv_id,
+                    })
+                    await ws_broadcast({
+                        "type": "generation_done",
+                        "image_url": res.get("image_url"),
+                        "thumbnail_url": res.get("thumbnail_url"),
+                        "conversation_id": conv_id,
+                        "prompt": shot.prompt,
+                    })
 
-                        is_denial = err_type == "GenerationDeniedError" or "policy" in err_msg.lower() or "denied" in err_msg.lower()
-                        if is_denial and attempt == 0:
-                            softened = auto_tweak_prompt(shot.prompt, level=1)
-                            if softened != shot.prompt:
-                                log.warning(f"Shot {i + 1} policy denial. Softening prompt and retrying: {softened[:60]}...")
-                                _director_state["status"] = f"Shot {i + 1} flagged by safety guardrails. Auto-softening and retrying..."
-                                await ws_broadcast({
-                                    "type": "director_sequence_progress",
-                                    "shot_index": i + 1,
-                                    "total_shots": len(shots),
-                                    "status": _director_state["status"],
-                                    "conversation_id": conv_id,
-                                })
-                                current_prompt = softened
-                                continue
-
-                        raise RuntimeError(f"Engine rejected shot {i + 1}: {err_msg}")
-
-                    if isinstance(res, dict):
-                        if res.get("conversation_id"):
-                            conv_id = res["conversation_id"]
-                            _director_state["conversation_id"] = conv_id
-
-                        completed_entry = {
-                            "shot_index": i + 1,
-                            "image_url": res.get("image_url"),
-                            "thumbnail_url": res.get("thumbnail_url"),
-                            "path": res.get("path"),
-                            "description": shot.description,
-                            "camera_pov": shot.camera_pov,
-                            "prompt": shot.prompt,
-                        }
-                        _director_state["completed_shots"].append(completed_entry)
-                        _director_state["successful_count"] += 1
-                        shot_success = True
-                        consecutive_denials = 0
-                        prior_shot_failed = False
-
-                        await ws_broadcast({
-                            "type": "director_shot_completed",
-                            "shot_index": i + 1,
-                            "total_shots": len(shots),
-                            "shot": completed_entry,
-                            "conversation_id": conv_id,
-                        })
-                        # Also broadcast generation_done so chat thread and viewer render immediately
-                        await ws_broadcast({
-                            "type": "generation_done",
-                            "image_url": res.get("image_url"),
-                            "thumbnail_url": res.get("thumbnail_url"),
-                            "conversation_id": conv_id,
-                            "prompt": shot.prompt,
-                        })
-                        break
-
-                except Exception as e:
-                    last_shot_error = str(e)
-                    log.warning(f"Shot {i + 1} attempt {attempt + 1} failed: {e}")
-                    if attempt == 0 and ("denied" in last_shot_error.lower() or "policy" in last_shot_error.lower()):
-                        softened = auto_tweak_prompt(shot.prompt, level=1)
-                        if softened != shot.prompt:
-                            current_prompt = softened
-                            continue
-                    break
-
-            if not shot_success and not _director_state["cancel_requested"]:
-                # Record failure, DO NOT BREAK, and continue to next shot!
-                consecutive_denials += 1
-                prior_shot_failed = True
+            except Exception as e:
+                err_str = str(e)
+                log.warning(f"Shot {i + 1} denied/failed after retries: {err_str}. Moving to next shot.")
                 failed_entry = {
                     "shot_index": i + 1,
                     "description": shot.description,
                     "camera_pov": shot.camera_pov,
                     "prompt": shot.prompt,
-                    "error": last_shot_error or "Unknown error",
+                    "error": err_str,
                 }
                 _director_state["failed_shots"].append(failed_entry)
                 _director_state["failed_count"] += 1
-                _director_state["last_error"] = last_shot_error
+                _director_state["last_error"] = err_str
 
-                log.error(f"Shot {i + 1} skipped due to failure: {last_shot_error}. Continuing sequence...")
                 await ws_broadcast({
                     "type": "director_shot_failed",
                     "shot_index": i + 1,
                     "total_shots": len(shots),
-                    "error": last_shot_error,
+                    "error": err_str,
                     "failed_shot": failed_entry,
                     "conversation_id": conv_id,
                 })

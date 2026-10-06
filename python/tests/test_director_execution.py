@@ -204,15 +204,3 @@ async def test_director_sequence_resiliency_on_shot_failure(client, monkeypatch)
     assert st["failed_shots"][0]["shot_index"] == 2
     assert "Complete: 2 succeeded, 1 skipped" in st["status"]
 
-
-def test_auto_tweak_tripwires():
-    """Verify auto_tweak_prompt strips known OpenAI guardrail tripwires."""
-    from chatgpt_bridge.retry import auto_tweak_prompt
-
-    raw = "under sheets, implied nudity, on all fours, from behind, shot between legs, torso only, no head"
-    softened = auto_tweak_prompt(raw, level=1)
-    assert "implied nudity" not in softened
-    assert "all fours" not in softened
-    assert "no head" not in softened
-    assert "torso only" not in softened
-

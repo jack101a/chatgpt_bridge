@@ -193,17 +193,6 @@ def auto_tweak_prompt(prompt: str, level: int = 1) -> str:
     """
     tweaked = prompt
     subs_level_1 = [
-        # Explicit guardrail tripwires & anatomical keywords
-        (r"\bimplied\s+nudity\b", "artistic draped fabric"),
-        (r"\bnudity\b", "fine art figure"),
-        (r"\b(?:on\s+)?all\s+fours(?:\s+from\s+behind)?\b", "graceful kneeling pose"),
-        (r"\bno\s+head\b", "fashion detail framing"),
-        (r"\btorso\s+only\b", "mid-body framing"),
-        (r"\bbetween[\s-]legs\b", "seated knee-framed perspective"),
-        (r"\bopen\s+legs\b", "seated diagonal pose"),
-        (r"\bvoyeur(?:istic)?(?:\s+angle|\s+perspective)?\b", "cinematic frame-within-a-frame perspective"),
-        (r"\bdominant\s+(?:viewer\s+)?perspective\b", "high-angle perspective looking down"),
-        (r"\bbust\s+shot\b", "medium close-up portrait"),
         (r"\bVERY POOR\b\*?", "humble rustic"),
         (r"\bthread wearing kinda poor\b", "wearing modest weathered threadbare cottage attire"),
         (r"\b(?:uncontainable|huge|massive|large|heavy|full(?:\s+round)?)\s+bust\b", "shapely graceful feminine silhouette"),
@@ -224,8 +213,6 @@ def auto_tweak_prompt(prompt: str, level: int = 1) -> str:
             (r"\bfull round shapely hourglass figure\b", "classic hourglass figure with traditional styling"),
             (r"\bweathered threadbare cottage attire\b", "rustic handmade cottage dress"),
             (r"\bhumble rustic\b", "simple countryside"),
-            (r"\bunder\s+sheets\b", "draped under soft white linen bedsheet"),
-            (r"\bclose-up\s+abstract\s+body\b", "editorial garment and posture"),
         ]
         for pattern, replacement in subs_level_2:
             tweaked = re.sub(pattern, replacement, tweaked, flags=re.IGNORECASE)
