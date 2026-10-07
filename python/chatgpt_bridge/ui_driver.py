@@ -623,6 +623,32 @@ class UIDriver:
                         "conversation_id": cid,
                     }
 
+                # Fast bailouts for non-policy responses:
+                # 1. Chit-chat trap: If previous attempt returned text without an image
+                if last_kind == "no_image":
+                    if retry_idx > 1:
+                        log.warning(
+                            "Aborting image retry: ChatGPT returned conversational text without invoking image tool."
+                        )
+                        raise GenerationDeniedError(
+                            f"ChatGPT responded with conversational text instead of generating an image: {last_text[:200]}",
+                            kind="no_image",
+                            conversation_id=cid,
+                        )
+                    # On retry 1: augment prompt with explicit image directive to enforce DALL-E invocation
+                    if not re.search(r"^(?:please\s+)?(?:generate|create|render|make)\s+(?:an?\s+)?image", prompt, re.I):
+                        prompt = f"Generate an image: {prompt}"
+                        log.info("Prompt augmented with explicit image directive for retry 1: %s", prompt[:60])
+
+                # 2. Timeout trap: Do not burn 10 retries of timeouts (which locks the lane for 45 minutes)
+                if last_kind == "timeout" and retry_idx > 1:
+                    log.warning("Aborting image retry: generation repeatedly timed out.")
+                    raise GenerationDeniedError(
+                        "Image generation timed out after retry",
+                        kind="timeout",
+                        conversation_id=cid,
+                    )
+
                 # Keep the exact prompt across all retries without mutating fixed prompts.
                 # Only use tweaked_prompt if explicitly supplied by caller.
                 if retry_idx >= 8 and tweaked_prompt_2:
@@ -654,11 +680,11 @@ class UIDriver:
 
                 # Primary retry method:
                 retried = False
-                if current_prompt == prompt:
+                if current_prompt == prompt and last_kind != "no_image":
                     retried = await self._click_try_again(page)
 
                 if not retried:
-                    send_prompt = current_prompt if current_prompt != prompt else None
+                    send_prompt = current_prompt if (current_prompt != prompt or last_kind == "no_image") else None
                     retried = await self._edit_message_retry(
                         page,
                         new_prompt=send_prompt,
@@ -880,13 +906,26 @@ class UIDriver:
                                 await asyncio.sleep(1.5)
                                 continue
                         return {"kind": kind, "text": text}
+                elif kind == "no_image":
+                    # Fast conversational chit-chat detection:
+                    # If no active generation was observed (pure chat), bail fast in ~2s (4 polls).
+                    # If generation was observed (saw_loading), give 8 polls (~4s) for image hydration.
+                    required_polls = 8 if saw_loading else 4
+                    if stable_polls >= required_polls:
+                        log.info(
+                            "Fast conversational response detected (kind=no_image, saw_loading=%s, elapsed: %.1fs): %s",
+                            saw_loading,
+                            elapsed,
+                            text[:100],
+                        )
+                        return {"kind": "no_image", "text": text}
             elif text:
                 last_text = text
                 stable_polls = 0
 
-            # 4. If no loading and text is settled without image, check timeout
-            min_wait = min(25.0, timeout_s * 0.8)
-            if text and elapsed >= min_wait and stable_polls >= 8:
+            # 4. If no loading and text is settled without image, check timeout fallback
+            min_wait = min(8.0, timeout_s * 0.5)
+            if text and elapsed >= min_wait and stable_polls >= 4:
                 return {"kind": "no_image", "text": text}
 
             # 4. "Try again" button visible (only if auto_retry=True)
@@ -1565,6 +1604,21 @@ class UIDriver:
                 turn = turns.nth(i)
                 if await turn.locator(ASSISTANT_SELECTOR).count() > 0:
                     return (await turn.inner_text()).strip()
+        except Exception:
+            pass
+
+        # Tertiary fallback: direct query for any assistant message container
+        try:
+            assistant_nodes = page.locator(
+                'article:has([data-message-author-role="assistant"]), '
+                '[data-message-author-role="assistant"], '
+                '[data-markdown-text-style="assistant-message"]'
+            )
+            count = await assistant_nodes.count()
+            if count > 0:
+                text = (await assistant_nodes.last.inner_text()).strip()
+                if text:
+                    return text
         except Exception:
             pass
         return ""

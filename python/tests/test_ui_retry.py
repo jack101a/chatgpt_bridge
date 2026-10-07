@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -451,3 +452,61 @@ def test_wait_for_answer_bails_immediately_on_rate_limit_dialog():
     assert exc_info.value.kind == "rate_limit"
     assert "Too many requests" in str(exc_info.value)
     assert elapsed < 2.0
+
+
+def test_wait_for_outcome_fast_bailout_on_conversational_text():
+    # ChatGPT outputs conversational text without any DALL-E invocation
+    page = _FakePage({"text": "Enjoying coffee while chilling is wonderful and relaxing!"})
+    d = UIDriver.__new__(UIDriver)
+    d._delivered_image_ids = set()
+
+    t0 = time.monotonic()
+    outcome = asyncio.run(d._wait_for_outcome(page, timeout_s=30, auto_retry=False))
+    elapsed = time.monotonic() - t0
+
+    assert outcome["kind"] == "no_image"
+    assert "Enjoying coffee" in outcome["text"]
+    assert elapsed < 4.0  # Must bail out fast (within ~2-3s), NOT waiting 30s!
+
+
+def test_generate_image_halts_chit_chat_after_one_retry(monkeypatch):
+    # When ChatGPT responds with conversational text on both initial attempt and retry 1
+    page = _FakePage({"text": "Here are some thoughts on coffee and relaxing."})
+    submitted_prompts = []
+
+    async def fake_submit(p, prompt, **kwargs):
+        submitted_prompts.append(prompt)
+
+    async def fake_edit(p, new_prompt=None):
+        submitted_prompts.append(new_prompt or "re-submitted")
+        return True
+
+    d = UIDriver.__new__(UIDriver)
+    d.browser = None
+    d.session = None
+    d._delivered_image_ids = set()
+    d._page = AsyncMock(return_value=page)
+    d._page_for_lane = AsyncMock(return_value=page)
+    d._submit_prompt = fake_submit
+    d._edit_message_retry = fake_edit
+    d._click_try_again = AsyncMock(return_value=False)
+    d._current_conversation_id = AsyncMock(return_value="test-conv")
+
+    cfg = RetryConfig(max_tries=10, intervals=(0.01, 0.01, 0.01))
+
+    with pytest.raises(GenerationDeniedError) as exc_info:
+        asyncio.run(
+            d.generate_image(
+                prompt="Enjoy cofee while chilling",
+                timeout_s=5,
+                retry=cfg,
+            )
+        )
+
+    # Must raise no_image error and halt after 1 retry, NOT burning 10 retries!
+    assert exc_info.value.kind == "no_image"
+    assert "conversational text" in str(exc_info.value)
+    # Submitted initial + retry 1 with explicit "Generate an image:" directive
+    assert len(submitted_prompts) == 2
+    assert submitted_prompts[0] == "Enjoy cofee while chilling"
+    assert "Generate an image: Enjoy cofee while chilling" in submitted_prompts[1]

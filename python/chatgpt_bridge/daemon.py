@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 import urllib.parse
 from pathlib import Path
@@ -3251,6 +3252,8 @@ _director_state: dict[str, Any] = {
     "conversation_id": None,
 }
 
+_director_task: asyncio.Task | None = None
+
 
 async def _execute_director_sequence(
     shots: list[StoryboardShot],
@@ -3261,7 +3264,11 @@ async def _execute_director_sequence(
     roleplay_info: str | None = None,
     is_guide_mode: bool = False,
 ):
-    global _director_state
+    global _director_state, _director_task
+    try:
+        _director_task = asyncio.current_task()
+    except Exception:
+        _director_task = None
     _director_state["is_running"] = True
     _director_state["cancel_requested"] = False
     _director_state["total_shots"] = len(shots)
@@ -3646,6 +3653,19 @@ async def _execute_director_sequence(
                 "failed_shots": _director_state["failed_shots"],
                 "conversation_id": conv_id,
             })
+    except asyncio.CancelledError:
+        log.info("Director sequence cancelled via asyncio.CancelledError")
+        _director_state["status"] = "Cancelled by user"
+        _director_state["cancel_requested"] = True
+        await ws_broadcast({
+            "type": "director_sequence_progress",
+            "status": "Cancelled",
+            "shot_index": _director_state.get("current_shot", 0),
+            "total_shots": len(shots),
+            "completed_shots": _director_state["completed_shots"],
+            "failed_shots": _director_state["failed_shots"],
+            "conversation_id": conv_id,
+        })
     finally:
         _director_state["is_running"] = False
         if conv_id:
@@ -3665,8 +3685,11 @@ async def api_director_status():
 @app.post("/api/director/cancel", include_in_schema=False)
 async def api_director_cancel():
     """Cancel currently running automated director sequence."""
+    global _director_task
     if _director_state["is_running"]:
         _director_state["cancel_requested"] = True
+        if _director_task and not _director_task.done():
+            _director_task.cancel()
         return {"ok": True, "message": "Cancellation requested"}
     return {"ok": True, "message": "No sequence currently running"}
 

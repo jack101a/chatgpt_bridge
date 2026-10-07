@@ -263,10 +263,14 @@ export const GuideModal: React.FC<GuideModalProps> = ({
     } catch {}
   };
 
-  // Compile final execution shots (PURE DELTAS, ZERO SUBJECT REPETITION)
+  // Compile final execution shots (PURE DELTAS WITH EXPLICIT IMAGE DIRECTIVE)
   const compileFinalShots = (): StoryboardShot[] => {
     return pipeline.map((item, idx) => {
-      const deltaPrompt = item.customPrompt?.trim() || item.tag;
+      const rawPrompt = item.customPrompt?.trim() || item.tag;
+      const hasImageDirective = /^(?:generate|create|render|make)\s+(?:an?\s+)?image/i.test(rawPrompt);
+      const deltaPrompt = hasImageDirective
+        ? rawPrompt
+        : `Generate an image: ${rawPrompt}`;
 
       return {
         description: `Step ${idx + 1}: ${item.emoji} ${item.label}`,
